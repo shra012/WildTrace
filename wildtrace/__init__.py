@@ -6,4 +6,5 @@ __all__ = [
     "io_utils",
     "outline",
     "pipeline",
+    "viewpoint",
 ]

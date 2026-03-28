@@ -12,6 +12,7 @@ DEFAULT_CONFIG_FILES = (
     "quality.yaml",
     "models.yaml",
     "export.yaml",
+    "viewpoints.yaml",
 )
 
 

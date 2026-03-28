@@ -30,6 +30,13 @@
 - [x] Normalize masks when available
 - [x] Generate isolated-subject images
 - [x] Emit silver QA manifest
+- [x] Persist mask-derived viewpoint features
+
+## Viewpoint Filtering
+- [x] Add `configs/viewpoints.yaml`
+- [x] Add `scripts/filter_viewpoints.py`
+- [x] Classify silver samples into the shared 5-view drawing buckets
+- [x] Block low-confidence or unknown viewpoints before outline inference
 
 ## Gold Outline Export
 - [x] Add `scripts/run_outline_inference.py`

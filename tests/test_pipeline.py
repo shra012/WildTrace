@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 import yaml
 from PIL import Image, ImageDraw
 from wildtrace.io_utils import read_ndjson
+from wildtrace.viewpoint import build_viewpoint_backend, extract_view_features
 
 
 def write_yaml(path: Path, data: dict) -> None:
@@ -156,10 +158,68 @@ def build_test_repo(tmp_path: Path) -> Path:
             "coordinate_frame": "normalized_canvas",
         },
     )
+    write_yaml(
+        repo_root / "configs" / "viewpoints.yaml",
+        {
+            "allowed_buckets": [
+                "left_profile",
+                "right_profile",
+                "front_left_3q",
+                "front_right_3q",
+                "front",
+            ],
+            "rejected_buckets": ["rear", "top_down", "occluded", "unknown"],
+            "prefilter": {
+                "require_mask": True,
+                "min_mask_coverage_ratio": 0.08,
+                "max_border_touch_ratio": 0.50,
+                "max_component_count": 4,
+                "min_largest_component_ratio": 0.75,
+                "min_bbox_fill_ratio": 0.10,
+            },
+            "classifier": {
+                "backend": "local_score_v1",
+                "direction_deadzone": 0.05,
+                "front_symmetry_bias": 0.72,
+                "three_quarter_symmetry_target": 0.58,
+                "three_quarter_symmetry_tolerance": 0.25,
+            },
+            "min_confidence": 0.42,
+            "min_margin": 0.08,
+            "target_per_bucket": {"default": 0},
+        },
+    )
     return repo_root
 
 
+def make_view_mask(kind: str, size: tuple[int, int] = (256, 256)) -> Image.Image:
+    mask = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(mask)
+    if kind == "front":
+        draw.ellipse((70, 60, 186, 210), fill=255)
+        draw.ellipse((100, 30, 156, 90), fill=255)
+    elif kind == "right_profile":
+        draw.ellipse((68, 96, 176, 206), fill=255)
+        draw.ellipse((168, 86, 244, 156), fill=255)
+        draw.polygon([(42, 146), (70, 136), (70, 160)], fill=255)
+    elif kind == "left_profile":
+        draw.ellipse((80, 96, 188, 206), fill=255)
+        draw.ellipse((12, 86, 88, 156), fill=255)
+        draw.polygon([(214, 146), (186, 136), (186, 160)], fill=255)
+    elif kind == "ambiguous":
+        draw.ellipse((48, 94, 208, 194), fill=255)
+        draw.ellipse((28, 110, 80, 150), fill=255)
+        draw.ellipse((176, 110, 228, 150), fill=255)
+    elif kind == "truncated":
+        draw.ellipse((-20, 70, 140, 220), fill=255)
+    else:
+        raise ValueError(f"Unknown mask kind: {kind}")
+    return mask
+
+
 def run_script(project_root: Path, repo_root: Path, script_name: str) -> None:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(project_root) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     subprocess.run(
         [
             sys.executable,
@@ -171,6 +231,7 @@ def run_script(project_root: Path, repo_root: Path, script_name: str) -> None:
         ],
         cwd=project_root,
         check=True,
+        env=env,
     )
 
 
@@ -182,6 +243,7 @@ def test_end_to_end_pipeline(tmp_path: Path) -> None:
         "ingest_openimages.py",
         "validate_bronze.py",
         "normalize_to_silver.py",
+        "filter_viewpoints.py",
         "run_outline_inference.py",
         "refine_outlines.py",
         "export_gold_ndjson.py",
@@ -195,9 +257,20 @@ def test_end_to_end_pipeline(tmp_path: Path) -> None:
     record = records[0]
     assert record["task_type"] == "drawing"
     assert record["category"] == "Cat"
+    assert record["view_bucket"] in {
+        "left_profile",
+        "right_profile",
+        "front_left_3q",
+        "front_right_3q",
+        "front",
+    }
+    assert record["view_status"] == "accepted"
     assert record["trajectory"]["stroke_count"] >= 1
     assert Path(repo_root / record["gold_refs"]["svg_path"]).exists()
     assert Path(repo_root / "artifacts/reports/dataset_report.md").exists()
+    viewpoint_records = read_ndjson(repo_root / "processed/silver/qa/silver_viewpoints.ndjson")
+    assert len(viewpoint_records) == 1
+    assert viewpoint_records[0]["allowed_for_outline"] is True
 
 
 def test_fetch_and_ingest_are_incremental_and_versioned(tmp_path: Path) -> None:
@@ -233,3 +306,102 @@ def test_fetch_and_ingest_are_incremental_and_versioned(tmp_path: Path) -> None:
     assert fetch_records[-1]["asset_version"] == 2
     assert ingest_records[-1]["asset_version"] == 2
     assert fetch_records[0]["image_checksum"] != fetch_records[-1]["image_checksum"]
+
+
+def test_extract_view_features_flags_truncated_masks() -> None:
+    truncated = make_view_mask("truncated")
+    features = extract_view_features(truncated)
+    assert features["border_touch_ratio"] > 0.0
+    assert features["component_count"] == 1
+
+
+def test_local_viewpoint_backend_classifies_left_right_and_front() -> None:
+    config = {
+        "allowed_buckets": [
+            "left_profile",
+            "right_profile",
+            "front_left_3q",
+            "front_right_3q",
+            "front",
+        ],
+        "rejected_buckets": ["rear", "top_down", "occluded", "unknown"],
+        "prefilter": {
+            "require_mask": True,
+            "min_mask_coverage_ratio": 0.08,
+            "max_border_touch_ratio": 0.50,
+            "max_component_count": 4,
+            "min_largest_component_ratio": 0.75,
+            "min_bbox_fill_ratio": 0.10,
+        },
+        "classifier": {
+            "backend": "local_score_v1",
+            "direction_deadzone": 0.05,
+            "front_symmetry_bias": 0.72,
+            "three_quarter_symmetry_target": 0.58,
+            "three_quarter_symmetry_tolerance": 0.25,
+        },
+        "min_confidence": 0.42,
+        "min_margin": 0.08,
+    }
+    backend = build_viewpoint_backend(config)
+
+    front_result = backend.classify(
+        {"mask_available": True, "view_features": extract_view_features(make_view_mask("front"))},
+        config,
+    )
+    left_result = backend.classify(
+        {"mask_available": True, "view_features": extract_view_features(make_view_mask("left_profile"))},
+        config,
+    )
+    right_result = backend.classify(
+        {"mask_available": True, "view_features": extract_view_features(make_view_mask("right_profile"))},
+        config,
+    )
+
+    assert front_result.bucket == "front"
+    assert front_result.allowed_for_outline is True
+    assert left_result.bucket in {"left_profile", "front_left_3q"}
+    assert left_result.allowed_for_outline is True
+    assert right_result.bucket in {"right_profile", "front_right_3q"}
+    assert right_result.allowed_for_outline is True
+
+
+def test_local_viewpoint_backend_blocks_ambiguous_samples() -> None:
+    config = {
+        "allowed_buckets": [
+            "left_profile",
+            "right_profile",
+            "front_left_3q",
+            "front_right_3q",
+            "front",
+        ],
+        "rejected_buckets": ["rear", "top_down", "occluded", "unknown"],
+        "prefilter": {
+            "require_mask": True,
+            "min_mask_coverage_ratio": 0.08,
+            "max_border_touch_ratio": 0.50,
+            "max_component_count": 4,
+            "min_largest_component_ratio": 0.75,
+            "min_bbox_fill_ratio": 0.10,
+        },
+        "classifier": {
+            "backend": "local_score_v1",
+            "direction_deadzone": 0.05,
+            "front_symmetry_bias": 0.72,
+            "three_quarter_symmetry_target": 0.58,
+            "three_quarter_symmetry_tolerance": 0.25,
+        },
+        "min_confidence": 0.95,
+        "min_margin": 0.60,
+    }
+    backend = build_viewpoint_backend(config)
+
+    ambiguous = backend.classify(
+        {"mask_available": True, "view_features": extract_view_features(make_view_mask("ambiguous"))},
+        config,
+    )
+
+    assert ambiguous.bucket == "unknown"
+    assert ambiguous.allowed_for_outline is False
+    assert ambiguous.status == "unknown"
+    assert ambiguous.flags

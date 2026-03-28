@@ -2,17 +2,17 @@ task_type: drawing
 source_dataset: openimages
 categories:
   - name: Cat
-    limit: 300
+    limit: 100
   - name: Dog
-    limit: 300
+    limit: 100
   - name: Horse
-    limit: 300
+    limit: 100
   - name: Bird
-    limit: 300
+    limit: 100
   - name: Butterfly
-    limit: 300
+    limit: 100
   - name: Fish
-    limit: 300
+    limit: 100
 fetch:
   source_mode: official
   records_path: null

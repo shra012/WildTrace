@@ -21,3 +21,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = ["wildtrace*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

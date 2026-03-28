@@ -11,6 +11,7 @@ In scope:
 - bronze validation
 - silver normalization
 - model-pluggable outline generation
+- viewpoint filtering for drawing-friendly angles
 - outline refinement and SVG export
 - normalized trajectory export
 - NDJSON packaging
@@ -56,14 +57,17 @@ Every record contains a `task_type` field. This phase uses `drawing`, but the sa
    - verifies paths, readability, dimensions, checksums, and duplicates
 4. `scripts/normalize_to_silver.py`
    - creates resized RGB, grayscale, normalized masks, isolated subjects, and QA records
-5. `scripts/run_outline_inference.py`
+5. `scripts/filter_viewpoints.py`
+   - scores normalized silver samples into drawing-oriented viewpoint buckets
+   - blocks low-confidence, unknown, and rejected-view samples before gold
+6. `scripts/run_outline_inference.py`
    - runs a pluggable outline backend
    - stores outline proposal rasters and inference manifests
-6. `scripts/refine_outlines.py`
+7. `scripts/refine_outlines.py`
    - converts outline rasters into simplified strokes and SVG assets
-7. `scripts/export_gold_ndjson.py`
+8. `scripts/export_gold_ndjson.py`
    - assembles final sample records
-8. `scripts/generate_dataset_report.py`
+9. `scripts/generate_dataset_report.py`
    - produces dataset-level JSON and Markdown summaries
 
 ## Record Types
@@ -79,6 +83,7 @@ Every record contains a `task_type` field. This phase uses `drawing`, but the sa
 - ingest is repeatable from config
 - bronze assets remain immutable
 - silver assets are normalized and quality-scored
+- silver viewpoint filtering is reproducible and blocks non-drawing angles
 - outline generation uses a stable backend contract
 - final gold records are traceable and renderable
 - no simulation or robot-only fields are required in this phase

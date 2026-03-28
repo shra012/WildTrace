@@ -39,6 +39,7 @@ from wildtrace.io_utils import (
     write_ndjson,
 )
 from wildtrace.outline import build_backend
+from wildtrace.viewpoint import build_viewpoint_backend, extract_view_features
 
 
 def utc_now() -> str:
@@ -93,6 +94,14 @@ def ingest_manifest_path(repo_root: Path, runtime: dict[str, Any]) -> Path:
 
 def ingest_latest_view_path(repo_root: Path, runtime: dict[str, Any]) -> Path:
     return resolve_repo_path(repo_root, runtime["datasets"]["ingest"]["latest_view_path"])
+
+
+def silver_samples_manifest_path(repo_root: Path, runtime: dict[str, Any]) -> Path:
+    return resolve_repo_path(repo_root, runtime["storage"]["silver"]["qa_dir"]) / "silver_samples.ndjson"
+
+
+def silver_viewpoints_manifest_path(repo_root: Path, runtime: dict[str, Any]) -> Path:
+    return resolve_repo_path(repo_root, runtime["storage"]["silver"]["qa_dir"]) / "silver_viewpoints.ndjson"
 
 
 def latest_successful_records(records: list[dict[str, Any]], status_field: str) -> dict[str, dict[str, Any]]:
@@ -539,7 +548,7 @@ def normalize_to_silver(repo_root: Path, runtime: dict[str, Any]) -> list[dict[s
     quality = runtime["quality"]
     ingest_records = {row["sample_id"]: row for row in read_ndjson(ingest_latest_view_path(repo_root, runtime))}
     validations = read_ndjson(resolve_repo_path(repo_root, storage["bronze"]["manifests_dir"]) / "bronze_validation.ndjson")
-    output_path = resolve_repo_path(repo_root, storage["silver"]["qa_dir"]) / "silver_samples.ndjson"
+    output_path = silver_samples_manifest_path(repo_root, runtime)
     silver_hash = config_hash({"quality": quality, "storage": storage})
     results: list[dict[str, Any]] = []
     for validation in validations:
@@ -557,6 +566,7 @@ def normalize_to_silver(repo_root: Path, runtime: dict[str, Any]) -> list[dict[s
             mask = Image.open(resolve_repo_path(repo_root, bronze["mask_path"]))
             normalized = normalize_mask(mask, resized.size)
             mask_ratio = mask_coverage(normalized)
+            view_features = extract_view_features(normalized)
             mask_path = resolve_repo_path(repo_root, storage["silver"]["masks_dir"]) / bronze["category"] / f"{bronze['sample_id']}_mask.png"
             save_image(mask_path, normalized)
             mask_relative = str(mask_path.relative_to(repo_root))
@@ -564,6 +574,8 @@ def normalize_to_silver(repo_root: Path, runtime: dict[str, Any]) -> list[dict[s
             isolated_path = resolve_repo_path(repo_root, storage["silver"]["isolated_dir"]) / bronze["category"] / f"{bronze['sample_id']}_isolated.png"
             save_image(isolated_path, isolated)
             isolated_relative = str(isolated_path.relative_to(repo_root))
+        else:
+            view_features = {}
         rgb_path = resolve_repo_path(repo_root, storage["silver"]["images_dir"]) / bronze["category"] / f"{bronze['sample_id']}_rgb.png"
         gray_path = resolve_repo_path(repo_root, storage["silver"]["images_dir"]) / bronze["category"] / f"{bronze['sample_id']}_gray.png"
         save_image(rgb_path, resized)
@@ -601,6 +613,7 @@ def normalize_to_silver(repo_root: Path, runtime: dict[str, Any]) -> list[dict[s
                 "grayscale_detected": grayscale_detected,
                 "blur_score": blur_value,
                 "duplicate_score": None,
+                "view_features": view_features,
                 "quality_status": status,
                 "quality_flags": issues,
                 "lineage": {"silver_config_hash": silver_hash, "bronze_sample_id": bronze["sample_id"]},
@@ -610,16 +623,89 @@ def normalize_to_silver(repo_root: Path, runtime: dict[str, Any]) -> list[dict[s
     return results
 
 
+def filter_viewpoints(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
+    storage = runtime["storage"]
+    viewpoints = runtime["viewpoints"]
+    silver_records = read_ndjson(silver_samples_manifest_path(repo_root, runtime))
+    output_path = silver_viewpoints_manifest_path(repo_root, runtime)
+    backend = build_viewpoint_backend(viewpoints)
+    viewpoint_hash = config_hash({"viewpoints": viewpoints})
+    preliminary: list[dict[str, Any]] = []
+
+    for silver in silver_records:
+        if silver["quality_status"] == "rejected":
+            preliminary.append(
+                {
+                    "sample_id": silver["sample_id"],
+                    "category": silver["category"],
+                    "image_path": silver["image_path"],
+                    "isolated_path": silver["isolated_path"],
+                    "view_bucket": "unknown",
+                    "view_confidence": 0.0,
+                    "view_margin": 0.0,
+                    "view_scores": {},
+                    "view_status": "rejected",
+                    "view_flags": ["quality_rejected"],
+                    "allowed_for_outline": False,
+                    "quality_status": silver["quality_status"],
+                    "view_features": silver.get("view_features", {}),
+                    "lineage": {"silver_sample_id": silver["sample_id"], "viewpoint_config_hash": viewpoint_hash},
+                }
+            )
+            continue
+
+        result = backend.classify(silver, viewpoints)
+        preliminary.append(
+            {
+                "sample_id": silver["sample_id"],
+                "category": silver["category"],
+                "image_path": silver["image_path"],
+                "isolated_path": silver["isolated_path"],
+                "view_bucket": result.bucket,
+                "view_confidence": result.confidence,
+                "view_margin": result.margin,
+                "view_scores": result.scores,
+                "view_status": result.status,
+                "view_flags": result.flags,
+                "allowed_for_outline": result.allowed_for_outline,
+                "quality_status": silver["quality_status"],
+                "view_features": silver.get("view_features", {}),
+                "lineage": {"silver_sample_id": silver["sample_id"], "viewpoint_config_hash": viewpoint_hash},
+            }
+        )
+
+    quotas = viewpoints.get("target_per_bucket", {})
+    default_quota = int(quotas.get("default", 0) or 0)
+    for category in {row["category"] for row in preliminary}:
+        for bucket in viewpoints.get("allowed_buckets", []):
+            target = int(quotas.get(category, {}).get(bucket, default_quota) if isinstance(quotas.get(category), dict) else default_quota)
+            if target <= 0:
+                continue
+            accepted = [
+                row
+                for row in preliminary
+                if row["category"] == category and row["view_bucket"] == bucket and row["view_status"] == "accepted"
+            ]
+            accepted.sort(key=lambda row: row["view_confidence"], reverse=True)
+            for overflow in accepted[target:]:
+                overflow["view_status"] = "blocked_quota"
+                overflow["allowed_for_outline"] = False
+                overflow["view_flags"] = list(overflow["view_flags"]) + ["quota_exceeded"]
+
+    write_ndjson(output_path, preliminary)
+    return preliminary
+
+
 def run_outline_inference(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
     storage = runtime["storage"]
     models = runtime["models"]
     output_path = resolve_repo_path(repo_root, storage["gold"]["outlines_dir"]) / "outline_inference.ndjson"
-    silver_records = read_ndjson(resolve_repo_path(repo_root, storage["silver"]["qa_dir"]) / "silver_samples.ndjson")
+    silver_records = read_ndjson(silver_viewpoints_manifest_path(repo_root, runtime))
     backend_name = models["active_backend"]
     backend = build_backend(backend_name, models["backends"][backend_name])
     results: list[dict[str, Any]] = []
     for silver in silver_records:
-        if silver["quality_status"] == "rejected":
+        if not silver.get("allowed_for_outline", False):
             continue
         image_path = silver["isolated_path"] or silver["image_path"]
         image = open_image(resolve_repo_path(repo_root, image_path))
@@ -639,8 +725,11 @@ def run_outline_inference(repo_root: Path, runtime: dict[str, Any]) -> list[dict
                 "status": status,
                 "outline_path": str(outline_path.relative_to(repo_root)) if backend_result else None,
                 "failure_reason": failure_reason,
+                "view_bucket": silver["view_bucket"],
+                "view_confidence": silver["view_confidence"],
+                "view_status": silver["view_status"],
                 "outline_model": backend_result.metadata if backend_result else {"model_name": backend_name},
-                "lineage": {"silver_sample_id": silver["sample_id"]},
+                "lineage": {"silver_sample_id": silver["sample_id"], "viewpoint_sample_id": silver["sample_id"]},
             }
         )
     write_ndjson(output_path, results)
@@ -717,15 +806,17 @@ def export_gold_ndjson(repo_root: Path, runtime: dict[str, Any]) -> list[dict[st
     ingest_records = {row["sample_id"]: row for row in read_ndjson(ingest_latest_view_path(repo_root, runtime))}
     validation_records = {row["sample_id"]: row for row in read_ndjson(resolve_repo_path(repo_root, storage["bronze"]["manifests_dir"]) / "bronze_validation.ndjson")}
     silver_records = {row["sample_id"]: row for row in read_ndjson(resolve_repo_path(repo_root, storage["silver"]["qa_dir"]) / "silver_samples.ndjson")}
+    viewpoint_records = {row["sample_id"]: row for row in read_ndjson(silver_viewpoints_manifest_path(repo_root, runtime))}
     inference_records = {row["sample_id"]: row for row in read_ndjson(resolve_repo_path(repo_root, storage["gold"]["outlines_dir"]) / "outline_inference.ndjson")}
     refined_records = {row["sample_id"]: row for row in read_ndjson(resolve_repo_path(repo_root, storage["gold"]["trajectories_dir"]) / "refined_outlines.ndjson")}
     output_path = resolve_repo_path(repo_root, storage["gold"]["ndjson_dir"]) / "gold_samples.ndjson"
     results: list[dict[str, Any]] = []
     for sample_id, ingest in ingest_records.items():
         silver = silver_records.get(sample_id)
+        viewpoint = viewpoint_records.get(sample_id)
         refined = refined_records.get(sample_id)
         inference = inference_records.get(sample_id)
-        if not silver or not refined or not inference:
+        if not silver or not viewpoint or not refined or not inference:
             continue
         trajectory = json.loads(resolve_repo_path(repo_root, refined["trajectory_path"]).read_text(encoding="utf-8"))
         results.append(
@@ -759,15 +850,20 @@ def export_gold_ndjson(repo_root: Path, runtime: dict[str, Any]) -> list[dict[st
                 "qa_scores": {
                     "mask_coverage_ratio": silver["mask_coverage_ratio"],
                     "blur_score": silver["blur_score"],
+                    "view_confidence": viewpoint["view_confidence"],
                     "stroke_count": refined["stroke_count"],
                     "point_count": refined["point_count"],
                 },
                 "status": refined["status"],
+                "view_bucket": viewpoint["view_bucket"],
+                "view_confidence": viewpoint["view_confidence"],
+                "view_status": viewpoint["view_status"],
                 "split": ingest["split"],
                 "lineage": {
                     "ndjson_schema_version": export["ndjson_schema_version"],
                     "bronze": ingest["lineage"],
                     "silver": silver["lineage"],
+                    "viewpoint": viewpoint["lineage"],
                     "outline": inference["lineage"],
                     "refine": refined["lineage"],
                 },
@@ -780,8 +876,13 @@ def export_gold_ndjson(repo_root: Path, runtime: dict[str, Any]) -> list[dict[st
 
 def generate_dataset_report(repo_root: Path, runtime: dict[str, Any]) -> dict[str, Any]:
     storage = runtime["storage"]
+    viewpoints = runtime["viewpoints"]
     records = read_ndjson(resolve_repo_path(repo_root, storage["gold"]["ndjson_dir"]) / "gold_samples.ndjson")
+    viewpoint_records = read_ndjson(silver_viewpoints_manifest_path(repo_root, runtime))
     by_category: dict[str, Counter[str]] = defaultdict(Counter)
+    viewpoint_status_by_category: dict[str, Counter[str]] = defaultdict(Counter)
+    viewpoint_bucket_by_category: dict[str, Counter[str]] = defaultdict(Counter)
+    blocked_reasons: Counter[str] = Counter()
     model_counter: Counter[str] = Counter()
     stroke_counts: list[int] = []
     point_counts: list[int] = []
@@ -790,10 +891,41 @@ def generate_dataset_report(repo_root: Path, runtime: dict[str, Any]) -> dict[st
         model_counter[record["outline_model"].get("model_name", "unknown")] += 1
         stroke_counts.append(int(record["trajectory"]["stroke_count"]))
         point_counts.append(int(record["trajectory"]["point_count"]))
+    for record in viewpoint_records:
+        viewpoint_status_by_category[record["category"]][record["view_status"]] += 1
+        viewpoint_bucket_by_category[record["category"]][record["view_bucket"]] += 1
+        for flag in record.get("view_flags", []):
+            blocked_reasons[flag] += 1
+
+    quotas = viewpoints.get("target_per_bucket", {})
+    default_quota = int(quotas.get("default", 0) or 0)
+    viewpoint_shortfalls: dict[str, dict[str, int]] = {}
+    for category in viewpoint_bucket_by_category:
+        shortfalls: dict[str, int] = {}
+        category_quota = quotas.get(category, {})
+        for bucket in viewpoints.get("allowed_buckets", []):
+            target = int(category_quota.get(bucket, default_quota) if isinstance(category_quota, dict) else default_quota)
+            if target <= 0:
+                continue
+            accepted = sum(
+                1
+                for row in viewpoint_records
+                if row["category"] == category and row["view_bucket"] == bucket and row["view_status"] == "accepted"
+            )
+            shortfall = max(target - accepted, 0)
+            if shortfall:
+                shortfalls[bucket] = shortfall
+        if shortfalls:
+            viewpoint_shortfalls[category] = shortfalls
+
     summary = {
         "generated_at": utc_now(),
         "total_records": len(records),
         "categories": {category: dict(counter) for category, counter in by_category.items()},
+        "viewpoint_status_by_category": {category: dict(counter) for category, counter in viewpoint_status_by_category.items()},
+        "viewpoint_bucket_by_category": {category: dict(counter) for category, counter in viewpoint_bucket_by_category.items()},
+        "blocked_view_flags": dict(blocked_reasons),
+        "viewpoint_shortfalls": viewpoint_shortfalls,
         "model_backend_usage": dict(model_counter),
         "average_stroke_count": (sum(stroke_counts) / len(stroke_counts)) if stroke_counts else 0.0,
         "average_point_count": (sum(point_counts) / len(point_counts)) if point_counts else 0.0,
@@ -805,6 +937,12 @@ def generate_dataset_report(repo_root: Path, runtime: dict[str, Any]) -> dict[st
     lines = ["# Dataset Report", f"- Generated: {summary['generated_at']}", f"- Total records: {summary['total_records']}"]
     for category, counts in summary["categories"].items():
         lines.append(f"- {category}: {counts}")
+    for category, counts in summary["viewpoint_status_by_category"].items():
+        lines.append(f"- {category} viewpoint status: {counts}")
+    for category, counts in summary["viewpoint_bucket_by_category"].items():
+        lines.append(f"- {category} viewpoint buckets: {counts}")
+    lines.append(f"- Blocked view flags: {summary['blocked_view_flags']}")
+    lines.append(f"- Viewpoint shortfalls: {summary['viewpoint_shortfalls']}")
     lines.append(f"- Model backend usage: {summary['model_backend_usage']}")
     lines.append(f"- Average stroke count: {summary['average_stroke_count']:.2f}")
     lines.append(f"- Average point count: {summary['average_point_count']:.2f}")
@@ -840,6 +978,12 @@ def normalize_main() -> int:
 def outline_main() -> int:
     repo_root, runtime = load_runtime(parse_common_args("Generate outline proposals from silver assets."))
     run_outline_inference(repo_root, runtime)
+    return 0
+
+
+def filter_viewpoints_main() -> int:
+    repo_root, runtime = load_runtime(parse_common_args("Filter silver samples into drawing-friendly viewpoint buckets."))
+    filter_viewpoints(repo_root, runtime)
     return 0
 
 
