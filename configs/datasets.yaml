@@ -1,0 +1,45 @@
+task_type: drawing
+source_dataset: openimages
+categories:
+  - name: Cat
+    limit: 300
+  - name: Dog
+    limit: 300
+  - name: Horse
+    limit: 300
+  - name: Bird
+    limit: 300
+  - name: Butterfly
+    limit: 300
+  - name: Fish
+    limit: 300
+fetch:
+  source_mode: official
+  records_path: null
+  records: []
+  timeout_seconds: 30
+  user_agent: WildTraceETL/0.1
+  manifest_path: raw_data/bronze/manifests/openimages_fetch.ndjson
+  latest_view_path: raw_data/bronze/manifests/openimages_fetch_latest.ndjson
+  official:
+    splits:
+      - train
+      - validation
+    require_masks: true
+    class_descriptions_url: https://storage.googleapis.com/openimages/v7/oidv7-class-descriptions-boxable.csv
+    image_base_url_template: https://open-images-dataset.s3.amazonaws.com/{split}/{image_id}.jpg
+    image_info_urls:
+      train: https://storage.googleapis.com/openimages/2018_04/train/train-images-boxable-with-rotation.csv
+      validation: https://storage.googleapis.com/openimages/2018_04/validation/validation-images-with-rotation.csv
+      test: https://storage.googleapis.com/openimages/2018_04/test/test-images-with-rotation.csv
+    segmentation_annotation_urls:
+      train: https://storage.googleapis.com/openimages/v5/train-annotations-object-segmentation.csv
+      validation: https://storage.googleapis.com/openimages/v5/validation-annotations-object-segmentation.csv
+      test: https://storage.googleapis.com/openimages/v5/test-annotations-object-segmentation.csv
+    mask_zip_url_templates:
+      train: https://storage.googleapis.com/openimages/v5/train-masks/train-masks-{prefix}.zip
+      validation: https://storage.googleapis.com/openimages/v5/validation-masks/validation-masks-{prefix}.zip
+      test: https://storage.googleapis.com/openimages/v5/test-masks/test-masks-{prefix}.zip
+ingest:
+  manifest_path: raw_data/bronze/manifests/openimages_ingest.ndjson
+  latest_view_path: raw_data/bronze/manifests/openimages_ingest_latest.ndjson

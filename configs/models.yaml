@@ -1,0 +1,13 @@
+active_backend: local_edges
+backends:
+  local_edges:
+    model_backend: local
+    model_name: local_edges
+    model_version_or_checkpoint: baseline-v1
+    threshold_percentile: 75
+    min_foreground_ratio: 0.001
+  api_stub:
+    model_backend: api
+    model_name: api_stub
+    model_version_or_checkpoint: unconfigured
+    endpoint: null

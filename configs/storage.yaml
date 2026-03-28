@@ -1,0 +1,20 @@
+raw_root: raw_data
+processed_root: processed
+artifacts_root: artifacts
+bronze:
+  images_dir: raw_data/bronze/openimages/images
+  masks_dir: raw_data/bronze/openimages/masks
+  metadata_dir: raw_data/bronze/openimages/metadata
+  logs_dir: raw_data/bronze/openimages/logs
+  manifests_dir: raw_data/bronze/manifests
+silver:
+  images_dir: processed/silver/images
+  masks_dir: processed/silver/masks
+  isolated_dir: processed/silver/isolated
+  qa_dir: processed/silver/qa
+gold:
+  outlines_dir: processed/gold/outlines
+  svg_dir: processed/gold/svg
+  trajectories_dir: processed/gold/trajectories
+  ndjson_dir: processed/gold/ndjson
+reports_dir: artifacts/reports

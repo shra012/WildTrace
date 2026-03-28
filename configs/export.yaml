@@ -1,0 +1,8 @@
+ndjson_schema_version: 1
+max_points_per_stroke: 128
+max_strokes: 12
+min_points_per_stroke: 10
+svg_stroke_color: "#000000"
+svg_stroke_width: 2
+simplification_method: angular_subsample
+coordinate_frame: normalized_canvas
