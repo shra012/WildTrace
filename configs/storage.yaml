@@ -11,8 +11,11 @@ silver:
   images_dir: processed/silver/images
   masks_dir: processed/silver/masks
   isolated_dir: processed/silver/isolated
+  crops_dir: processed/silver/crops
+  diagrams_dir: processed/silver/diagrams
   qa_dir: processed/silver/qa
 gold:
+  diagrams_dir: processed/gold/diagrams
   outlines_dir: processed/gold/outlines
   svg_dir: processed/gold/svg
   trajectories_dir: processed/gold/trajectories

@@ -1,24 +1,28 @@
 # Bronze Pipeline Plan
 
+This document describes the current bronze stage used by the agentic Airflow-ready pipeline. The older ingest/validate bronze workflow has been removed.
+
 ## Goal
-Split Open Images acquisition from bronze registration so the pipeline can fetch raw assets once, resume cleanly, and ingest only new or changed bronze samples on reruns.
+Keep Open Images acquisition separate from bronze curation so the pipeline can fetch raw assets once, resume cleanly, and curate only new or changed samples on reruns.
+
+This split keeps bronze ready for orchestration as separate Airflow DAG tasks instead of a single monolithic job.
 
 ## Bronze Scope
-This document only covers the bronze-stage refactor:
+This document covers the current bronze stages:
 
 1. `scripts/fetch_openimages.py`
-2. `scripts/ingest_openimages.py`
-3. `scripts/validate_bronze.py`
+2. `scripts/curate_bronze.py`
 
-Silver and gold stages stay functionally the same, but they should read the latest successful bronze ingest view rather than a rewritten one-shot manifest.
+Silver and gold stages read the latest successful bronze accepted view rather than any legacy ingest ledger.
 
-## Why Split Fetch From Ingest
-`fetch_openimages` and `ingest_openimages` have different responsibilities:
+## Why Split Fetch From Curation
+`fetch_openimages` and `curate_bronze` have different responsibilities:
 
 - `fetch_openimages` acquires raw source assets and raw metadata from Open Images or a curated record catalog.
-- `ingest_openimages` turns those already-fetched local bronze assets into the canonical bronze manifest for downstream stages.
+- `curate_bronze` removes duplicates and unusable raws, checks angle feasibility, and enriches accepted samples for downstream stages.
 
 That separation gives us reliable restart behavior, cheaper reruns, and cleaner lineage.
+It also maps cleanly onto Airflow, where each script can become an isolated DAG task with explicit upstream and downstream dependencies.
 
 ## Bronze Semantics
 Bronze is the raw immutable local store. There is no separate landing layer in this phase.
@@ -29,20 +33,20 @@ Primary locations:
 - `raw_data/bronze/openimages/metadata/<category>/<sample_id>/vXXXX.json`
 - `raw_data/bronze/manifests/openimages_fetch.ndjson`
 - `raw_data/bronze/manifests/openimages_fetch_latest.ndjson`
-- `raw_data/bronze/manifests/openimages_ingest.ndjson`
-- `raw_data/bronze/manifests/openimages_ingest_latest.ndjson`
+- `raw_data/bronze/manifests/bronze_curated.ndjson`
+- `raw_data/bronze/manifests/bronze_accepted.ndjson`
 
 ## Checkpoint Model
 Checkpointing is append-only and ledger-based.
 
 - Fetch ledger stores every successful or failed fetch attempt that produced a new versioned bronze artifact.
-- Ingest ledger stores every successful or failed bronze registration attempt that produced a new versioned canonical record.
-- Latest-view manifests are derived materializations for downstream consumers.
+- Curated manifest stores all curation decisions, including deletions and rejected samples.
+- Accepted manifest is the downstream handoff for silver.
 
 ## Incremental Rules
 - Already-fetched unchanged samples are skipped by default.
-- Already-ingested unchanged samples are skipped by default.
-- New bronze assets are appended and ingested on the next run.
+- Already-curated unchanged samples are skipped by default by reusing the fetch latest view.
+- New bronze assets are appended and curated on the next run.
 - If content changes for the same logical sample, a new `asset_version` is created and older lineage is preserved.
 
 Identity rules:
@@ -52,13 +56,12 @@ Identity rules:
 
 ## Job Order
 1. `fetch_openimages.py`
-2. `ingest_openimages.py`
-3. `validate_bronze.py`
-4. downstream silver and gold jobs
+2. `curate_bronze.py`
+3. downstream silver and gold jobs
 
 ## Acceptance Criteria
 - rerunning fetch with unchanged inputs does not create duplicate bronze versions
-- rerunning ingest with unchanged inputs does not append duplicate ingest records
-- adding new source images results in only new bronze and ingest records
-- changed source content produces a new version instead of overwriting prior lineage
-- downstream validation reads the latest successful ingest view without duplicate processing
+- rerunning curation with unchanged inputs does not create duplicate accepted samples
+- adding new source images results in only new bronze and accepted records
+- duplicate or unusable raws are removed from the working bronze set
+- downstream stages read the latest accepted bronze view without any legacy ingest dependency

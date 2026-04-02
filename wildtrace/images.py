@@ -38,6 +38,22 @@ def isolate_subject(image: Image.Image, mask: Image.Image) -> Image.Image:
     return Image.composite(image, white, mask)
 
 
+def crop_to_mask_bbox(image: Image.Image, mask: Image.Image, padding_ratio: float = 0.08) -> tuple[Image.Image, tuple[int, int, int, int]]:
+    arr = np.asarray(mask.convert("L"), dtype=np.uint8)
+    ys, xs = np.nonzero(arr)
+    if len(xs) == 0 or len(ys) == 0:
+        return image.copy(), (0, 0, image.width, image.height)
+    x_min, x_max = int(xs.min()), int(xs.max())
+    y_min, y_max = int(ys.min()), int(ys.max())
+    pad_x = max(1, int((x_max - x_min + 1) * padding_ratio))
+    pad_y = max(1, int((y_max - y_min + 1) * padding_ratio))
+    left = max(0, x_min - pad_x)
+    top = max(0, y_min - pad_y)
+    right = min(image.width, x_max + pad_x + 1)
+    bottom = min(image.height, y_max + pad_y + 1)
+    return image.crop((left, top, right, bottom)), (left, top, right, bottom)
+
+
 def mask_coverage(mask: Image.Image) -> float:
     arr = np.asarray(mask, dtype=np.uint8)
     return float(np.count_nonzero(arr)) / float(arr.size or 1)

@@ -12,17 +12,15 @@
 
 ## Open Images Ingest
 - [x] Add `scripts/fetch_openimages.py`
-- [x] Split fetch from ingest responsibilities
-- [x] Add append-only fetch and ingest ledgers
-- [x] Add `scripts/ingest_openimages.py`
-- [x] Define fetch and ingest config in `configs/datasets.yaml`
-- [x] Write bronze fetch and ingest NDJSON manifests
-- [x] Preserve raw assets without mutation
+- [x] Keep fetch as the only raw acquisition stage
+- [x] Define fetch config in `configs/datasets.yaml`
+- [x] Write bronze fetch NDJSON manifests
 
-## Bronze Validation
-- [x] Add `scripts/validate_bronze.py`
-- [x] Verify readability, dimensions, checksums, and path integrity
-- [x] Flag duplicates and hard failures
+## Bronze Curation
+- [x] Add `scripts/curate_bronze.py`
+- [x] Remove duplicates and unusable raws from the working bronze set
+- [x] Add local enrichment for subcategory and tagging
+- [x] Emit accepted bronze records for downstream stages
 
 ## Silver Normalization
 - [x] Add `scripts/normalize_to_silver.py`
@@ -32,16 +30,27 @@
 - [x] Emit silver QA manifest
 - [x] Persist mask-derived viewpoint features
 
-## Viewpoint Filtering
-- [x] Add `configs/viewpoints.yaml`
-- [x] Add `scripts/filter_viewpoints.py`
-- [x] Classify silver samples into the shared 5-view drawing buckets
-- [x] Block low-confidence or unknown viewpoints before outline inference
+## Subject Refinement
+- [x] Add `scripts/enrich_and_crop_subjects.py`
+- [x] Crop the drawable subject
+- [x] Score segmentation quality before diagram generation
 
-## Gold Outline Export
-- [x] Add `scripts/run_outline_inference.py`
-- [x] Add `scripts/refine_outlines.py`
-- [x] Emit SVG and normalized stroke trajectories
+## Angle Filtering
+- [x] Add `configs/viewpoints.yaml`
+- [x] Classify candidates into the shared 5-view drawing buckets
+- [x] Reject unusable angles during bronze curation
+- [x] Select one final sample per angle bucket in silver
+
+## Diagram Generation
+- [x] Add `scripts/generate_line_diagrams.py`
+- [x] Add `scripts/validate_and_retry_diagrams.py`
+- [x] Use OpenCV pre-screening before semantic validation
+- [x] Retry diagram generation with LangGraph until accepted or exhausted
+
+## Gold Export
+- [x] Add `scripts/select_final_by_angle.py`
+- [x] Add `scripts/extract_trajectories.py`
+- [x] Emit final diagrams, SVGs, and normalized stroke trajectories
 - [x] Add `scripts/export_gold_ndjson.py`
 
 ## QA and Reporting

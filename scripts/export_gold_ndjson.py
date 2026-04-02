@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from wildtrace.pipeline import export_main
+from wildtrace.agentic_pipeline import export_main
 
 
 if __name__ == "__main__":

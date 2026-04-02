@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 import yaml
 
 
@@ -24,9 +26,26 @@ def load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
+def _resolve_env_placeholders(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _resolve_env_placeholders(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_resolve_env_placeholders(item) for item in value]
+    if not isinstance(value, str):
+        return value
+    if not value.startswith("${") or not value.endswith("}"):
+        return value
+    inner = value[2:-1]
+    if ":-" in inner:
+        env_name, default = inner.split(":-", 1)
+        return os.getenv(env_name, default)
+    return os.environ[inner]
+
+
 def load_runtime_config(repo_root: Path, config_dir: Path | None = None) -> dict[str, Any]:
     config_root = config_dir or repo_root / "configs"
+    load_dotenv(repo_root / ".env")
     runtime: dict[str, Any] = {"repo_root": str(repo_root)}
     for filename in DEFAULT_CONFIG_FILES:
-        runtime[filename.removesuffix(".yaml")] = load_yaml(config_root / filename)
+        runtime[filename.removesuffix(".yaml")] = _resolve_env_placeholders(load_yaml(config_root / filename))
     return runtime

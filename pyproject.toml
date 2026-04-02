@@ -9,8 +9,14 @@ description = "ETL-first pipeline for WildTrace visual datasets"
 readme = "docs/Plan.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "huggingface-hub>=0.30.0",
+  "langgraph>=0.2.60",
   "numpy>=2.0.0",
+  "open-clip-torch>=2.31.0",
+  "opencv-python-headless>=4.10.0",
+  "ollama>=0.4.7",
   "Pillow>=10.4.0",
+  "python-dotenv>=1.0.1",
   "PyYAML>=6.0.2",
 ]
 

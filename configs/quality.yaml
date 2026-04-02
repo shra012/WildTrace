@@ -5,3 +5,4 @@ low_mask_coverage_threshold: 0.10
 extreme_aspect_ratio_threshold: 4.0
 blur_variance_threshold: 0.001
 allow_flagged_to_continue: true
+minimum_segmentation_score: 0.45

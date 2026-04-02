@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from wildtrace.pipeline import normalize_main
+from wildtrace.agentic_pipeline import normalize_main
 
 
 if __name__ == "__main__":

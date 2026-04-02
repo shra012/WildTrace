@@ -1,13 +1,35 @@
-active_backend: local_edges
-backends:
-  local_edges:
-    model_backend: local
-    model_name: local_edges
-    model_version_or_checkpoint: baseline-v1
-    threshold_percentile: 75
-    min_foreground_ratio: 0.001
-  api_stub:
-    model_backend: api
-    model_name: api_stub
-    model_version_or_checkpoint: unconfigured
-    endpoint: null
+enrichment:
+  backend: bioclip_huggingface
+  model_backend: huggingface
+  model_name: ${HF_ENRICHMENT_MODEL:-imageomics/bioclip}
+  model_id: ${HF_ENRICHMENT_MODEL:-imageomics/bioclip}
+  cache_dir: ${HF_HOME:-~/.cache/huggingface}
+  device: ${BIOCLIP_DEVICE:-cuda}
+  top_k_tags: 3
+  default_confidence: 0.72
+diagram_generator:
+  backend: informative_drawings
+  model_backend: local
+  model_name: informative_drawings
+  model_version_or_checkpoint: heuristic-emulation-v1
+  max_attempts: 5
+  default_params:
+    blur_radius: 0.8
+    threshold: 150
+semantic_validator:
+  backend: ${SEMANTIC_VALIDATOR_BACKEND:-auto}
+  model_backend: auto
+  ollama_model_name: ${OLLAMA_VALIDATOR_MODEL:-qwen2.5vl:7b}
+  ollama_model_id: ${OLLAMA_VALIDATOR_MODEL:-qwen2.5vl:7b}
+  anthropic_model_name: ${ANTHROPIC_MODEL:-claude-haiku-4-5}
+  anthropic_api_base: ${ANTHROPIC_API_BASE:-https://api.anthropic.com}
+  anthropic_timeout_seconds: 30
+  anthropic_max_tokens: 200
+  anthropic_temperature: 0.0
+  min_score: 0.55
+opencv_prescreen:
+  min_foreground_ratio: 0.03
+  max_foreground_ratio: 0.32
+  target_foreground_ratio: 0.16
+  max_component_count: 18
+  max_small_contour_ratio: 0.70

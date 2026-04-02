@@ -8,8 +8,16 @@ from pathlib import Path
 
 import yaml
 from PIL import Image, ImageDraw
+
+from wildtrace.agentic_pipeline import select_final_by_angle
+from wildtrace.config import load_runtime_config
+from wildtrace.diagram import (
+    OllamaSemanticValidator,
+    OpenCVValidationResult,
+    build_semantic_validator,
+    validate_with_opencv,
+)
 from wildtrace.io_utils import read_ndjson
-from wildtrace.viewpoint import build_viewpoint_backend, extract_view_features
 
 
 def write_yaml(path: Path, data: dict) -> None:
@@ -17,7 +25,7 @@ def write_yaml(path: Path, data: dict) -> None:
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
 
-def build_test_repo(tmp_path: Path) -> Path:
+def build_test_repo(tmp_path: Path, records: list[dict] | None = None) -> Path:
     repo_root = tmp_path / "repo"
     for rel in [
         "configs",
@@ -29,7 +37,10 @@ def build_test_repo(tmp_path: Path) -> Path:
         "processed/silver/images",
         "processed/silver/masks",
         "processed/silver/isolated",
+        "processed/silver/crops",
+        "processed/silver/diagrams",
         "processed/silver/qa",
+        "processed/gold/diagrams",
         "processed/gold/outlines",
         "processed/gold/svg",
         "processed/gold/trajectories",
@@ -48,18 +59,23 @@ def build_test_repo(tmp_path: Path) -> Path:
     mask = Image.new("L", (400, 320), 0)
     draw_mask = ImageDraw.Draw(mask)
     draw_mask.ellipse((60, 60, 320, 260), fill=255)
+    draw_mask.ellipse((100, 30, 156, 90), fill=255)
     mask.save(mask_path)
 
     records_path = repo_root / "fixtures" / "records.ndjson"
-    record = {
-        "source_image_id": "cat-001",
-        "category": "Cat",
-        "split": "train",
-        "source_url": image_path.resolve().as_uri(),
-        "mask_url": mask_path.resolve().as_uri(),
-        "license": "CC-BY-4.0",
-    }
-    records_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    if records is None:
+        records = [
+            {
+                "source_image_id": "cat-001",
+                "category": "Cat",
+                "split": "train",
+                "source_url": image_path.resolve().as_uri(),
+                "mask_url": mask_path.resolve().as_uri(),
+                "license": "CC-BY-4.0",
+                "title": "Domestic cat front view",
+            }
+        ]
+    records_path.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
 
     write_yaml(
         repo_root / "configs" / "datasets.yaml",
@@ -79,7 +95,7 @@ def build_test_repo(tmp_path: Path) -> Path:
                     "splits": ["train"],
                     "require_masks": True,
                     "class_descriptions_url": "https://storage.googleapis.com/openimages/v7/oidv7-class-descriptions-boxable.csv",
-                    "image_base_url_template": "https://open-images-dataset.s3.amazonaws.com/{split}/{image_id}.jpg",
+                    "image_base_url_template": "unused",
                     "image_info_urls": {"train": "unused"},
                     "segmentation_annotation_urls": {"train": "unused"},
                     "mask_zip_url_templates": {"train": "unused-{prefix}"},
@@ -108,9 +124,12 @@ def build_test_repo(tmp_path: Path) -> Path:
                 "images_dir": "processed/silver/images",
                 "masks_dir": "processed/silver/masks",
                 "isolated_dir": "processed/silver/isolated",
+                "crops_dir": "processed/silver/crops",
+                "diagrams_dir": "processed/silver/diagrams",
                 "qa_dir": "processed/silver/qa",
             },
             "gold": {
+                "diagrams_dir": "processed/gold/diagrams",
                 "outlines_dir": "processed/gold/outlines",
                 "svg_dir": "processed/gold/svg",
                 "trajectories_dir": "processed/gold/trajectories",
@@ -129,19 +148,42 @@ def build_test_repo(tmp_path: Path) -> Path:
             "extreme_aspect_ratio_threshold": 4.0,
             "blur_variance_threshold": 0.00001,
             "allow_flagged_to_continue": True,
+            "minimum_segmentation_score": 0.45,
         },
     )
     write_yaml(
         repo_root / "configs" / "models.yaml",
         {
-            "active_backend": "local_edges",
-            "backends": {
-                "local_edges": {
-                    "model_backend": "local",
-                    "model_name": "local_edges",
-                    "model_version_or_checkpoint": "baseline-v1",
-                    "threshold_percentile": 70,
-                }
+            "enrichment": {
+                "backend": "heuristic_enrichment",
+                "model_backend": "local",
+                "model_name": "heuristic_enrichment",
+                "model_id": "heuristic_enrichment",
+                "default_confidence": 0.72,
+            },
+            "diagram_generator": {
+                "backend": "informative_drawings",
+                "model_backend": "local",
+                "model_name": "informative_drawings",
+                "model_version_or_checkpoint": "heuristic-emulation-v1",
+                "max_attempts": 5,
+                "default_params": {"blur_radius": 0.8, "threshold": 150},
+            },
+            "semantic_validator": {
+                "backend": "auto",
+                "model_backend": "auto",
+                "ollama_model_name": "qwen2.5vl:7b",
+                "ollama_model_id": "qwen2.5vl:7b",
+                "anthropic_model_name": "claude-haiku-4-5",
+                "anthropic_api_base": "https://api.anthropic.com",
+                "min_score": 0.55,
+            },
+            "opencv_prescreen": {
+                "min_foreground_ratio": 0.03,
+                "max_foreground_ratio": 0.32,
+                "target_foreground_ratio": 0.16,
+                "max_component_count": 18,
+                "max_small_contour_ratio": 0.70,
             },
         },
     )
@@ -186,35 +228,10 @@ def build_test_repo(tmp_path: Path) -> Path:
             },
             "min_confidence": 0.42,
             "min_margin": 0.08,
-            "target_per_bucket": {"default": 0},
+            "target_per_bucket": {"default": 1},
         },
     )
     return repo_root
-
-
-def make_view_mask(kind: str, size: tuple[int, int] = (256, 256)) -> Image.Image:
-    mask = Image.new("L", size, 0)
-    draw = ImageDraw.Draw(mask)
-    if kind == "front":
-        draw.ellipse((70, 60, 186, 210), fill=255)
-        draw.ellipse((100, 30, 156, 90), fill=255)
-    elif kind == "right_profile":
-        draw.ellipse((68, 96, 176, 206), fill=255)
-        draw.ellipse((168, 86, 244, 156), fill=255)
-        draw.polygon([(42, 146), (70, 136), (70, 160)], fill=255)
-    elif kind == "left_profile":
-        draw.ellipse((80, 96, 188, 206), fill=255)
-        draw.ellipse((12, 86, 88, 156), fill=255)
-        draw.polygon([(214, 146), (186, 136), (186, 160)], fill=255)
-    elif kind == "ambiguous":
-        draw.ellipse((48, 94, 208, 194), fill=255)
-        draw.ellipse((28, 110, 80, 150), fill=255)
-        draw.ellipse((176, 110, 228, 150), fill=255)
-    elif kind == "truncated":
-        draw.ellipse((-20, 70, 140, 220), fill=255)
-    else:
-        raise ValueError(f"Unknown mask kind: {kind}")
-    return mask
 
 
 def run_script(project_root: Path, repo_root: Path, script_name: str) -> None:
@@ -235,17 +252,18 @@ def run_script(project_root: Path, repo_root: Path, script_name: str) -> None:
     )
 
 
-def test_end_to_end_pipeline(tmp_path: Path) -> None:
+def test_end_to_end_agentic_pipeline(tmp_path: Path) -> None:
     project_root = Path(__file__).resolve().parents[1]
     repo_root = build_test_repo(tmp_path)
     for script_name in [
         "fetch_openimages.py",
-        "ingest_openimages.py",
-        "validate_bronze.py",
+        "curate_bronze.py",
         "normalize_to_silver.py",
-        "filter_viewpoints.py",
-        "run_outline_inference.py",
-        "refine_outlines.py",
+        "enrich_and_crop_subjects.py",
+        "generate_line_diagrams.py",
+        "validate_and_retry_diagrams.py",
+        "select_final_by_angle.py",
+        "extract_trajectories.py",
         "export_gold_ndjson.py",
         "generate_dataset_report.py",
     ]:
@@ -255,153 +273,192 @@ def test_end_to_end_pipeline(tmp_path: Path) -> None:
     records = [json.loads(line) for line in gold_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(records) == 1
     record = records[0]
-    assert record["task_type"] == "drawing"
     assert record["category"] == "Cat"
-    assert record["view_bucket"] in {
-        "left_profile",
-        "right_profile",
-        "front_left_3q",
-        "front_right_3q",
-        "front",
-    }
-    assert record["view_status"] == "accepted"
+    assert record["subcategory"] == "domestic_cat"
+    assert record["selected_for_gold"] is True
+    assert record["diagram_validation_status"] == "accepted"
     assert record["trajectory"]["stroke_count"] >= 1
-    assert Path(repo_root / record["gold_refs"]["svg_path"]).exists()
+    assert Path(repo_root / record["gold_refs"]["diagram_path"]).exists()
     assert Path(repo_root / "artifacts/reports/dataset_report.md").exists()
-    viewpoint_records = read_ndjson(repo_root / "processed/silver/qa/silver_viewpoints.ndjson")
-    assert len(viewpoint_records) == 1
-    assert viewpoint_records[0]["allowed_for_outline"] is True
 
 
-def test_fetch_and_ingest_are_incremental_and_versioned(tmp_path: Path) -> None:
+def test_curate_bronze_removes_duplicate_raws(tmp_path: Path) -> None:
+    duplicate_records = [
+        {
+            "source_image_id": "cat-001",
+            "category": "Cat",
+            "split": "train",
+            "source_url": (tmp_path / "repo" / "fixtures" / "cat.png").resolve().as_uri(),
+            "mask_url": (tmp_path / "repo" / "fixtures" / "cat_mask.png").resolve().as_uri(),
+            "license": "CC-BY-4.0",
+            "title": "Domestic cat front view",
+        },
+        {
+            "source_image_id": "cat-002",
+            "category": "Cat",
+            "split": "train",
+            "source_url": (tmp_path / "repo" / "fixtures" / "cat.png").resolve().as_uri(),
+            "mask_url": (tmp_path / "repo" / "fixtures" / "cat_mask.png").resolve().as_uri(),
+            "license": "CC-BY-4.0",
+            "title": "Domestic cat duplicate",
+        },
+    ]
+    repo_root = build_test_repo(tmp_path, records=duplicate_records)
     project_root = Path(__file__).resolve().parents[1]
-    repo_root = build_test_repo(tmp_path)
-
     run_script(project_root, repo_root, "fetch_openimages.py")
-    run_script(project_root, repo_root, "ingest_openimages.py")
+    run_script(project_root, repo_root, "curate_bronze.py")
+    curated = read_ndjson(repo_root / "raw_data/bronze/manifests/bronze_curated.ndjson")
+    accepted = read_ndjson(repo_root / "raw_data/bronze/manifests/bronze_accepted.ndjson")
+    assert len(curated) == 2
+    assert len(accepted) == 1
+    rejected = [row for row in curated if row["curation_status"] == "rejected"]
+    assert rejected
+    assert "duplicate_image_checksum" in rejected[0]["curation_flags"]
+    assert rejected[0]["deleted_paths"]
 
-    fetch_ledger = repo_root / "raw_data/bronze/manifests/openimages_fetch.ndjson"
-    ingest_ledger = repo_root / "raw_data/bronze/manifests/openimages_ingest.ndjson"
-    assert len(read_ndjson(fetch_ledger)) == 1
-    assert len(read_ndjson(ingest_ledger)) == 1
 
-    run_script(project_root, repo_root, "fetch_openimages.py")
-    run_script(project_root, repo_root, "ingest_openimages.py")
-    assert len(read_ndjson(fetch_ledger)) == 1
-    assert len(read_ndjson(ingest_ledger)) == 1
-
-    image_path = repo_root / "fixtures" / "cat.png"
-    image = Image.new("RGB", (400, 320), "white")
+def test_opencv_prescreen_blocks_noisy_diagrams(tmp_path: Path) -> None:
+    noisy_path = tmp_path / "noisy.png"
+    image = Image.new("L", (128, 128), 0)
     draw = ImageDraw.Draw(image)
-    draw.rectangle((40, 40, 360, 280), fill="black")
-    image.save(image_path)
-
-    run_script(project_root, repo_root, "fetch_openimages.py")
-    run_script(project_root, repo_root, "ingest_openimages.py")
-
-    fetch_records = read_ndjson(fetch_ledger)
-    ingest_records = read_ndjson(ingest_ledger)
-    assert len(fetch_records) == 2
-    assert len(ingest_records) == 2
-    assert fetch_records[-1]["asset_version"] == 2
-    assert ingest_records[-1]["asset_version"] == 2
-    assert fetch_records[0]["image_checksum"] != fetch_records[-1]["image_checksum"]
-
-
-def test_extract_view_features_flags_truncated_masks() -> None:
-    truncated = make_view_mask("truncated")
-    features = extract_view_features(truncated)
-    assert features["border_touch_ratio"] > 0.0
-    assert features["component_count"] == 1
-
-
-def test_local_viewpoint_backend_classifies_left_right_and_front() -> None:
-    config = {
-        "allowed_buckets": [
-            "left_profile",
-            "right_profile",
-            "front_left_3q",
-            "front_right_3q",
-            "front",
-        ],
-        "rejected_buckets": ["rear", "top_down", "occluded", "unknown"],
-        "prefilter": {
-            "require_mask": True,
-            "min_mask_coverage_ratio": 0.08,
-            "max_border_touch_ratio": 0.50,
-            "max_component_count": 4,
-            "min_largest_component_ratio": 0.75,
-            "min_bbox_fill_ratio": 0.10,
+    for x in range(0, 128, 8):
+        for y in range(0, 128, 8):
+            draw.rectangle((x, y, x + 1, y + 1), fill=255)
+    image.save(noisy_path)
+    result = validate_with_opencv(
+        noisy_path,
+        {
+            "min_foreground_ratio": 0.03,
+            "max_foreground_ratio": 0.32,
+            "target_foreground_ratio": 0.16,
+            "max_component_count": 10,
+            "max_small_contour_ratio": 0.4,
         },
-        "classifier": {
-            "backend": "local_score_v1",
-            "direction_deadzone": 0.05,
-            "front_symmetry_bias": 0.72,
-            "three_quarter_symmetry_target": 0.58,
-            "three_quarter_symmetry_tolerance": 0.25,
+    )
+    assert result.passed is False
+    assert result.flags
+
+
+def test_semantic_validator_defaults_to_ollama_without_anthropic_key(monkeypatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    validator = build_semantic_validator(
+        {
+            "backend": "auto",
+            "ollama_model_name": "qwen2.5vl:7b",
+            "ollama_model_id": "qwen2.5vl:7b",
+            "anthropic_model_name": "claude-haiku-4-5",
+            "min_score": 0.55,
+        }
+    )
+    assert isinstance(validator, OllamaSemanticValidator)
+
+
+def test_ollama_validator_skips_failed_opencv(tmp_path: Path) -> None:
+    diagram_path = tmp_path / "diagram.png"
+    Image.new("L", (16, 16), 0).save(diagram_path)
+    validator = OllamaSemanticValidator({"ollama_model_name": "qwen2.5vl:7b"})
+    result = validator.validate(
+        {"category": "Bird", "subcategory": "hummingbird", "angle_bucket": "front"},
+        diagram_path,
+        OpenCVValidationResult(
+            passed=False,
+            score=0.12,
+            flags=["too_many_components"],
+            metrics={},
+        ),
+    )
+    assert result.passed is False
+    assert result.score == 0.0
+    assert "OpenCV pre-screen failed" in result.reason
+    assert result.metadata["skipped"] is True
+
+
+def test_ollama_validator_uses_model_response(monkeypatch, tmp_path: Path) -> None:
+    diagram_path = tmp_path / "diagram.png"
+    Image.new("L", (16, 16), 255).save(diagram_path)
+    validator = OllamaSemanticValidator({"ollama_model_name": "qwen2.5vl:7b", "min_score": 0.55})
+    monkeypatch.setattr(
+        validator,
+        "_request",
+        lambda _diagram_path, _prompt: {"response": '{"passed": true, "score": 0.84, "reason": "clean and drawable"}'},
+    )
+    result = validator.validate(
+        {"category": "Bird", "subcategory": "hummingbird", "angle_bucket": "front"},
+        diagram_path,
+        OpenCVValidationResult(
+            passed=True,
+            score=0.81,
+            flags=[],
+            metrics={},
+        ),
+    )
+    assert result.passed is True
+    assert result.score == 0.84
+    assert result.reason == "clean and drawable"
+    assert result.metadata["model_name"] == "qwen2.5vl:7b"
+
+
+def test_select_final_by_angle_keeps_best_score_per_bucket(tmp_path: Path) -> None:
+    repo_root = build_test_repo(tmp_path)
+    validated_path = repo_root / "processed/silver/qa/validated_diagrams.ndjson"
+    rows = [
+        {
+            "sample_id": "a",
+            "category": "Bird",
+            "subcategory": "flamingo",
+            "angle_bucket": "front",
+            "diagram_path": "processed/silver/diagrams/Bird/a.png",
+            "diagram_attempt": 1,
+            "diagram_generator_backend": {"model_name": "informative_drawings"},
+            "diagram_validation_status": "accepted",
+            "diagram_validation_score": 0.61,
+            "opencv_flags": [],
+            "semantic_validator_model": "qwen2.5vl:7b",
+            "semantic_validator_reason": "ok",
+            "selected_for_gold": False,
+            "selection_rank": None,
+            "lineage": {},
         },
-        "min_confidence": 0.42,
-        "min_margin": 0.08,
-    }
-    backend = build_viewpoint_backend(config)
-
-    front_result = backend.classify(
-        {"mask_available": True, "view_features": extract_view_features(make_view_mask("front"))},
-        config,
-    )
-    left_result = backend.classify(
-        {"mask_available": True, "view_features": extract_view_features(make_view_mask("left_profile"))},
-        config,
-    )
-    right_result = backend.classify(
-        {"mask_available": True, "view_features": extract_view_features(make_view_mask("right_profile"))},
-        config,
-    )
-
-    assert front_result.bucket == "front"
-    assert front_result.allowed_for_outline is True
-    assert left_result.bucket in {"left_profile", "front_left_3q"}
-    assert left_result.allowed_for_outline is True
-    assert right_result.bucket in {"right_profile", "front_right_3q"}
-    assert right_result.allowed_for_outline is True
-
-
-def test_local_viewpoint_backend_blocks_ambiguous_samples() -> None:
-    config = {
-        "allowed_buckets": [
-            "left_profile",
-            "right_profile",
-            "front_left_3q",
-            "front_right_3q",
-            "front",
-        ],
-        "rejected_buckets": ["rear", "top_down", "occluded", "unknown"],
-        "prefilter": {
-            "require_mask": True,
-            "min_mask_coverage_ratio": 0.08,
-            "max_border_touch_ratio": 0.50,
-            "max_component_count": 4,
-            "min_largest_component_ratio": 0.75,
-            "min_bbox_fill_ratio": 0.10,
+        {
+            "sample_id": "b",
+            "category": "Bird",
+            "subcategory": "flamingo",
+            "angle_bucket": "front",
+            "diagram_path": "processed/silver/diagrams/Bird/b.png",
+            "diagram_attempt": 2,
+            "diagram_generator_backend": {"model_name": "informative_drawings"},
+            "diagram_validation_status": "accepted",
+            "diagram_validation_score": 0.83,
+            "opencv_flags": [],
+            "semantic_validator_model": "qwen2.5vl:7b",
+            "semantic_validator_reason": "better",
+            "selected_for_gold": False,
+            "selection_rank": None,
+            "lineage": {},
         },
-        "classifier": {
-            "backend": "local_score_v1",
-            "direction_deadzone": 0.05,
-            "front_symmetry_bias": 0.72,
-            "three_quarter_symmetry_target": 0.58,
-            "three_quarter_symmetry_tolerance": 0.25,
+        {
+            "sample_id": "c",
+            "category": "Bird",
+            "subcategory": "flamingo",
+            "angle_bucket": "left_profile",
+            "diagram_path": "processed/silver/diagrams/Bird/c.png",
+            "diagram_attempt": 1,
+            "diagram_generator_backend": {"model_name": "informative_drawings"},
+            "diagram_validation_status": "accepted",
+            "diagram_validation_score": 0.71,
+            "opencv_flags": [],
+            "semantic_validator_model": "qwen2.5vl:7b",
+            "semantic_validator_reason": "ok",
+            "selected_for_gold": False,
+            "selection_rank": None,
+            "lineage": {},
         },
-        "min_confidence": 0.95,
-        "min_margin": 0.60,
-    }
-    backend = build_viewpoint_backend(config)
-
-    ambiguous = backend.classify(
-        {"mask_available": True, "view_features": extract_view_features(make_view_mask("ambiguous"))},
-        config,
-    )
-
-    assert ambiguous.bucket == "unknown"
-    assert ambiguous.allowed_for_outline is False
-    assert ambiguous.status == "unknown"
-    assert ambiguous.flags
+    ]
+    validated_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    runtime = load_runtime_config(repo_root, repo_root / "configs")
+    selected = select_final_by_angle(repo_root, runtime)
+    front_rows = [row for row in selected if row["angle_bucket"] == "front"]
+    assert len(front_rows) == 2
+    chosen = [row for row in front_rows if row["selected_for_gold"]]
+    assert len(chosen) == 1
+    assert chosen[0]["sample_id"] == "b"
