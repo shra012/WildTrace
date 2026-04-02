@@ -7,16 +7,39 @@ enrichment:
   device: ${BIOCLIP_DEVICE:-cuda}
   top_k_tags: 3
   default_confidence: 0.72
-diagram_generator:
+outline_generator:
   backend: informative_drawings
-  model_backend: local
+  model_backend: onnxruntime
   model_name: informative_drawings
-  model_version_or_checkpoint: heuristic-emulation-v1
+  model_version_or_checkpoint: ${INFORMATIVE_DRAWINGS_REPO:-rocca/informative-drawings-line-art-onnx}/${INFORMATIVE_DRAWINGS_FILENAME:-model.onnx}
+  repo_id: ${INFORMATIVE_DRAWINGS_REPO:-rocca/informative-drawings-line-art-onnx}
+  filename: ${INFORMATIVE_DRAWINGS_FILENAME:-model.onnx}
+  cache_dir: ${HF_HOME:-~/.cache/huggingface}
+  input_size: 512
+  render_mode: informative_drawings
+  line_threshold: 26
+  postprocess_blur_radius: 2.0
+  min_component_area: 80
   max_attempts: 5
   default_params:
-    blur_radius: 0.8
-    threshold: 150
-semantic_validator:
+    render_mode: informative_drawings
+    blur_radius: 2.0
+    threshold: 26
+outline_rectifier:
+  backend: silhouette_outline_rectifier
+  model_backend: local
+  model_name: silhouette_outline_rectifier
+  model_version_or_checkpoint: local-v1
+  future_backend: flux_kontext_rectifier
+  future_model_name: ${OUTLINE_RECTIFIER_MODEL:-black-forest-labs/FLUX.1-Kontext-dev}
+  subject_threshold: 248
+  silhouette_close_kernel: 9
+  outline_close_kernel: 5
+  outline_simplify_ratio: 0.012
+  outline_stroke_width: 3
+  min_outline_area: 300
+  max_outlines: 2
+outline_validator:
   backend: ${SEMANTIC_VALIDATOR_BACKEND:-auto}
   model_backend: auto
   ollama_model_name: ${OLLAMA_VALIDATOR_MODEL:-qwen2.5vl:7b}

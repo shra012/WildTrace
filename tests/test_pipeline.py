@@ -12,9 +12,13 @@ from PIL import Image, ImageDraw
 from wildtrace.agentic_pipeline import select_final_by_angle
 from wildtrace.config import load_runtime_config
 from wildtrace.diagram import (
+    DiagramBackend,
+    DiagramBackendResult,
     OllamaSemanticValidator,
     OpenCVValidationResult,
-    build_semantic_validator,
+    SemanticValidationResult,
+    build_outline_validator,
+    run_langgraph_validation_loop,
     validate_with_opencv,
 )
 from wildtrace.io_utils import read_ndjson
@@ -161,17 +165,32 @@ def build_test_repo(tmp_path: Path, records: list[dict] | None = None) -> Path:
                 "model_id": "heuristic_enrichment",
                 "default_confidence": 0.72,
             },
-            "diagram_generator": {
+            "outline_generator": {
                 "backend": "informative_drawings",
-                "model_backend": "local",
+                "model_backend": "mock",
                 "model_name": "informative_drawings",
-                "model_version_or_checkpoint": "heuristic-emulation-v1",
+                "model_version_or_checkpoint": "mock-v1",
                 "max_attempts": 5,
                 "default_params": {"blur_radius": 0.8, "threshold": 150},
             },
-            "semantic_validator": {
-                "backend": "auto",
-                "model_backend": "auto",
+            "outline_rectifier": {
+                "backend": "silhouette_outline_rectifier",
+                "model_backend": "local",
+                "model_name": "silhouette_outline_rectifier",
+                "model_version_or_checkpoint": "local-v1",
+                "subject_threshold": 248,
+                "silhouette_close_kernel": 9,
+                "outline_close_kernel": 5,
+                "outline_simplify_ratio": 0.012,
+                "outline_stroke_width": 3,
+                "min_outline_area": 300,
+                "max_outlines": 2,
+                "min_component_area": 80,
+            },
+            "outline_validator": {
+                "backend": "mock_semantic_validator",
+                "model_backend": "mock",
+                "model_name": "mock_semantic_validator",
                 "ollama_model_name": "qwen2.5vl:7b",
                 "ollama_model_id": "qwen2.5vl:7b",
                 "anthropic_model_name": "claude-haiku-4-5",
@@ -341,7 +360,7 @@ def test_opencv_prescreen_blocks_noisy_diagrams(tmp_path: Path) -> None:
 
 def test_semantic_validator_defaults_to_ollama_without_anthropic_key(monkeypatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    validator = build_semantic_validator(
+    validator = build_outline_validator(
         {
             "backend": "auto",
             "ollama_model_name": "qwen2.5vl:7b",
@@ -398,6 +417,78 @@ def test_ollama_validator_uses_model_response(monkeypatch, tmp_path: Path) -> No
     assert result.metadata["model_name"] == "qwen2.5vl:7b"
 
 
+def test_ollama_validator_prompt_is_outline_only() -> None:
+    validator = OllamaSemanticValidator({"ollama_model_name": "qwen2.5vl:7b"})
+    prompt = validator._build_prompt(  # noqa: SLF001
+        {"category": "Bird", "subcategory": "hummingbird", "angle_bucket": "front"},
+        OpenCVValidationResult(passed=True, score=0.8, flags=[], metrics={}),
+    )
+    assert "specific animal" in prompt
+    assert "hummingbird" not in prompt
+    assert "Bird" not in prompt
+    assert "outer outline" in prompt
+
+
+def test_run_langgraph_validation_loop_retries_and_preserves_state(tmp_path: Path) -> None:
+    subject_path = tmp_path / "subject.png"
+    Image.new("RGB", (64, 64), "white").save(subject_path)
+
+    class StubGenerator(DiagramBackend):
+        def run(self, image, destination, params):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            threshold = int(params["threshold"])
+            diagram = Image.new("L", image.size, 0)
+            if threshold <= 132:
+                draw = ImageDraw.Draw(diagram)
+                draw.ellipse((18, 20, 46, 42), outline=255, width=3)
+                draw.line((46, 31, 56, 28), fill=255, width=2)
+            diagram.save(destination)
+            return DiagramBackendResult(diagram_path=destination, metadata={"threshold": threshold})
+
+    class StubValidator:
+        def validate(self, sample, diagram_path, opencv_result):
+            passed = bool(Image.open(diagram_path).getbbox())
+            return SemanticValidationResult(
+                passed=passed,
+                score=0.9 if passed else 0.2,
+                reason="ok" if passed else "retry",
+                metadata={"model_name": "stub-validator"},
+            )
+
+    class StubRectifier:
+        def run(self, subject_image, generated_path, destination, params):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            Image.open(generated_path).save(destination)
+            return type(
+                "RectifierResult",
+                (),
+                {"diagram_path": destination, "metadata": {"model_name": "stub-rectifier"}},
+            )()
+
+    result = run_langgraph_validation_loop(
+        sample={"sample_id": "bird-1", "category": "Bird", "subcategory": "hummingbird", "angle_bucket": "front"},
+        subject_path=subject_path,
+        diagram_root=tmp_path / "diagrams",
+        outline_generator=StubGenerator({}),
+        outline_rectifier=StubRectifier(),
+        outline_validator=StubValidator(),
+        opencv_settings={
+            "min_foreground_ratio": 0.03,
+            "max_foreground_ratio": 0.32,
+            "target_foreground_ratio": 0.16,
+            "max_component_count": 18,
+            "max_small_contour_ratio": 0.70,
+        },
+        initial_params={"threshold": 150, "blur_radius": 0.8},
+        max_attempts=2,
+    )
+
+    assert result["diagram_validation_status"] == "accepted"
+    assert result["diagram_attempt"] == 2
+    assert result["outline_validator_model"] == "stub-validator"
+    assert result["outline_rectifier_backend"]["model_name"] == "stub-rectifier"
+
+
 def test_select_final_by_angle_keeps_best_score_per_bucket(tmp_path: Path) -> None:
     repo_root = build_test_repo(tmp_path)
     validated_path = repo_root / "processed/silver/qa/validated_diagrams.ndjson"
@@ -409,12 +500,13 @@ def test_select_final_by_angle_keeps_best_score_per_bucket(tmp_path: Path) -> No
             "angle_bucket": "front",
             "diagram_path": "processed/silver/diagrams/Bird/a.png",
             "diagram_attempt": 1,
-            "diagram_generator_backend": {"model_name": "informative_drawings"},
+            "outline_generator_backend": {"model_name": "informative_drawings"},
+            "outline_rectifier_backend": {"model_name": "silhouette_outline_rectifier"},
             "diagram_validation_status": "accepted",
             "diagram_validation_score": 0.61,
             "opencv_flags": [],
-            "semantic_validator_model": "qwen2.5vl:7b",
-            "semantic_validator_reason": "ok",
+            "outline_validator_model": "qwen2.5vl:7b",
+            "outline_validator_reason": "ok",
             "selected_for_gold": False,
             "selection_rank": None,
             "lineage": {},
@@ -426,12 +518,13 @@ def test_select_final_by_angle_keeps_best_score_per_bucket(tmp_path: Path) -> No
             "angle_bucket": "front",
             "diagram_path": "processed/silver/diagrams/Bird/b.png",
             "diagram_attempt": 2,
-            "diagram_generator_backend": {"model_name": "informative_drawings"},
+            "outline_generator_backend": {"model_name": "informative_drawings"},
+            "outline_rectifier_backend": {"model_name": "silhouette_outline_rectifier"},
             "diagram_validation_status": "accepted",
             "diagram_validation_score": 0.83,
             "opencv_flags": [],
-            "semantic_validator_model": "qwen2.5vl:7b",
-            "semantic_validator_reason": "better",
+            "outline_validator_model": "qwen2.5vl:7b",
+            "outline_validator_reason": "better",
             "selected_for_gold": False,
             "selection_rank": None,
             "lineage": {},
@@ -443,12 +536,13 @@ def test_select_final_by_angle_keeps_best_score_per_bucket(tmp_path: Path) -> No
             "angle_bucket": "left_profile",
             "diagram_path": "processed/silver/diagrams/Bird/c.png",
             "diagram_attempt": 1,
-            "diagram_generator_backend": {"model_name": "informative_drawings"},
+            "outline_generator_backend": {"model_name": "informative_drawings"},
+            "outline_rectifier_backend": {"model_name": "silhouette_outline_rectifier"},
             "diagram_validation_status": "accepted",
             "diagram_validation_score": 0.71,
             "opencv_flags": [],
-            "semantic_validator_model": "qwen2.5vl:7b",
-            "semantic_validator_reason": "ok",
+            "outline_validator_model": "qwen2.5vl:7b",
+            "outline_validator_reason": "ok",
             "selected_for_gold": False,
             "selection_rank": None,
             "lineage": {},

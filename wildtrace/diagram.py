@@ -10,6 +10,7 @@ from urllib import error, request
 
 import numpy as np
 from PIL import Image, ImageFilter, ImageOps
+from huggingface_hub import hf_hub_download
 
 from wildtrace.images import connected_components
 
@@ -24,11 +25,29 @@ try:
 except ImportError:  # pragma: no cover - exercised only when dependency is unavailable.
     cv2 = None
 
+try:
+    import onnxruntime as ort
+except ImportError:  # pragma: no cover - exercised only when dependency is unavailable.
+    ort = None
+
 
 @dataclass(slots=True)
 class DiagramBackendResult:
     diagram_path: Path
     metadata: dict[str, Any]
+
+
+@dataclass(slots=True)
+class OutlineRectifierResult:
+    diagram_path: Path
+    metadata: dict[str, Any]
+
+
+@dataclass(slots=True)
+class OutlineAttemptResult:
+    diagram_path: Path
+    generator_metadata: dict[str, Any]
+    rectifier_metadata: dict[str, Any]
 
 
 @dataclass(slots=True)
@@ -55,8 +74,170 @@ class DiagramBackend:
         raise NotImplementedError
 
 
+class OutlineRectifier:
+    def __init__(self, settings: dict[str, Any]) -> None:
+        self.settings = settings
+
+    def run(
+        self,
+        subject_image: Image.Image,
+        generated_path: Path,
+        destination: Path,
+        params: dict[str, Any],
+    ) -> OutlineRectifierResult:
+        raise NotImplementedError
+
+
+def _filter_small_components(binary: np.ndarray, min_component_area: int) -> np.ndarray:
+    if min_component_area <= 1:
+        return binary
+    if cv2 is not None:
+        count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+        cleaned = np.zeros_like(binary)
+        for index in range(1, count):
+            if int(stats[index, cv2.CC_STAT_AREA]) >= min_component_area:
+                cleaned[labels == index] = 1
+        return cleaned
+    cleaned = np.zeros_like(binary)
+    for component in connected_components(binary.astype(np.uint8)):
+        if len(component) >= min_component_area:
+            for x, y in component:
+                cleaned[y, x] = 1
+    return cleaned
+
+
+def _extract_simple_outline(
+    binary: np.ndarray,
+    outline_close_kernel: int,
+    min_outline_area: float,
+    max_outlines: int,
+    simplify_ratio: float,
+    stroke_width: int,
+) -> np.ndarray:
+    if cv2 is None:
+        return binary
+    kernel_size = max(1, int(outline_close_kernel))
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
+    closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+    contours, _ = cv2.findContours((closed * 255).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return binary
+
+    selected = [contour for contour in sorted(contours, key=cv2.contourArea, reverse=True) if cv2.contourArea(contour) >= min_outline_area]
+    if not selected:
+        selected = [max(contours, key=cv2.contourArea)]
+
+    outline = np.zeros_like(binary)
+    for contour in selected[: max(1, int(max_outlines))]:
+        perimeter = max(cv2.arcLength(contour, True), 1.0)
+        simplified = cv2.approxPolyDP(contour, simplify_ratio * perimeter, True)
+        cv2.drawContours(outline, [simplified], -1, 1, max(1, int(stroke_width)))
+    return outline
+
+
+def _subject_mask_from_image(
+    image: Image.Image,
+    subject_threshold: int,
+    silhouette_close_kernel: int,
+    min_component_area: int,
+) -> np.ndarray:
+    arr = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    binary = np.any(arr < int(subject_threshold), axis=2).astype(np.uint8)
+    if cv2 is None:
+        return _filter_small_components(binary, min_component_area)
+    kernel_size = max(1, int(silhouette_close_kernel))
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
+    closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+    opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
+    return _filter_small_components(opened, min_component_area)
+
+
 class InformativeDrawingsBackend(DiagramBackend):
-    def run(self, image: Image.Image, destination: Path, params: dict[str, Any]) -> DiagramBackendResult:
+    def __init__(self, settings: dict[str, Any]) -> None:
+        super().__init__(settings)
+        self._session: Any | None = None
+
+    def _model_backend(self) -> str:
+        return str(self.settings.get("model_backend", "onnxruntime"))
+
+    def _onnx_path(self) -> str:
+        repo_id = self.settings.get("repo_id", "rocca/informative-drawings-line-art-onnx")
+        filename = self.settings.get("filename", "model.onnx")
+        cache_dir = os.path.expanduser(str(self.settings.get("cache_dir", "~/.cache/huggingface")))
+        return hf_hub_download(repo_id=repo_id, filename=filename, cache_dir=cache_dir)
+
+    def _providers(self) -> list[str]:
+        if ort is None:
+            raise RuntimeError("Informative Drawings ONNX backend requires `onnxruntime`.")
+        available = set(ort.get_available_providers())
+        preferred = [
+            "CUDAExecutionProvider",
+            "CoreMLExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+        providers = [provider for provider in preferred if provider in available]
+        if not providers:
+            raise RuntimeError("No compatible ONNX Runtime execution provider is available.")
+        return providers
+
+    def _get_session(self) -> Any:
+        if self._session is None:
+            self._session = ort.InferenceSession(self._onnx_path(), providers=self._providers())
+        return self._session
+
+    def _prepare_input(self, image: Image.Image) -> tuple[np.ndarray, tuple[int, int]]:
+        input_size = int(self.settings.get("input_size", 512))
+        resized = image.convert("RGB").resize((input_size, input_size), Image.Resampling.LANCZOS)
+        arr = np.asarray(resized, dtype=np.float32) / 255.0
+        arr = np.transpose(arr, (2, 0, 1))[None, ...]
+        return arr, image.size
+
+    def _subject_mask_from_image(self, image: Image.Image, params: dict[str, Any]) -> np.ndarray:
+        return _subject_mask_from_image(
+            image,
+            int(params.get("subject_threshold", self.settings.get("subject_threshold", 248))),
+            int(params.get("silhouette_close_kernel", self.settings.get("silhouette_close_kernel", 9))),
+            int(self.settings.get("min_component_area", 80)),
+        )
+
+    def _render_outline_from_subject(self, image: Image.Image, params: dict[str, Any]) -> Image.Image:
+        mask = self._subject_mask_from_image(image, params)
+        outline = _extract_simple_outline(
+            mask,
+            int(params.get("outline_close_kernel", self.settings.get("outline_close_kernel", 5))),
+            float(params.get("min_outline_area", self.settings.get("min_outline_area", 300.0))),
+            int(params.get("max_outlines", self.settings.get("max_outlines", 2))),
+            float(params.get("outline_simplify_ratio", self.settings.get("outline_simplify_ratio", 0.012))),
+            int(params.get("outline_stroke_width", self.settings.get("outline_stroke_width", 3))),
+        )
+        return Image.fromarray((outline * 255).astype(np.uint8), mode="L")
+
+    def _postprocess(self, output: np.ndarray, original_size: tuple[int, int], params: dict[str, Any]) -> Image.Image:
+        line_strength = 1.0 - np.clip(output, 0.0, 1.0)
+        grayscale = Image.fromarray(np.clip(line_strength * 255.0, 0, 255).astype(np.uint8), mode="L")
+        blur_radius = float(params.get("blur_radius", self.settings.get("postprocess_blur_radius", 2.0)))
+        if blur_radius > 0:
+            grayscale = grayscale.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+        threshold = int(params.get("threshold", self.settings.get("line_threshold", 26)))
+        binary = (np.asarray(grayscale, dtype=np.uint8) >= threshold).astype(np.uint8)
+        cleaned = _filter_small_components(binary, int(self.settings.get("min_component_area", 80)))
+        outline = _extract_simple_outline(
+            cleaned,
+            int(params.get("outline_close_kernel", self.settings.get("outline_close_kernel", 5))),
+            float(params.get("min_outline_area", self.settings.get("min_outline_area", 300.0))),
+            int(params.get("max_outlines", self.settings.get("max_outlines", 2))),
+            float(params.get("outline_simplify_ratio", self.settings.get("outline_simplify_ratio", 0.012))),
+            int(params.get("outline_stroke_width", self.settings.get("outline_stroke_width", 3))),
+        )
+        image = Image.fromarray((outline * 255).astype(np.uint8), mode="L")
+        resized = image.resize(original_size, Image.Resampling.NEAREST)
+        return resized.point(lambda value: 255 if value > 0 else 0)
+
+    def _run_mock(self, image: Image.Image, destination: Path, params: dict[str, Any]) -> DiagramBackendResult:
         gray = ImageOps.grayscale(image)
         blur_radius = float(params.get("blur_radius", self.settings.get("blur_radius", 0.8)))
         threshold = int(params.get("threshold", self.settings.get("threshold", 150)))
@@ -68,12 +249,112 @@ class InformativeDrawingsBackend(DiagramBackend):
         return DiagramBackendResult(
             diagram_path=destination,
             metadata={
-                "model_backend": "local",
+                "model_backend": "mock",
                 "model_name": self.settings.get("model_name", "informative_drawings"),
-                "model_version_or_checkpoint": self.settings.get("model_version_or_checkpoint", "heuristic-emulation-v1"),
-                "execution_mode": "heuristic_emulation",
+                "model_version_or_checkpoint": self.settings.get("model_version_or_checkpoint", "mock-v1"),
+                "execution_mode": "mock",
                 "inference_params": {"blur_radius": blur_radius, "threshold": threshold},
             },
+        )
+
+    def run(self, image: Image.Image, destination: Path, params: dict[str, Any]) -> DiagramBackendResult:
+        if self._model_backend() == "mock":
+            return self._run_mock(image, destination, params)
+        render_mode = str(params.get("render_mode", self.settings.get("render_mode", "silhouette_outline")))
+        original_size = image.size
+        if render_mode == "silhouette_outline":
+            diagram = self._render_outline_from_subject(image, params)
+        else:
+            session = self._get_session()
+            model_input, original_size = self._prepare_input(image)
+            output_name = session.get_outputs()[0].name
+            input_name = session.get_inputs()[0].name
+            output = session.run([output_name], {input_name: model_input})[0][0, 0]
+            diagram = self._postprocess(output, original_size, params)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        diagram.resize(original_size, Image.Resampling.NEAREST).point(lambda value: 255 if value > 0 else 0).save(destination)
+        return DiagramBackendResult(
+            diagram_path=destination,
+            metadata={
+                "model_backend": self._model_backend(),
+                "model_name": self.settings.get("model_name", "informative_drawings"),
+                "model_version_or_checkpoint": self.settings.get(
+                    "model_version_or_checkpoint",
+                    self.settings.get("repo_id", "rocca/informative-drawings-line-art-onnx"),
+                ),
+                "execution_mode": "onnxruntime",
+                "inference_params": {
+                    "render_mode": render_mode,
+                    "input_size": int(self.settings.get("input_size", 512)),
+                    "line_threshold": int(params.get("threshold", self.settings.get("line_threshold", 26))),
+                    "postprocess_blur_radius": float(params.get("blur_radius", self.settings.get("postprocess_blur_radius", 2.0))),
+                    "min_component_area": int(self.settings.get("min_component_area", 80)),
+                    "subject_threshold": int(params.get("subject_threshold", self.settings.get("subject_threshold", 248))),
+                    "silhouette_close_kernel": int(params.get("silhouette_close_kernel", self.settings.get("silhouette_close_kernel", 9))),
+                    "outline_simplify_ratio": float(params.get("outline_simplify_ratio", self.settings.get("outline_simplify_ratio", 0.012))),
+                    "outline_stroke_width": int(params.get("outline_stroke_width", self.settings.get("outline_stroke_width", 3))),
+                    "max_outlines": int(params.get("max_outlines", self.settings.get("max_outlines", 2))),
+                },
+            },
+        )
+
+
+class SilhouetteOutlineRectifier(OutlineRectifier):
+    def run(
+        self,
+        subject_image: Image.Image,
+        generated_path: Path,
+        destination: Path,
+        params: dict[str, Any],
+    ) -> OutlineRectifierResult:
+        min_component_area = int(self.settings.get("min_component_area", 80))
+        subject_mask = _subject_mask_from_image(
+            subject_image,
+            int(params.get("subject_threshold", self.settings.get("subject_threshold", 248))),
+            int(params.get("silhouette_close_kernel", self.settings.get("silhouette_close_kernel", 9))),
+            min_component_area,
+        )
+        outline = _extract_simple_outline(
+            subject_mask,
+            int(params.get("outline_close_kernel", self.settings.get("outline_close_kernel", 5))),
+            float(params.get("min_outline_area", self.settings.get("min_outline_area", 300.0))),
+            int(params.get("max_outlines", self.settings.get("max_outlines", 2))),
+            float(params.get("outline_simplify_ratio", self.settings.get("outline_simplify_ratio", 0.012))),
+            int(params.get("outline_stroke_width", self.settings.get("outline_stroke_width", 3))),
+        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray((outline * 255).astype(np.uint8), mode="L").save(destination)
+        return OutlineRectifierResult(
+            diagram_path=destination,
+            metadata={
+                "model_backend": self.settings.get("model_backend", "local"),
+                "model_name": self.settings.get("model_name", "silhouette_outline_rectifier"),
+                "model_version_or_checkpoint": self.settings.get("model_version_or_checkpoint", "local-v1"),
+                "execution_mode": "subject_silhouette_rectification",
+                "used_generator_input": generated_path.name,
+                "inference_params": {
+                    "subject_threshold": int(params.get("subject_threshold", self.settings.get("subject_threshold", 248))),
+                    "silhouette_close_kernel": int(params.get("silhouette_close_kernel", self.settings.get("silhouette_close_kernel", 9))),
+                    "outline_close_kernel": int(params.get("outline_close_kernel", self.settings.get("outline_close_kernel", 5))),
+                    "outline_simplify_ratio": float(params.get("outline_simplify_ratio", self.settings.get("outline_simplify_ratio", 0.012))),
+                    "outline_stroke_width": int(params.get("outline_stroke_width", self.settings.get("outline_stroke_width", 3))),
+                    "max_outlines": int(params.get("max_outlines", self.settings.get("max_outlines", 2))),
+                },
+            },
+        )
+
+
+class FluxKontextOutlineRectifier(OutlineRectifier):
+    def run(
+        self,
+        subject_image: Image.Image,
+        generated_path: Path,
+        destination: Path,
+        params: dict[str, Any],
+    ) -> OutlineRectifierResult:
+        raise RuntimeError(
+            "FLUX Kontext outline rectifier is not wired yet. "
+            "Use `silhouette_outline_rectifier` for the current local pipeline."
         )
 
 
@@ -88,6 +369,32 @@ class SemanticValidator:
         opencv_result: OpenCVValidationResult,
     ) -> SemanticValidationResult:
         raise NotImplementedError
+
+    def suggest_params(
+        self,
+        sample: dict[str, Any],
+        subject_path: Path,
+        diagram_path: Path,
+        opencv_result: OpenCVValidationResult,
+        current_params: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {}
+
+
+class MockSemanticValidator(SemanticValidator):
+    def validate(
+        self,
+        sample: dict[str, Any],
+        diagram_path: Path,
+        opencv_result: OpenCVValidationResult,
+    ) -> SemanticValidationResult:
+        passed = opencv_result.passed and opencv_result.score >= float(self.settings.get("min_score", 0.55))
+        return SemanticValidationResult(
+            passed=passed,
+            score=opencv_result.score,
+            reason="mock semantic validation",
+            metadata={"model_backend": "mock", "model_name": self.settings.get("model_name", "mock_semantic_validator")},
+        )
 
 
 class OllamaSemanticValidator(SemanticValidator):
@@ -112,23 +419,24 @@ class OllamaSemanticValidator(SemanticValidator):
 
     def _build_prompt(self, sample: dict[str, Any], opencv_result: OpenCVValidationResult) -> str:
         return (
-            "You are validating line art for a robot drawing dataset. "
-            "Judge whether this diagram is simple, elegant, recognizable, clean, well-defined, and easy to draw. "
-            "Prefer sparse line art over noisy or cluttered detail. "
+            "You are validating simple outline art for a robot drawing dataset. "
+            "Judge whether this image is a clean, simple, well-defined outer outline that is easy to draw. "
+            "Prefer one or two clear contours with minimal internal detail. "
+            "Do not judge whether it matches a specific animal, category, or subcategory. "
             "Return JSON only with keys: passed (boolean), score (0 to 1), reason (string). "
-            f"Category: {sample['category']}. "
-            f"Subcategory: {sample['subcategory']}. "
-            f"Angle bucket: {sample['angle_bucket']}. "
             f"OpenCV score: {opencv_result.score:.4f}. "
             f"OpenCV flags: {', '.join(opencv_result.flags) if opencv_result.flags else 'none'}."
         )
 
     def _request(self, diagram_path: Path, prompt: str) -> dict[str, Any]:
-        image_b64 = base64.b64encode(diagram_path.read_bytes()).decode("ascii")
+        return self._request_with_images([diagram_path], prompt)
+
+    def _request_with_images(self, image_paths: list[Path], prompt: str) -> dict[str, Any]:
+        images = [base64.b64encode(path.read_bytes()).decode("ascii") for path in image_paths]
         body = {
             "model": self._model_name(),
             "prompt": prompt,
-            "images": [image_b64],
+            "images": images,
             "stream": False,
             "options": {
                 "temperature": float(self.settings.get("temperature", 0.0)),
@@ -175,6 +483,41 @@ class OllamaSemanticValidator(SemanticValidator):
             metadata=self._metadata(),
         )
 
+    def suggest_params(
+        self,
+        sample: dict[str, Any],
+        subject_path: Path,
+        diagram_path: Path,
+        opencv_result: OpenCVValidationResult,
+        current_params: dict[str, Any],
+    ) -> dict[str, Any]:
+        prompt = (
+            "Image 1 is the subject crop. Image 2 is the current outline diagram. "
+            "Suggest generator parameters to make the result a complete full-subject outer outline only. "
+            "Remove inner structures like fur, feathers, scales, and texture lines. "
+            "Prefer a complete simple silhouette-style outline that is easy to draw. "
+            "Return JSON only. Include any useful keys from this set: "
+            "render_mode, subject_threshold, silhouette_close_kernel, outline_simplify_ratio, "
+            "outline_stroke_width, max_outlines, threshold, blur_radius, reason. "
+            f"OpenCV score: {opencv_result.score:.4f}. "
+            f"OpenCV flags: {', '.join(opencv_result.flags) if opencv_result.flags else 'none'}. "
+            f"Current params: {json.dumps(current_params, sort_keys=True)}."
+        )
+        payload = self._request_with_images([subject_path, diagram_path], prompt)
+        result = _extract_json_object(str(payload.get("response", "")))
+        allowed_keys = {
+            "render_mode",
+            "subject_threshold",
+            "silhouette_close_kernel",
+            "outline_simplify_ratio",
+            "outline_stroke_width",
+            "max_outlines",
+            "threshold",
+            "blur_radius",
+            "reason",
+        }
+        return {key: value for key, value in result.items() if key in allowed_keys}
+
 
 def _extract_json_object(content: str) -> dict[str, Any]:
     content = content.strip()
@@ -203,13 +546,11 @@ class AnthropicSemanticValidator(SemanticValidator):
         image_bytes = diagram_path.read_bytes()
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         prompt = (
-            "You are validating line art for a robot drawing dataset. "
-            "Judge whether this diagram is simple, recognizable, clean, well-defined, and easy to draw. "
-            "Prefer sparse elegant line art over noisy detail. "
+            "You are validating simple outline art for a robot drawing dataset. "
+            "Judge whether this image is a clean, simple, well-defined outer outline that is easy to draw. "
+            "Prefer one or two clear contours with minimal internal detail. "
+            "Do not judge whether it matches a specific animal, category, or subcategory. "
             "Return JSON only with keys: passed (boolean), score (0 to 1), reason (string). "
-            f"Category: {sample['category']}. "
-            f"Subcategory: {sample['subcategory']}. "
-            f"Angle bucket: {sample['angle_bucket']}. "
             f"OpenCV score: {opencv_result.score:.4f}. "
             f"OpenCV flags: {', '.join(opencv_result.flags) if opencv_result.flags else 'none'}."
         )
@@ -271,22 +612,62 @@ class AnthropicSemanticValidator(SemanticValidator):
         )
 
 
-def build_diagram_backend(config: dict[str, Any]) -> DiagramBackend:
+def build_outline_generator(config: dict[str, Any]) -> DiagramBackend:
     backend_name = config.get("backend", "informative_drawings")
     if backend_name == "informative_drawings":
         return InformativeDrawingsBackend(config)
-    raise ValueError(f"Unknown diagram backend: {backend_name}")
+    raise ValueError(f"Unknown outline generator backend: {backend_name}")
 
 
-def build_semantic_validator(config: dict[str, Any]) -> SemanticValidator:
+def build_outline_rectifier(config: dict[str, Any]) -> OutlineRectifier:
+    backend_name = config.get("backend", "silhouette_outline_rectifier")
+    if backend_name == "silhouette_outline_rectifier":
+        return SilhouetteOutlineRectifier(config)
+    if backend_name == "flux_kontext_rectifier":
+        return FluxKontextOutlineRectifier(config)
+    raise ValueError(f"Unknown outline rectifier backend: {backend_name}")
+
+
+def build_outline_validator(config: dict[str, Any]) -> SemanticValidator:
     backend_name = config.get("backend", "auto")
     if backend_name == "auto":
         backend_name = "anthropic_semantic_validator" if os.getenv("ANTHROPIC_API_KEY") else "ollama_semantic_validator"
+    if backend_name == "mock_semantic_validator":
+        return MockSemanticValidator(config)
     if backend_name == "ollama_semantic_validator":
         return OllamaSemanticValidator(config)
     if backend_name == "anthropic_semantic_validator":
         return AnthropicSemanticValidator(config)
-    raise ValueError(f"Unknown semantic validator backend: {backend_name}")
+    raise ValueError(f"Unknown outline validator backend: {backend_name}")
+
+
+def build_diagram_backend(config: dict[str, Any]) -> DiagramBackend:
+    return build_outline_generator(config)
+
+
+def build_semantic_validator(config: dict[str, Any]) -> SemanticValidator:
+    return build_outline_validator(config)
+
+
+def run_outline_pass(
+    subject_image: Image.Image,
+    destination: Path,
+    params: dict[str, Any],
+    generator: DiagramBackend,
+    rectifier: OutlineRectifier,
+) -> OutlineAttemptResult:
+    raw_destination = destination.with_name(f"{destination.stem}_generated{destination.suffix}")
+    generated = generator.run(subject_image, raw_destination, params)
+    try:
+        rectified = rectifier.run(subject_image, generated.diagram_path, destination, params)
+    finally:
+        if raw_destination.exists():
+            raw_destination.unlink()
+    return OutlineAttemptResult(
+        diagram_path=rectified.diagram_path,
+        generator_metadata=generated.metadata,
+        rectifier_metadata=rectified.metadata,
+    )
 
 
 def compute_opencv_metrics(diagram: Image.Image) -> dict[str, float]:
@@ -358,65 +739,77 @@ class ValidationGraphState(TypedDict, total=False):
     attempt_count: int
     attempt_offset: int
     latest_diagram_path: str
-    latest_metadata: dict[str, Any]
+    latest_generator_metadata: dict[str, Any]
+    latest_rectifier_metadata: dict[str, Any]
     opencv_result: dict[str, Any]
     semantic_result: dict[str, Any]
+    improver_feedback: dict[str, Any]
     accepted: bool
     final_record: dict[str, Any]
-    generator: DiagramBackend
-    validator: SemanticValidator
+    outline_generator: DiagramBackend
+    outline_rectifier: OutlineRectifier
+    outline_validator: SemanticValidator
     opencv_settings: dict[str, Any]
 
 
 def _generate_attempt(state: ValidationGraphState) -> ValidationGraphState:
     subject_image = Image.open(state["subject_path"]).convert("RGB")
     attempt_count = int(state.get("attempt_count", 0)) + 1
-    state["attempt_count"] = attempt_count
     display_attempt = attempt_count + int(state.get("attempt_offset", 0))
     diagram_root = Path(state["diagram_root"])
     sample = state["sample"]
     destination = diagram_root / sample["category"] / f"{sample['sample_id']}_attempt{display_attempt:02d}.png"
-    result = state["generator"].run(subject_image, destination, state["current_params"])
-    state["latest_diagram_path"] = str(result.diagram_path)
-    state["latest_metadata"] = result.metadata
-    return state
+    result = run_outline_pass(
+        subject_image,
+        destination,
+        state["current_params"],
+        state["outline_generator"],
+        state["outline_rectifier"],
+    )
+    return {
+        "attempt_count": attempt_count,
+        "latest_diagram_path": str(result.diagram_path),
+        "latest_generator_metadata": result.generator_metadata,
+        "latest_rectifier_metadata": result.rectifier_metadata,
+    }
 
 
 def _opencv_validate(state: ValidationGraphState) -> ValidationGraphState:
     result = validate_with_opencv(Path(state["latest_diagram_path"]), state["opencv_settings"])
-    state["opencv_result"] = {
+    return {
+        "opencv_result": {
         "passed": result.passed,
         "score": result.score,
         "flags": result.flags,
         "metrics": result.metrics,
+        }
     }
-    return state
 
 
 def _semantic_validate(state: ValidationGraphState) -> ValidationGraphState:
     opencv_result = OpenCVValidationResult(**state["opencv_result"])
-    result = state["validator"].validate(state["sample"], Path(state["latest_diagram_path"]), opencv_result)
-    state["semantic_result"] = {
+    result = state["outline_validator"].validate(state["sample"], Path(state["latest_diagram_path"]), opencv_result)
+    semantic_result = {
         "passed": result.passed,
         "score": result.score,
         "reason": result.reason,
         "metadata": result.metadata,
     }
     accepted = opencv_result.passed and result.passed
-    state["accepted"] = accepted
-    state["final_record"] = {
+    final_record = {
         "sample_id": state["sample"]["sample_id"],
         "category": state["sample"]["category"],
         "subcategory": state["sample"]["subcategory"],
         "angle_bucket": state["sample"]["angle_bucket"],
         "diagram_path": state["latest_diagram_path"],
         "diagram_attempt": int(state["attempt_count"]) + int(state.get("attempt_offset", 0)),
-        "diagram_generator_backend": state["latest_metadata"],
+        "outline_generator_backend": state["latest_generator_metadata"],
+        "outline_rectifier_backend": state["latest_rectifier_metadata"],
         "diagram_validation_status": "accepted" if accepted else "rejected",
         "diagram_validation_score": round((opencv_result.score * 0.5) + (result.score * 0.5), 4),
         "opencv_flags": opencv_result.flags,
-        "semantic_validator_model": result.metadata.get("model_name", "qwen2.5vl:7b"),
-        "semantic_validator_reason": result.reason,
+        "outline_validator_model": result.metadata.get("model_name", "qwen2.5vl:7b"),
+        "outline_validator_reason": result.reason,
         "selected_for_gold": False,
         "selection_rank": None,
         "lineage": {
@@ -424,7 +817,11 @@ def _semantic_validate(state: ValidationGraphState) -> ValidationGraphState:
             "diagram_attempt_count": state["attempt_count"],
         },
     }
-    return state
+    return {
+        "semantic_result": semantic_result,
+        "accepted": accepted,
+        "final_record": final_record,
+    }
 
 
 def _route_after_semantic(state: ValidationGraphState) -> str:
@@ -432,20 +829,42 @@ def _route_after_semantic(state: ValidationGraphState) -> str:
         return "finish"
     if int(state["attempt_count"]) >= int(state["max_attempts"]):
         return "finish"
-    state["current_params"] = next_generator_params(
+    return "feedback"
+
+
+def _vlm_feedback(state: ValidationGraphState) -> ValidationGraphState:
+    suggest = getattr(state["outline_validator"], "suggest_params", None)
+    if suggest is None:
+        return {"improver_feedback": {}}
+    feedback = suggest(
+        state["sample"],
+        Path(state["subject_path"]),
+        Path(state["latest_diagram_path"]),
+        OpenCVValidationResult(**state["opencv_result"]),
         state["current_params"],
-        list(state["opencv_result"].get("flags", [])),
-        bool(state["semantic_result"].get("passed", False)),
     )
-    return "retry"
+    return {"improver_feedback": feedback}
+
+
+def _prepare_retry(state: ValidationGraphState) -> ValidationGraphState:
+    updated = next_generator_params(
+            state["current_params"],
+            list(state["opencv_result"].get("flags", [])),
+            bool(state["semantic_result"].get("passed", False)),
+        )
+    feedback = dict(state.get("improver_feedback") or {})
+    feedback.pop("reason", None)
+    updated.update(feedback)
+    return {"current_params": updated}
 
 
 def run_langgraph_validation_loop(
     sample: dict[str, Any],
     subject_path: Path,
     diagram_root: Path,
-    generator: DiagramBackend,
-    validator: SemanticValidator,
+    outline_generator: DiagramBackend,
+    outline_rectifier: OutlineRectifier,
+    outline_validator: SemanticValidator,
     opencv_settings: dict[str, Any],
     initial_params: dict[str, Any],
     max_attempts: int,
@@ -455,8 +874,9 @@ def run_langgraph_validation_loop(
         "sample": sample,
         "subject_path": str(subject_path),
         "diagram_root": str(diagram_root),
-        "generator": generator,
-        "validator": validator,
+        "outline_generator": outline_generator,
+        "outline_rectifier": outline_rectifier,
+        "outline_validator": outline_validator,
         "opencv_settings": opencv_settings,
         "current_params": dict(initial_params),
         "attempt_count": 0,
@@ -465,18 +885,22 @@ def run_langgraph_validation_loop(
     }
     if StateGraph is None:
         while True:  # pragma: no cover - exercised only without langgraph installed.
-            state = _generate_attempt(state)
-            state = _opencv_validate(state)
-            state = _semantic_validate(state)
+            state.update(_generate_attempt(state))
+            state.update(_opencv_validate(state))
+            state.update(_semantic_validate(state))
             route = _route_after_semantic(state)
             if route == "finish":
                 return state["final_record"]
+            state.update(_vlm_feedback(state))
+            state.update(_prepare_retry(state))
         return state["final_record"]
 
-    graph = StateGraph(dict)
+    graph = StateGraph(ValidationGraphState)
     graph.add_node("generate", _generate_attempt)
     graph.add_node("opencv", _opencv_validate)
     graph.add_node("semantic", _semantic_validate)
+    graph.add_node("feedback", _vlm_feedback)
+    graph.add_node("prepare_retry", _prepare_retry)
     graph.set_entry_point("generate")
     graph.add_edge("generate", "opencv")
     graph.add_edge("opencv", "semantic")
@@ -484,10 +908,12 @@ def run_langgraph_validation_loop(
         "semantic",
         _route_after_semantic,
         {
-            "retry": "generate",
+            "feedback": "feedback",
             "finish": END,
         },
     )
+    graph.add_edge("feedback", "prepare_retry")
+    graph.add_edge("prepare_retry", "generate")
     app = graph.compile()
     result = app.invoke(state)
     return dict(result["final_record"])

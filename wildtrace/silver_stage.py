@@ -7,10 +7,12 @@ from typing import Any
 from PIL import Image
 
 from wildtrace.diagram import (
-    build_diagram_backend,
-    build_semantic_validator,
+    build_outline_generator,
+    build_outline_rectifier,
+    build_outline_validator,
     next_generator_params,
     run_langgraph_validation_loop,
+    run_outline_pass,
     validate_with_opencv,
 )
 from wildtrace.images import (
@@ -98,12 +100,12 @@ def _diagram_validation_score(opencv_score: float, semantic_score: float) -> flo
 
 
 def _validator_model_name(runtime: dict[str, Any]) -> str:
-    validator_cfg = runtime["models"]["semantic_validator"]
+    validator_cfg = runtime["models"]["outline_validator"]
     return str(
         validator_cfg.get("ollama_model_name")
         or validator_cfg.get("anthropic_model_name")
         or validator_cfg.get("model_name")
-        or "semantic_validator"
+        or "outline_validator"
     )
 
 
@@ -197,28 +199,39 @@ def enrich_and_crop_subjects(repo_root: Path, runtime: dict[str, Any]) -> list[d
     return rows
 
 
-def _build_initial_diagram_attempt(sample: dict[str, Any], repo_root: Path, runtime: dict[str, Any], generator: Any) -> dict[str, Any]:
-    generator_cfg = runtime["models"]["diagram_generator"]
+def _build_initial_diagram_attempt(
+    sample: dict[str, Any],
+    repo_root: Path,
+    runtime: dict[str, Any],
+    outline_generator: Any,
+    outline_rectifier: Any,
+) -> dict[str, Any]:
+    generator_cfg = runtime["models"]["outline_generator"]
     category_paths = _silver_category_paths(repo_root, runtime, sample["category"])
     subject_path = resolve_repo_path(repo_root, sample["crop_path"])
     image = open_image(subject_path)
     params = dict(generator_cfg.get("default_params", {}))
     destination = category_paths["diagrams"] / f"{sample['sample_id']}_attempt01.png"
-    result = generator.run(image, destination, params)
+    result = run_outline_pass(image, destination, params, outline_generator, outline_rectifier)
     return {
         **_base_sample_fields(sample),
         "diagram_path": str(result.diagram_path.relative_to(repo_root)),
         "diagram_attempt": 1,
-        "generator_params": params,
-        "diagram_generator_backend": result.metadata,
+        "outline_params": params,
+        "outline_generator_backend": result.generator_metadata,
+        "outline_rectifier_backend": result.rectifier_metadata,
         "lineage": {"subject_sample_id": sample["sample_id"], "generated_at": utc_now()},
     }
 
 
 def generate_line_diagrams(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
-    generator = build_diagram_backend(runtime["models"]["diagram_generator"])
+    outline_generator = build_outline_generator(runtime["models"]["outline_generator"])
+    outline_rectifier = build_outline_rectifier(runtime["models"]["outline_rectifier"])
     samples = _accepted_subject_samples(repo_root, runtime)
-    rows = [_build_initial_diagram_attempt(sample, repo_root, runtime, generator) for sample in samples]
+    rows = [
+        _build_initial_diagram_attempt(sample, repo_root, runtime, outline_generator, outline_rectifier)
+        for sample in samples
+    ]
     write_ndjson(line_diagram_attempts_manifest_path(repo_root, runtime), rows)
     return rows
 
@@ -234,15 +247,16 @@ def _accepted_diagram_record(
         **_base_sample_fields(sample),
         "diagram_path": initial["diagram_path"],
         "diagram_attempt": 1,
-        "diagram_generator_backend": initial["diagram_generator_backend"],
+        "outline_generator_backend": initial["outline_generator_backend"],
+        "outline_rectifier_backend": initial["outline_rectifier_backend"],
         "diagram_validation_status": "accepted",
         "diagram_validation_score": _diagram_validation_score(opencv_result.score, semantic_result.score),
         "opencv_flags": opencv_result.flags,
-        "semantic_validator_model": semantic_result.metadata.get(
+        "outline_validator_model": semantic_result.metadata.get(
             "model_name",
             _validator_model_name(runtime),
         ),
-        "semantic_validator_reason": semantic_result.reason,
+        "outline_validator_reason": semantic_result.reason,
         "selected_for_gold": False,
         "selection_rank": None,
         "lineage": {"subject_sample_id": sample["sample_id"], "diagram_attempt_count": 1},
@@ -254,26 +268,28 @@ def _validate_single_diagram(
     initial: dict[str, Any],
     repo_root: Path,
     runtime: dict[str, Any],
-    generator: Any,
-    validator: Any,
+    outline_generator: Any,
+    outline_rectifier: Any,
+    outline_validator: Any,
 ) -> dict[str, Any]:
     model_cfg = runtime["models"]
     initial_path = resolve_repo_path(repo_root, initial["diagram_path"])
     opencv_result = validate_with_opencv(initial_path, model_cfg["opencv_prescreen"])
-    semantic_result = validator.validate(sample, initial_path, opencv_result)
+    semantic_result = outline_validator.validate(sample, initial_path, opencv_result)
     if opencv_result.passed and semantic_result.passed:
         return _accepted_diagram_record(sample, runtime, initial, opencv_result, semantic_result)
 
-    retry_params = next_generator_params(initial["generator_params"], opencv_result.flags, semantic_result.passed)
+    retry_params = next_generator_params(initial["outline_params"], opencv_result.flags, semantic_result.passed)
     retried = run_langgraph_validation_loop(
         sample=sample,
         subject_path=resolve_repo_path(repo_root, sample["crop_path"]),
         diagram_root=_silver_category_paths(repo_root, runtime, sample["category"])["diagrams"].parent,
-        generator=generator,
-        validator=validator,
+        outline_generator=outline_generator,
+        outline_rectifier=outline_rectifier,
+        outline_validator=outline_validator,
         opencv_settings=model_cfg["opencv_prescreen"],
         initial_params=retry_params,
-        max_attempts=max(int(model_cfg["diagram_generator"].get("max_attempts", 5)) - 1, 1),
+        max_attempts=max(int(model_cfg["outline_generator"].get("max_attempts", 5)) - 1, 1),
         attempt_offset=1,
     )
     retried["diagram_path"] = str(Path(retried["diagram_path"]).relative_to(repo_root))
@@ -282,11 +298,23 @@ def _validate_single_diagram(
 
 def validate_and_retry_diagrams(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
     model_cfg = runtime["models"]
-    validator = build_semantic_validator(model_cfg["semantic_validator"])
-    generator = build_diagram_backend(model_cfg["diagram_generator"])
+    outline_validator = build_outline_validator(model_cfg["outline_validator"])
+    outline_generator = build_outline_generator(model_cfg["outline_generator"])
+    outline_rectifier = build_outline_rectifier(model_cfg["outline_rectifier"])
     initial_attempts = {row["sample_id"]: row for row in read_ndjson(line_diagram_attempts_manifest_path(repo_root, runtime))}
     samples = _accepted_subject_samples(repo_root, runtime)
-    rows = [_validate_single_diagram(sample, initial_attempts[sample["sample_id"]], repo_root, runtime, generator, validator) for sample in samples]
+    rows = [
+        _validate_single_diagram(
+            sample,
+            initial_attempts[sample["sample_id"]],
+            repo_root,
+            runtime,
+            outline_generator,
+            outline_rectifier,
+            outline_validator,
+        )
+        for sample in samples
+    ]
     write_ndjson(validated_diagrams_manifest_path(repo_root, runtime), rows)
     return rows
 
