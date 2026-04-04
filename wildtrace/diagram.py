@@ -612,6 +612,26 @@ def compute_opencv_metrics(diagram: Image.Image) -> dict[str, float]:
     # Diagrams are black lines on white background; treat dark pixels as foreground (lines).
     binary = np.where(arr < 128, 255, 0).astype(np.uint8)
     foreground_ratio = float(np.count_nonzero(binary)) / float(binary.size or 1)
+    h, w = binary.shape
+
+    # Bounding-box bottom reach: how far down (0–1) the drawn content extends.
+    # A value well below 1.0 indicates the body is truncated / cropped at the bottom.
+    row_has_content = (binary > 0).any(axis=1)
+    if row_has_content.any():
+        body_bottom_reach = float(np.where(row_has_content)[0].max() + 1) / float(h)
+    else:
+        body_bottom_reach = 0.0
+
+    # Lower-body fragment count: connected components in the bottom 35% of the image.
+    # Many small disconnected blobs there indicate broken/stub legs.
+    lower_start = int(h * 0.65)
+    lower_binary = binary[lower_start:, :]
+    if cv2 is not None:
+        lower_component_count = float(cv2.connectedComponents((lower_binary > 0).astype(np.uint8))[0] - 1)
+    else:
+        lower_comps = connected_components(np.where(lower_binary > 0, 1, 0).astype(np.uint8))
+        lower_component_count = float(len(lower_comps))
+
     if cv2 is not None:
         contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         contour_count = float(len(contours))
@@ -627,6 +647,8 @@ def compute_opencv_metrics(diagram: Image.Image) -> dict[str, float]:
         "contour_count": contour_count,
         "component_count": component_count,
         "small_contour_ratio": small_contours / max(contour_count, 1.0),
+        "body_bottom_reach": body_bottom_reach,
+        "lower_body_fragment_count": lower_component_count,
     }
 
 
@@ -642,12 +664,19 @@ def validate_with_opencv(diagram_path: Path, settings: dict[str, Any]) -> OpenCV
         flags.append("too_many_components")
     if metrics["small_contour_ratio"] > float(settings.get("max_small_contour_ratio", 0.7)):
         flags.append("too_many_small_contours")
+    # Body completeness checks
+    if metrics["body_bottom_reach"] < float(settings.get("min_body_bottom_reach", 0.60)):
+        flags.append("body_truncated")
+    if metrics["lower_body_fragment_count"] > float(settings.get("max_lower_body_fragments", 5)):
+        flags.append("too_many_lower_fragments")
     score = max(
         0.0,
         1.0
         - (0.8 * abs(metrics["foreground_ratio"] - float(settings.get("target_foreground_ratio", 0.16))))
         - (0.03 * max(metrics["component_count"] - 3.0, 0.0))
-        - (0.6 * metrics["small_contour_ratio"]),
+        - (0.6 * metrics["small_contour_ratio"])
+        - (0.5 * max(0.0, float(settings.get("min_body_bottom_reach", 0.70)) - metrics["body_bottom_reach"]))
+        - (0.04 * max(metrics["lower_body_fragment_count"] - 3.0, 0.0)),
     )
     return OpenCVValidationResult(passed=not flags, score=score, flags=flags, metrics=metrics)
 
@@ -663,9 +692,9 @@ def next_generator_params(current: dict[str, Any], opencv_flags: list[str], sema
     strength = float(updated.get("strength", 0.90))
     if "high_foreground_ratio" in opencv_flags or "too_many_components" in opencv_flags:
         strength = max(round(strength - 0.05, 2), 0.60)
-    elif "low_foreground_ratio" in opencv_flags:
+    elif "low_foreground_ratio" in opencv_flags or "body_truncated" in opencv_flags:
         strength = min(round(strength + 0.05, 2), 0.98)
-    elif "too_many_small_contours" in opencv_flags or not semantic_passed:
+    elif "too_many_small_contours" in opencv_flags or "too_many_lower_fragments" in opencv_flags or not semantic_passed:
         strength = max(round(strength - 0.03, 2), 0.60)
     updated["strength"] = strength
     return updated

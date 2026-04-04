@@ -33,3 +33,5 @@ opencv_prescreen:
   target_foreground_ratio: 0.16
   max_component_count: 18
   max_small_contour_ratio: 0.70
+  min_body_bottom_reach: 0.60
+  max_lower_body_fragments: 5
