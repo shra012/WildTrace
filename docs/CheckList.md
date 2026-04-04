@@ -44,8 +44,11 @@
 ## Diagram Generation
 - [x] Add `scripts/generate_line_diagrams.py`
 - [x] Add `scripts/validate_and_retry_diagrams.py`
-- [x] Use OpenCV pre-screening before semantic validation
-- [x] Retry diagram generation with LangGraph until accepted or exhausted
+- [x] Extract silhouette contour from segmentation mask (OpenCV morphological close + findContours)
+- [x] Refine contour with FLUX.1-schnell GGUF img2img at strength=0.90 (`FluxSilhouetteRectifier`)
+- [x] Use OpenCV pre-screening before semantic validation (foreground ratio, component count, small contours)
+- [x] Retry with adjusted FLUX `strength` param via LangGraph loop until accepted or exhausted
+- [x] Remove InformativeDrawings and ControlNet backends (FLUX pipeline is the sole backend)
 
 ## Gold Export
 - [x] Add `scripts/select_final_by_angle.py`

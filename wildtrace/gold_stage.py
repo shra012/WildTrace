@@ -64,8 +64,9 @@ def _copy_diagram(diagram_path: Path, destination: Path) -> None:
 
 
 def _build_trajectory_payload(diagram: Image.Image, export: dict[str, Any]) -> dict[str, Any]:
+    normalized = diagram.convert("L").point(lambda value: 0 if value < 180 else 255)
     strokes = sample_outline_strokes(
-        diagram,
+        normalized,
         max_strokes=int(export["max_strokes"]),
         max_points_per_stroke=int(export["max_points_per_stroke"]),
         min_points_per_stroke=int(export["min_points_per_stroke"]),
@@ -74,8 +75,8 @@ def _build_trajectory_payload(diagram: Image.Image, export: dict[str, Any]) -> d
         "strokes": strokes,
         "payload": {
             "coordinate_frame": export["coordinate_frame"],
-            "canvas_width": diagram.width,
-            "canvas_height": diagram.height,
+            "canvas_width": normalized.width,
+            "canvas_height": normalized.height,
             "stroke_count": len(strokes),
             "point_count": sum(len(stroke) for stroke in strokes),
             "bounds": {"x_min": 0.0, "y_min": 0.0, "x_max": 1.0, "y_max": 1.0},
@@ -222,8 +223,10 @@ def _build_gold_record(
         "label_source": bronze["label_source"],
         "label_confidence": bronze["label_confidence"],
         "diagram_attempt": validated_record["diagram_attempt"],
-        "outline_generator_backend": validated_record["outline_generator_backend"],
-        "outline_rectifier_backend": validated_record["outline_rectifier_backend"],
+        "diagram_generator_backend": validated_record.get(
+            "diagram_generator_backend",
+            validated_record.get("outline_rectifier_backend", validated_record.get("outline_generator_backend", {})),
+        ),
         "diagram_validation_status": validated_record["diagram_validation_status"],
         "diagram_validation_score": validated_record["diagram_validation_score"],
         "opencv_flags": validated_record["opencv_flags"],

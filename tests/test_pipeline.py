@@ -15,12 +15,11 @@ from PIL import Image, ImageDraw
 from wildtrace.agentic_pipeline import select_final_by_angle
 from wildtrace.config import load_runtime_config
 from wildtrace.diagram import (
-    ControlNetLineArtRectifier,
-    DiagramBackend,
-    DiagramBackendResult,
+    FluxSilhouetteRectifier,
     OllamaSemanticValidator,
     OpenCVValidationResult,
     SemanticValidationResult,
+    SilhouetteOutlineRectifier,
     build_outline_rectifier,
     build_outline_validator,
     run_langgraph_validation_loop,
@@ -171,19 +170,12 @@ def build_test_repo(tmp_path: Path, records: list[dict] | None = None) -> Path:
                 "model_id": "heuristic_enrichment",
                 "default_confidence": 0.72,
             },
-            "outline_generator": {
-                "backend": "informative_drawings",
-                "model_backend": "mock",
-                "model_name": "informative_drawings",
-                "model_version_or_checkpoint": "mock-v1",
-                "max_attempts": 5,
-                "default_params": {"blur_radius": 0.8, "threshold": 150},
-            },
             "outline_rectifier": {
                 "backend": "silhouette_outline_rectifier",
                 "model_backend": "local",
                 "model_name": "silhouette_outline_rectifier",
                 "model_version_or_checkpoint": "local-v1",
+                "max_attempts": 5,
                 "subject_threshold": 248,
                 "silhouette_close_kernel": 9,
                 "outline_close_kernel": 5,
@@ -275,6 +267,16 @@ def run_script(project_root: Path, repo_root: Path, script_name: str) -> None:
         check=True,
         env=env,
     )
+
+
+def test_default_flux_config_matches_repo_defaults() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    runtime = load_runtime_config(project_root, project_root / "configs")
+    cfg = runtime["models"]["outline_rectifier"]
+    assert cfg["backend"] == "flux_silhouette_rectifier"
+    assert "gguf_repo" in cfg
+    assert "base_model" in cfg
+    assert float(cfg["strength"]) >= 0.85
 
 
 def test_end_to_end_agentic_pipeline(tmp_path: Path) -> None:
@@ -550,204 +552,83 @@ def test_ollama_validator_validate_ready_fails_when_host_is_down(tmp_path: Path)
         validator.validate_ready()
 
 
-def test_build_outline_rectifier_supports_controlnet(monkeypatch) -> None:
-    monkeypatch.setattr(ControlNetLineArtRectifier, "validate_ready", lambda self: None)
+def test_build_outline_rectifier_supports_silhouette() -> None:
+    rectifier = build_outline_rectifier({"backend": "silhouette_outline_rectifier"})
+    assert isinstance(rectifier, SilhouetteOutlineRectifier)
+
+
+def test_build_outline_rectifier_supports_flux(monkeypatch) -> None:
+    monkeypatch.setattr(FluxSilhouetteRectifier, "validate_ready", lambda self: None)
     rectifier = build_outline_rectifier(
         {
-            "backend": "controlnet_lineart_rectifier",
-            "base_model_name": "runwayml/stable-diffusion-v1-5",
-            "controlnet_model_name": "lllyasviel/control_v11p_sd15_lineart",
+            "backend": "flux_silhouette_rectifier",
+            "gguf_repo": "city96/FLUX.1-schnell-gguf",
+            "gguf_file": "flux1-schnell-Q4_K_S.gguf",
+            "base_model": "black-forest-labs/FLUX.1-schnell",
         }
     )
-    assert isinstance(rectifier, ControlNetLineArtRectifier)
+    assert isinstance(rectifier, FluxSilhouetteRectifier)
 
 
-def test_controlnet_rectifier_fails_without_cuda(monkeypatch) -> None:
-    rectifier = ControlNetLineArtRectifier({"device": "cuda"})
-
-    class FakeCuda:
-        @staticmethod
-        def is_available() -> bool:
-            return False
-
-    class FakeTorch:
-        cuda = FakeCuda()
-
-    monkeypatch.setattr(rectifier, "_import_torch", lambda: FakeTorch)
-    with pytest.raises(RuntimeError, match="CUDA GPU"):
-        rectifier.validate_ready()
-
-
-def test_controlnet_rectifier_validates_with_public_models(monkeypatch) -> None:
-    rectifier = ControlNetLineArtRectifier({"device": "cuda"})
-
-    class FakeCuda:
-        @staticmethod
-        def is_available() -> bool:
-            return True
-
-    class FakeTorch:
-        cuda = FakeCuda()
-
-    monkeypatch.setattr(rectifier, "_import_torch", lambda: FakeTorch)
-    monkeypatch.setattr(rectifier, "_import_diffusers", lambda: (object(), object()))
-    rectifier.validate_ready()
-
-
-def test_controlnet_rectifier_writes_output_and_metadata(monkeypatch, tmp_path: Path) -> None:
+def test_flux_rectifier_writes_output_and_metadata(monkeypatch, tmp_path: Path) -> None:
     subject_image = Image.new("RGB", (128, 128), "white")
     draw = ImageDraw.Draw(subject_image)
-    draw.ellipse((20, 20, 108, 108), fill="black")
-    generated_path = tmp_path / "generated.png"
-    generated = Image.new("RGB", (128, 128), "white")
-    draw_generated = ImageDraw.Draw(generated)
-    draw_generated.ellipse((28, 26, 100, 102), outline="black", width=3)
-    generated.save(generated_path)
-    destination = tmp_path / "rectified.png"
+    draw.ellipse((16, 16, 112, 112), fill="black")
+    destination = tmp_path / "diagram.png"
 
-    rectifier = ControlNetLineArtRectifier(
+    rectifier = FluxSilhouetteRectifier(
         {
-            "base_model_name": "runwayml/stable-diffusion-v1-5",
-            "controlnet_model_name": "lllyasviel/control_v11p_sd15_lineart",
-            "model_version_or_checkpoint": "runwayml/stable-diffusion-v1-5",
-            "device": "cuda",
-            "torch_dtype": "float16",
-            "guidance_scale": 7.5,
-            "num_inference_steps": 12,
-            "controlnet_conditioning_scale": 1.0,
+            "gguf_repo": "city96/FLUX.1-schnell-gguf",
+            "gguf_file": "flux1-schnell-Q4_K_S.gguf",
+            "base_model": "black-forest-labs/FLUX.1-schnell",
+            "strength": 0.90,
+            "min_component_area": 20,
             "subject_threshold": 248,
             "silhouette_close_kernel": 9,
-            "outline_close_kernel": 5,
-            "outline_simplify_ratio": 0.012,
-            "outline_stroke_width": 3,
-            "min_outline_area": 300,
-            "max_outlines": 2,
-            "min_component_area": 20,
-            "rectifier_threshold": 235,
-            "rectifier_close_kernel": 5,
         }
     )
 
-    monkeypatch.setattr(rectifier, "_load_pipeline", lambda: FakeControlNetPipeline())
-    result = rectifier.run(
-        {"category": "Bird", "subcategory": "hummingbird", "angle_bucket": "front", "tags": ["bird", "hummingbird", "front"]},
-        subject_image,
-        None,
-        generated_path,
-        destination,
-        {},
-    )
-    assert destination.exists()
-    assert result.metadata["model_name"] == "runwayml/stable-diffusion-v1-5"
-    assert result.metadata["controlnet_model_name"] == "lllyasviel/control_v11p_sd15_lineart"
-    assert result.metadata["execution_mode"] == "controlnet_lineart_diffusers"
-    assert result.metadata["used_generator_input"] == "generated.png"
-    assert result.metadata["prompt"]
-
-
-def test_controlnet_rectifier_resizes_generated_output(monkeypatch, tmp_path: Path) -> None:
-    subject_image = Image.new("RGB", (128, 128), "white")
-    draw = ImageDraw.Draw(subject_image)
-    draw.ellipse((18, 18, 110, 110), fill="black")
-    generated_path = tmp_path / "generated.png"
-    Image.new("RGB", (128, 128), "white").save(generated_path)
-    destination = tmp_path / "rectified.png"
-
-    rectifier = ControlNetLineArtRectifier(
-        {
-            "base_model_name": "runwayml/stable-diffusion-v1-5",
-            "controlnet_model_name": "lllyasviel/control_v11p_sd15_lineart",
-            "device": "cuda",
-            "torch_dtype": "float16",
-            "subject_threshold": 248,
-            "silhouette_close_kernel": 9,
-            "outline_close_kernel": 5,
-            "outline_simplify_ratio": 0.012,
-            "outline_stroke_width": 3,
-            "min_outline_area": 300,
-            "max_outlines": 2,
-            "min_component_area": 20,
-            "rectifier_threshold": 235,
-            "rectifier_close_kernel": 5,
-        }
-    )
-
-    class FakeMismatchedPipeline:
+    class FakeFluxPipeline:
         def __call__(self, **kwargs):
-            image = Image.new("RGB", (120, 120), "white")
-            draw = ImageDraw.Draw(image)
-            draw.ellipse((10, 10, 110, 110), outline="black", width=4)
-            return type("FakeResult", (), {"images": [image]})()
+            out = Image.new("RGB", (512, 512), "white")
+            draw = ImageDraw.Draw(out)
+            draw.ellipse((40, 40, 470, 470), outline="black", width=4)
+            return type("FakeResult", (), {"images": [out]})()
 
-    monkeypatch.setattr(rectifier, "_load_pipeline", lambda: FakeMismatchedPipeline())
+    monkeypatch.setattr(rectifier, "_load_pipeline", lambda: FakeFluxPipeline())
     result = rectifier.run(
-        {"category": "Bird", "subcategory": "hummingbird", "angle_bucket": "front", "tags": ["bird"]},
+        {"sample_id": "test-1", "category": "Dog"},
         subject_image,
         None,
-        generated_path,
+        None,
         destination,
         {},
     )
     assert destination.exists()
+    assert result.metadata["backend"] == "flux_silhouette_rectifier"
+    assert result.metadata["prompt"]
     assert Image.open(result.diagram_path).size == subject_image.size
 
 
-def test_controlnet_rectifier_ignores_full_canvas_mask_and_uses_subject_outline(monkeypatch, tmp_path: Path) -> None:
-    subject_image = Image.new("RGB", (128, 128), "white")
+def test_flux_rectifier_output_is_black_on_white(monkeypatch, tmp_path: Path) -> None:
+    subject_image = Image.new("RGB", (64, 64), "white")
     draw = ImageDraw.Draw(subject_image)
-    draw.ellipse((20, 20, 108, 108), fill="black")
-    generated_path = tmp_path / "generated.png"
-    Image.new("RGB", (128, 128), "white").save(generated_path)
-    destination = tmp_path / "rectified.png"
+    draw.ellipse((4, 4, 60, 60), fill="black")
+    destination = tmp_path / "diagram.png"
 
-    rectifier = ControlNetLineArtRectifier(
-        {
-            "base_model_name": "runwayml/stable-diffusion-v1-5",
-            "controlnet_model_name": "lllyasviel/control_v11p_sd15_lineart",
-            "device": "cuda",
-            "torch_dtype": "float16",
-            "subject_threshold": 248,
-            "silhouette_close_kernel": 9,
-            "outline_close_kernel": 5,
-            "outline_simplify_ratio": 0.012,
-            "outline_stroke_width": 3,
-            "min_outline_area": 300,
-            "max_outlines": 2,
-            "min_component_area": 20,
-            "rectifier_threshold": 235,
-            "rectifier_close_kernel": 5,
-        }
-    )
+    rectifier = FluxSilhouetteRectifier({"min_component_area": 5, "subject_threshold": 248})
 
-    class FakeFullCanvasPipeline:
+    class FakeFluxPipeline:
         def __call__(self, **kwargs):
-            image = Image.new("RGB", (128, 128), (220, 220, 220))
-            return type("FakeResult", (), {"images": [image]})()
+            out = Image.new("RGB", (512, 512), "white")
+            ImageDraw.Draw(out).ellipse((60, 60, 450, 450), outline="black", width=6)
+            return type("FakeResult", (), {"images": [out]})()
 
-    monkeypatch.setattr(rectifier, "_load_pipeline", lambda: FakeFullCanvasPipeline())
-    result = rectifier.run(
-        {"category": "Bird", "subcategory": "hummingbird", "angle_bucket": "front", "tags": ["bird"]},
-        subject_image,
-        None,
-        generated_path,
-        destination,
-        {},
-    )
+    monkeypatch.setattr(rectifier, "_load_pipeline", lambda: FakeFluxPipeline())
+    result = rectifier.run({"category": "Cat"}, subject_image, None, None, destination, {})
     arr = np.asarray(Image.open(result.diagram_path).convert("L"))
-    # Diagrams are black lines on white background; borders should be white (no line pixels at edge).
-    assert arr[0, :].min() == 255
-    assert arr[-1, :].min() == 255
-    assert arr[:, 0].min() == 255
-    assert arr[:, -1].min() == 255
-    assert arr.min() == 0  # at least some black line pixels exist
-
-
-class FakeControlNetPipeline:
-    def __call__(self, **kwargs):
-        image = kwargs["image"].copy()
-        draw = ImageDraw.Draw(image)
-        draw.ellipse((16, 14, 112, 114), outline="black", width=4)
-        return type("FakeResult", (), {"images": [image]})()
+    assert arr.max() == 255, "background must be white"
+    assert arr.min() == 0, "lines must be pure black"
 
 
 def test_ollama_validator_skips_failed_opencv(tmp_path: Path) -> None:
@@ -801,27 +682,34 @@ def test_ollama_validator_prompt_is_outline_only() -> None:
         {"category": "Bird", "subcategory": "hummingbird", "angle_bucket": "front"},
         OpenCVValidationResult(passed=True, score=0.8, flags=[], metrics={}),
     )
-    assert "specific animal" in prompt
+    assert "specific species" in prompt
     assert "hummingbird" not in prompt
     assert "Bird" not in prompt
-    assert "outer outline" in prompt
+    assert "black ink strokes" in prompt
 
 
 def test_run_langgraph_validation_loop_retries_and_preserves_state(tmp_path: Path) -> None:
     subject_path = tmp_path / "subject.png"
     Image.new("RGB", (64, 64), "white").save(subject_path)
 
-    class StubGenerator(DiagramBackend):
-        def run(self, image, destination, params):
+    class StubDiagramGenerator:
+        call_count = 0
+
+        def run(self, sample, subject_image, subject_mask, generated_path, destination, _params):
             destination.parent.mkdir(parents=True, exist_ok=True)
-            threshold = int(params["threshold"])
-            diagram = Image.new("L", image.size, 255)  # white background
-            if threshold <= 132:
+            self.call_count += 1
+            diagram = Image.new("L", subject_image.size, 255)
+            # Succeed only on the second attempt
+            if self.call_count >= 2:
                 draw = ImageDraw.Draw(diagram)
-                draw.ellipse((18, 20, 46, 42), outline=0, width=3)  # black lines
+                draw.ellipse((18, 20, 46, 42), outline=0, width=3)
                 draw.line((46, 31, 56, 28), fill=0, width=2)
             diagram.save(destination)
-            return DiagramBackendResult(diagram_path=destination, metadata={"threshold": threshold})
+            return type(
+                "GeneratedResult",
+                (),
+                {"diagram_path": destination, "metadata": {"model_name": "stub-diagram-generator"}},
+            )()
 
     class StubValidator:
         def validate(self, sample, diagram_path, opencv_result):
@@ -834,23 +722,12 @@ def test_run_langgraph_validation_loop_retries_and_preserves_state(tmp_path: Pat
                 metadata={"model_name": "stub-validator"},
             )
 
-    class StubRectifier:
-        def run(self, sample, subject_image, subject_mask, generated_path, destination, params):
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            Image.open(generated_path).save(destination)
-            return type(
-                "RectifierResult",
-                (),
-                {"diagram_path": destination, "metadata": {"model_name": "stub-rectifier"}},
-            )()
-
     result = run_langgraph_validation_loop(
         sample={"sample_id": "bird-1", "category": "Bird", "subcategory": "hummingbird", "angle_bucket": "front"},
         subject_path=subject_path,
         subject_mask_path=None,
         diagram_root=tmp_path / "diagrams",
-        outline_generator=StubGenerator({}),
-        outline_rectifier=StubRectifier(),
+        diagram_generator=StubDiagramGenerator(),
         outline_validator=StubValidator(),
         opencv_settings={
             "min_foreground_ratio": 0.03,
@@ -859,14 +736,14 @@ def test_run_langgraph_validation_loop_retries_and_preserves_state(tmp_path: Pat
             "max_component_count": 18,
             "max_small_contour_ratio": 0.70,
         },
-        initial_params={"threshold": 150, "blur_radius": 0.8},
+        initial_params={"strength": 0.90},
         max_attempts=2,
     )
 
     assert result["diagram_validation_status"] == "accepted"
     assert result["diagram_attempt"] == 2
     assert result["outline_validator_model"] == "stub-validator"
-    assert result["outline_rectifier_backend"]["model_name"] == "stub-rectifier"
+    assert result["diagram_generator_backend"]["model_name"] == "stub-diagram-generator"
 
 
 def test_select_final_by_angle_keeps_best_score_per_bucket(tmp_path: Path) -> None:
@@ -880,8 +757,7 @@ def test_select_final_by_angle_keeps_best_score_per_bucket(tmp_path: Path) -> No
             "angle_bucket": "front",
             "diagram_path": "outputs/silver/line_diagrams/Bird/a.png",
             "diagram_attempt": 1,
-            "outline_generator_backend": {"model_name": "informative_drawings"},
-            "outline_rectifier_backend": {"model_name": "silhouette_outline_rectifier"},
+            "diagram_generator_backend": {"model_name": "flux_silhouette_rectifier"},
             "diagram_validation_status": "accepted",
             "diagram_validation_score": 0.61,
             "opencv_flags": [],
@@ -898,8 +774,7 @@ def test_select_final_by_angle_keeps_best_score_per_bucket(tmp_path: Path) -> No
             "angle_bucket": "front",
             "diagram_path": "outputs/silver/line_diagrams/Bird/b.png",
             "diagram_attempt": 2,
-            "outline_generator_backend": {"model_name": "informative_drawings"},
-            "outline_rectifier_backend": {"model_name": "silhouette_outline_rectifier"},
+            "diagram_generator_backend": {"model_name": "flux_silhouette_rectifier"},
             "diagram_validation_status": "accepted",
             "diagram_validation_score": 0.83,
             "opencv_flags": [],
@@ -916,8 +791,7 @@ def test_select_final_by_angle_keeps_best_score_per_bucket(tmp_path: Path) -> No
             "angle_bucket": "left_profile",
             "diagram_path": "outputs/silver/line_diagrams/Bird/c.png",
             "diagram_attempt": 1,
-            "outline_generator_backend": {"model_name": "informative_drawings"},
-            "outline_rectifier_backend": {"model_name": "silhouette_outline_rectifier"},
+            "diagram_generator_backend": {"model_name": "flux_silhouette_rectifier"},
             "diagram_validation_status": "accepted",
             "diagram_validation_score": 0.71,
             "opencv_flags": [],

@@ -7,12 +7,11 @@ from typing import Any
 from PIL import Image
 
 from wildtrace.diagram import (
-    build_outline_generator,
     build_outline_rectifier,
     build_outline_validator,
     next_generator_params,
     run_langgraph_validation_loop,
-    run_outline_pass,
+    run_drawn_diagram_pass,
     validate_with_opencv,
 )
 from wildtrace.images import (
@@ -62,8 +61,7 @@ def _subject_config_hash(runtime: dict[str, Any]) -> str:
 def _outline_generation_config_hash(runtime: dict[str, Any]) -> str:
     return config_hash(
         {
-            "outline_generator": runtime["models"]["outline_generator"],
-            "outline_rectifier": runtime["models"]["outline_rectifier"],
+            "diagram_generator": runtime["models"]["outline_rectifier"],
         }
     )
 
@@ -71,8 +69,7 @@ def _outline_generation_config_hash(runtime: dict[str, Any]) -> str:
 def _outline_validation_config_hash(runtime: dict[str, Any]) -> str:
     return config_hash(
         {
-            "outline_generator": runtime["models"]["outline_generator"],
-            "outline_rectifier": runtime["models"]["outline_rectifier"],
+            "diagram_generator": runtime["models"]["outline_rectifier"],
             "outline_validator": runtime["models"]["outline_validator"],
             "opencv_prescreen": runtime["models"]["opencv_prescreen"],
         }
@@ -311,10 +308,9 @@ def _build_initial_diagram_attempt(
     sample: dict[str, Any],
     repo_root: Path,
     runtime: dict[str, Any],
-    outline_generator: Any,
-    outline_rectifier: Any,
+    diagram_generator: Any,
 ) -> dict[str, Any]:
-    generator_cfg = runtime["models"]["outline_generator"]
+    generator_cfg = runtime["models"]["outline_rectifier"]
     category_paths = _silver_category_paths(repo_root, runtime, sample["category"])
     subject_path = resolve_repo_path(repo_root, sample["crop_path"])
     image = open_image(subject_path)
@@ -330,14 +326,13 @@ def _build_initial_diagram_attempt(
         ).resize(image.size, Image.Resampling.NEAREST)
     params = dict(generator_cfg.get("default_params", {}))
     destination = category_paths["diagrams"] / f"{sample['sample_id']}_attempt01.png"
-    result = run_outline_pass(sample, image, subject_mask, destination, params, outline_generator, outline_rectifier)
+    result = run_drawn_diagram_pass(sample, image, subject_mask, destination, params, diagram_generator)
     return {
         **_base_sample_fields(sample),
         "diagram_path": str(result.diagram_path.relative_to(repo_root)),
         "diagram_attempt": 1,
         "outline_params": params,
-        "outline_generator_backend": result.generator_metadata,
-        "outline_rectifier_backend": result.rectifier_metadata,
+        "diagram_generator_backend": result.metadata,
         "lineage": {
             "subject_sample_id": sample["sample_id"],
             "subject_input_hash": _row_input_hash(sample),
@@ -363,10 +358,9 @@ def generate_line_diagrams(repo_root: Path, runtime: dict[str, Any]) -> list[dic
         changed = True
         missing_samples.append(sample)
     if missing_samples:
-        outline_generator = build_outline_generator(runtime["models"]["outline_generator"])
-        outline_rectifier = build_outline_rectifier(runtime["models"]["outline_rectifier"])
+        diagram_generator = build_outline_rectifier(runtime["models"]["outline_rectifier"])
         rows.extend(
-            _build_initial_diagram_attempt(sample, repo_root, runtime, outline_generator, outline_rectifier)
+            _build_initial_diagram_attempt(sample, repo_root, runtime, diagram_generator)
             for sample in missing_samples
         )
         rows.sort(key=lambda row: row["sample_id"])
@@ -386,8 +380,7 @@ def _accepted_diagram_record(
         **_base_sample_fields(sample),
         "diagram_path": initial["diagram_path"],
         "diagram_attempt": 1,
-        "outline_generator_backend": initial["outline_generator_backend"],
-        "outline_rectifier_backend": initial["outline_rectifier_backend"],
+        "diagram_generator_backend": initial["diagram_generator_backend"],
         "diagram_validation_status": "accepted",
         "diagram_validation_score": _diagram_validation_score(opencv_result.score, semantic_result.score),
         "opencv_flags": opencv_result.flags,
@@ -412,8 +405,7 @@ def _validate_single_diagram(
     initial: dict[str, Any],
     repo_root: Path,
     runtime: dict[str, Any],
-    outline_generator: Any,
-    outline_rectifier: Any,
+    diagram_generator: Any,
     outline_validator: Any,
 ) -> dict[str, Any]:
     model_cfg = runtime["models"]
@@ -429,12 +421,11 @@ def _validate_single_diagram(
         subject_path=resolve_repo_path(repo_root, sample["crop_path"]),
         subject_mask_path=resolve_repo_path(repo_root, sample["mask_path"]) if sample.get("mask_path") else None,
         diagram_root=_silver_category_paths(repo_root, runtime, sample["category"])["diagrams"].parent,
-        outline_generator=outline_generator,
-        outline_rectifier=outline_rectifier,
+        diagram_generator=diagram_generator,
         outline_validator=outline_validator,
         opencv_settings=model_cfg["opencv_prescreen"],
         initial_params=retry_params,
-        max_attempts=max(int(model_cfg["outline_generator"].get("max_attempts", 5)) - 1, 1),
+        max_attempts=max(int(model_cfg["outline_rectifier"].get("max_attempts", 5)) - 1, 1),
         attempt_offset=1,
     )
     retried["diagram_path"] = str(Path(retried["diagram_path"]).relative_to(repo_root))
@@ -461,16 +452,14 @@ def validate_and_retry_diagrams(repo_root: Path, runtime: dict[str, Any]) -> lis
         missing_pairs.append((sample, initial))
     if missing_pairs:
         outline_validator = build_outline_validator(model_cfg["outline_validator"])
-        outline_generator = build_outline_generator(model_cfg["outline_generator"])
-        outline_rectifier = build_outline_rectifier(model_cfg["outline_rectifier"])
+        diagram_generator = build_outline_rectifier(model_cfg["outline_rectifier"])
         rows.extend(
             _validate_single_diagram(
                 sample,
                 initial,
                 repo_root,
                 runtime,
-                outline_generator,
-                outline_rectifier,
+                diagram_generator,
                 outline_validator,
             )
             for sample, initial in missing_pairs

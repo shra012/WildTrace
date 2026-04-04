@@ -65,3 +65,60 @@ Identity rules:
 - adding new source images results in only new bronze and accepted records
 - duplicate or unusable raws are removed from the working bronze set
 - downstream stages read the latest accepted bronze view without any legacy ingest dependency
+
+---
+
+# Silver Pipeline Plan
+
+## Goal
+Turn accepted bronze samples into diagram-ready silver assets and generate coloring-book line art using a single FLUX img2img backend.
+
+## Silver Stages
+
+### `scripts/normalize_to_silver.py`
+- reads `raw_data/bronze/manifests/bronze_accepted.ndjson`
+- creates resized RGB, grayscale, normalized masks, and isolated-subject images
+- emits `outputs/silver/checkpoints/silver_subjects.ndjson`
+
+### `scripts/enrich_and_crop_subjects.py`
+- crops the drawable subject from the silver normalized image using the segmentation mask
+- scores segmentation quality
+- emits cropped subject assets under `outputs/silver/crops/`
+
+### `scripts/generate_line_diagrams.py`
+- generates coloring-book line art using the FLUX img2img pipeline via `run_drawn_diagram_pass`
+- **Stage 1**: extract silhouette contour from the segmentation mask using OpenCV morphological close + `findContours` + `approxPolyDP`
+- **Stage 2**: refine with FLUX.1-schnell (GGUF-quantized, Q4_K_S) img2img at `strength=0.90`
+- no separate outline-generator stage; the rectifier handles both stages internally
+- emits `outputs/silver/checkpoints/line_diagram_attempts.ndjson`
+
+### `scripts/validate_and_retry_diagrams.py`
+- runs the LangGraph validation loop: OpenCV pre-screening → semantic validation (Anthropic or Ollama VLM) → retry
+- adjusts FLUX `strength` param between attempts (range 0.60–0.98)
+- OpenCV checks: foreground ratio, component count, small-contour ratio
+- emits `outputs/silver/checkpoints/validated_diagrams.ndjson`
+
+## Diagram Backend
+The single supported backend is `FluxSilhouetteRectifier` (configured via `configs/models.yaml` under `outline_rectifier`).
+
+Key config fields:
+- `backend: flux_silhouette_rectifier`
+- `strength: 0.90` — FLUX img2img denoising strength
+- `gguf_repo / gguf_file` — quantized FLUX.1-schnell weights
+- `base_model` — Black Forest Labs FLUX.1-schnell for the VAE and text encoder
+
+`SilhouetteOutlineRectifier` is available as a lightweight CPU fallback for tests and local inspection.
+
+## Silver Artifact Locations
+- `outputs/silver/images/<category>/` — resized RGB
+- `outputs/silver/masks/<category>/` — normalized masks
+- `outputs/silver/crops/<category>/` — cropped subjects
+- `outputs/silver/diagrams/<category>/` — generated line diagrams
+- `outputs/silver/checkpoints/` — NDJSON manifests for each stage
+
+## Silver Acceptance Criteria
+- silhouette contour extraction works without GPU
+- FLUX img2img produces clean coloring-book outlines at strength=0.90
+- OpenCV pre-screening rejects obvious bad outputs before semantic validation
+- LangGraph retry loop adjusts strength and retries up to the configured max attempts
+- every diagram record carries lineage back to the bronze source and the config hash used to generate it

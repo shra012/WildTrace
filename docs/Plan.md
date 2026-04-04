@@ -64,9 +64,12 @@ Every record contains a `task_type` field. This phase uses `drawing`, but the sa
 4. `scripts/enrich_and_crop_subjects.py`
    - crops the drawable subject and scores segmentation quality
 5. `scripts/generate_line_diagrams.py`
-   - creates initial line-diagram candidates using the diagram backend
+   - generates coloring-book line art using the FLUX img2img pipeline
+   - Stage 1: extract silhouette contour from the segmentation mask
+   - Stage 2: refine with FLUX.1-schnell (GGUF-quantized) img2img at strength=0.90
 6. `scripts/validate_and_retry_diagrams.py`
-   - runs OpenCV pre-screening, semantic validation, and retry logic
+   - runs OpenCV pre-screening, semantic validation (Anthropic or Ollama), and retry logic
+   - adjusts FLUX `strength` param between attempts
 7. `scripts/select_final_by_angle.py`
    - keeps one best validated diagram per required angle bucket for each category and subcategory
 8. `scripts/extract_trajectories.py`

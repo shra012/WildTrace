@@ -124,7 +124,7 @@ def sample_outline_strokes(
     min_points_per_stroke: int,
 ) -> list[list[tuple[float, float]]]:
     arr = np.asarray(outline, dtype=np.uint8)
-    binary = np.where(arr > 0, 1, 0).astype(np.uint8)
+    binary = np.where(arr < 180, 1, 0).astype(np.uint8)
     components = connected_components(binary)
     components.sort(key=len, reverse=True)
     strokes: list[list[tuple[float, float]]] = []
