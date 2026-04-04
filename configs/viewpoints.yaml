@@ -11,11 +11,12 @@ rejected_buckets:
   - unknown
 prefilter:
   require_mask: true
-  min_mask_coverage_ratio: 0.08
+  min_mask_coverage_ratio: 0.03
   max_border_touch_ratio: 0.50
   max_component_count: 4
   min_largest_component_ratio: 0.75
   min_bbox_fill_ratio: 0.10
+  max_top_mass_dominance: 0.18
 classifier:
   backend: local_score_v1
   direction_deadzone: 0.05

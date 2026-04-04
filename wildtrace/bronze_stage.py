@@ -13,6 +13,33 @@ from wildtrace.stage_io import bronze_accepted_manifest_path, bronze_curated_man
 from wildtrace.viewpoint import build_viewpoint_backend, extract_view_features
 
 
+def _bronze_config_hash(runtime: dict[str, Any]) -> str:
+    return config_hash({"quality": runtime["quality"], "viewpoints": runtime["viewpoints"], "models": runtime["models"]})
+
+
+def _bronze_row_reusable(
+    row: dict[str, Any],
+    record: dict[str, Any],
+    repo_root: Path,
+    bronze_hash: str,
+) -> bool:
+    lineage = row.get("lineage", {})
+    if lineage.get("fetch_record_id") != record["record_id"]:
+        return False
+    if lineage.get("bronze_config_hash") != bronze_hash:
+        return False
+    if row.get("curation_status") != "accepted":
+        return True
+    image_path = resolve_repo_path(repo_root, row["image_path"])
+    if not image_path.exists():
+        return False
+    if row.get("mask_path") and not resolve_repo_path(repo_root, row["mask_path"]).exists():
+        return False
+    if row.get("metadata_path") and not resolve_repo_path(repo_root, row["metadata_path"]).exists():
+        return False
+    return True
+
+
 def _base_curation_state(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "curation_status": "accepted",
@@ -183,7 +210,7 @@ def _finalize_curation_record(
         "deleted_paths": state["deleted_paths"],
         "lineage": {
             "fetch_record_id": record["record_id"],
-            "bronze_config_hash": config_hash({"quality": quality, "viewpoints": viewpoints, "models": runtime["models"]}),
+            "bronze_config_hash": _bronze_config_hash(runtime),
             "enrichment_model": state["enrichment_metadata"],
             "curated_at": utc_now(),
         },
@@ -214,12 +241,23 @@ def curate_bronze(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, An
     fetch_records = read_ndjson(fetch_latest_view_path(repo_root, runtime))
     viewpoint_backend = build_viewpoint_backend(runtime["viewpoints"])
     enrichment_backend = build_enrichment_backend(runtime["models"]["enrichment"])
+    bronze_hash = _bronze_config_hash(runtime)
+    existing_rows = {row["sample_id"]: row for row in read_ndjson(bronze_curated_manifest_path(repo_root, runtime))}
     seen_checksums: dict[str, dict[str, Any]] = {}
-    curated = [
-        _curate_single_record(record, repo_root, runtime, viewpoint_backend, enrichment_backend, seen_checksums)
-        for record in sorted(fetch_records, key=lambda row: row["sample_id"])
-    ]
+    expected_ids = {record["sample_id"] for record in fetch_records}
+    changed = set(existing_rows) != expected_ids
+    curated: list[dict[str, Any]] = []
+    for record in sorted(fetch_records, key=lambda row: row["sample_id"]):
+        existing = existing_rows.get(record["sample_id"])
+        if existing and _bronze_row_reusable(existing, record, repo_root, bronze_hash):
+            curated.append(existing)
+            if existing.get("curation_status") == "accepted" and existing.get("image_checksum"):
+                seen_checksums[existing["image_checksum"]] = record
+            continue
+        changed = True
+        curated.append(_curate_single_record(record, repo_root, runtime, viewpoint_backend, enrichment_backend, seen_checksums))
     accepted = [row for row in curated if row["curation_status"] == "accepted"]
-    write_ndjson(bronze_curated_manifest_path(repo_root, runtime), curated)
-    write_ndjson(bronze_accepted_manifest_path(repo_root, runtime), accepted)
+    if changed or not bronze_accepted_manifest_path(repo_root, runtime).exists():
+        write_ndjson(bronze_curated_manifest_path(repo_root, runtime), curated)
+        write_ndjson(bronze_accepted_manifest_path(repo_root, runtime), accepted)
     return curated

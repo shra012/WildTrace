@@ -2,25 +2,25 @@ task_type: drawing
 source_dataset: openimages
 categories:
   - name: Cat
-    limit: 100
+    limit: 10
   - name: Dog
-    limit: 100
+    limit: 10
   - name: Horse
-    limit: 100
+    limit: 10
   - name: Bird
-    limit: 100
+    limit: 10
   - name: Butterfly
-    limit: 100
+    limit: 10
   - name: Fish
-    limit: 100
+    limit: 10
 fetch:
   source_mode: official
   records_path: null
   records: []
   timeout_seconds: 30
   user_agent: WildTraceETL/0.1
-  manifest_path: raw_data/bronze/manifests/openimages_fetch.ndjson
-  latest_view_path: raw_data/bronze/manifests/openimages_fetch_latest.ndjson
+  manifest_path: outputs/bronze/manifests/openimages_fetch.ndjson
+  latest_view_path: outputs/bronze/manifests/openimages_fetch_latest.ndjson
   official:
     splits:
       - train
@@ -41,5 +41,5 @@ fetch:
       validation: https://storage.googleapis.com/openimages/v5/validation-masks/validation-masks-{prefix}.zip
       test: https://storage.googleapis.com/openimages/v5/test-masks/test-masks-{prefix}.zip
 ingest:
-  manifest_path: raw_data/bronze/manifests/openimages_ingest.ndjson
-  latest_view_path: raw_data/bronze/manifests/openimages_ingest_latest.ndjson
+  manifest_path: outputs/bronze/manifests/openimages_ingest.ndjson
+  latest_view_path: outputs/bronze/manifests/openimages_ingest_latest.ndjson

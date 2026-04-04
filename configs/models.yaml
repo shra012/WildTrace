@@ -20,25 +20,43 @@ outline_generator:
   line_threshold: 26
   postprocess_blur_radius: 2.0
   min_component_area: 80
+  outline_simplify_ratio: 0.003
+  outline_smooth_sigma: 1.5
+  outline_stroke_width: 4
   max_attempts: 5
   default_params:
     render_mode: informative_drawings
     blur_radius: 2.0
     threshold: 26
 outline_rectifier:
-  backend: silhouette_outline_rectifier
-  model_backend: local
-  model_name: silhouette_outline_rectifier
-  model_version_or_checkpoint: local-v1
-  future_backend: flux_kontext_rectifier
-  future_model_name: ${OUTLINE_RECTIFIER_MODEL:-black-forest-labs/FLUX.1-Kontext-dev}
+  backend: controlnet_lineart_rectifier
+  model_backend: diffusers
+  model_name: ${OUTLINE_RECTIFIER_BASE_MODEL:-runwayml/stable-diffusion-v1-5}
+  controlnet_model_name: ${OUTLINE_RECTIFIER_CONTROLNET_MODEL:-lllyasviel/control_v11p_sd15_lineart}
+  model_version_or_checkpoint: ${OUTLINE_RECTIFIER_BASE_MODEL:-runwayml/stable-diffusion-v1-5}
+  cache_dir: ${HF_HOME:-~/.cache/huggingface}
+  device: ${OUTLINE_RECTIFIER_DEVICE:-cuda}
+  torch_dtype: ${OUTLINE_RECTIFIER_TORCH_DTYPE:-float16}
+  guidance_scale: 7.5
+  num_inference_steps: 30
+  controlnet_conditioning_scale: 1.0
+  prompt: a clean human-drawn style outline of {context}, full subject visible, minimal internal detail, white background, black ink lines
+  negative_prompt: detailed texture, shading, hatching, feathers, fur, scales, interior detail, clutter, background objects, color fills
+  conditioning_source: subject_canny
+  canny_low_threshold: 80
+  canny_high_threshold: 180
+  fallback_backend: silhouette_outline_rectifier
   subject_threshold: 248
   silhouette_close_kernel: 9
   outline_close_kernel: 5
-  outline_simplify_ratio: 0.012
-  outline_stroke_width: 3
+  outline_simplify_ratio: 0.003
+  outline_smooth_sigma: 1.5
+  outline_stroke_width: 4
   min_outline_area: 300
   max_outlines: 2
+  min_component_area: 80
+  rectifier_threshold: 235
+  rectifier_close_kernel: 5
 outline_validator:
   backend: ${SEMANTIC_VALIDATOR_BACKEND:-auto}
   model_backend: auto

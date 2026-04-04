@@ -40,6 +40,81 @@ from wildtrace.stage_io import (
 from wildtrace.viewpoint import extract_view_features
 
 
+def _row_input_hash(row: dict[str, Any]) -> str:
+    return config_hash(row)
+
+
+def _paths_exist(repo_root: Path, *values: str | None) -> bool:
+    for value in values:
+        if value and not resolve_repo_path(repo_root, value).exists():
+            return False
+    return True
+
+
+def _normalize_config_hash(runtime: dict[str, Any]) -> str:
+    return config_hash({"quality": runtime["quality"]})
+
+
+def _subject_config_hash(runtime: dict[str, Any]) -> str:
+    return config_hash({"quality": runtime["quality"]})
+
+
+def _outline_generation_config_hash(runtime: dict[str, Any]) -> str:
+    return config_hash(
+        {
+            "outline_generator": runtime["models"]["outline_generator"],
+            "outline_rectifier": runtime["models"]["outline_rectifier"],
+        }
+    )
+
+
+def _outline_validation_config_hash(runtime: dict[str, Any]) -> str:
+    return config_hash(
+        {
+            "outline_generator": runtime["models"]["outline_generator"],
+            "outline_rectifier": runtime["models"]["outline_rectifier"],
+            "outline_validator": runtime["models"]["outline_validator"],
+            "opencv_prescreen": runtime["models"]["opencv_prescreen"],
+        }
+    )
+
+
+def _sample_row_reusable(row: dict[str, Any], bronze: dict[str, Any], repo_root: Path, stage_hash: str) -> bool:
+    lineage = row.get("lineage", {})
+    if lineage.get("silver_config_hash") != stage_hash:
+        return False
+    if lineage.get("bronze_input_hash") != _row_input_hash(bronze):
+        return False
+    return _paths_exist(repo_root, row.get("image_path"), row.get("grayscale_path"), row.get("mask_path"), row.get("isolated_path"))
+
+
+def _subject_row_reusable(row: dict[str, Any], sample: dict[str, Any], repo_root: Path, stage_hash: str) -> bool:
+    lineage = row.get("lineage", {})
+    if lineage.get("subject_config_hash") != stage_hash:
+        return False
+    if lineage.get("silver_input_hash") != _row_input_hash(sample):
+        return False
+    return _paths_exist(repo_root, row.get("crop_path"))
+
+
+def _diagram_attempt_reusable(row: dict[str, Any], sample: dict[str, Any], repo_root: Path, stage_hash: str) -> bool:
+    lineage = row.get("lineage", {})
+    if lineage.get("outline_generation_config_hash") != stage_hash:
+        return False
+    if lineage.get("subject_input_hash") != _row_input_hash(sample):
+        return False
+    return _paths_exist(repo_root, row.get("diagram_path"))
+
+
+def _validated_row_reusable(row: dict[str, Any], initial: dict[str, Any], repo_root: Path, stage_hash: str) -> bool:
+    lineage = row.get("lineage", {})
+    if lineage.get("validation_config_hash") != stage_hash:
+        return False
+    if lineage.get("initial_attempt_hash") != _row_input_hash(initial):
+        return False
+    return _paths_exist(repo_root, row.get("diagram_path"))
+
+
 def _silver_category_paths(repo_root: Path, runtime: dict[str, Any], category: str) -> dict[str, Path]:
     silver_storage = runtime["storage"]["silver"]
     return {
@@ -151,14 +226,30 @@ def _build_normalized_sample(
         "view_features": view_features,
         "quality_status": "accepted",
         "quality_flags": [],
-        "lineage": {"bronze_sample_id": bronze["sample_id"], "silver_config_hash": config_hash({"quality": quality})},
+        "lineage": {
+            "bronze_sample_id": bronze["sample_id"],
+            "bronze_input_hash": _row_input_hash(bronze),
+            "silver_config_hash": _normalize_config_hash(runtime),
+        },
     }
 
 
 def normalize_to_silver(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
     accepted_records = read_ndjson(bronze_accepted_manifest_path(repo_root, runtime))
-    rows = [_build_normalized_sample(bronze, repo_root, runtime) for bronze in accepted_records]
-    write_ndjson(silver_samples_manifest_path(repo_root, runtime), rows)
+    existing_rows = {row["sample_id"]: row for row in read_ndjson(silver_samples_manifest_path(repo_root, runtime))}
+    stage_hash = _normalize_config_hash(runtime)
+    expected_ids = {row["sample_id"] for row in accepted_records}
+    changed = set(existing_rows) != expected_ids
+    rows: list[dict[str, Any]] = []
+    for bronze in accepted_records:
+        existing = existing_rows.get(bronze["sample_id"])
+        if existing and _sample_row_reusable(existing, bronze, repo_root, stage_hash):
+            rows.append(existing)
+            continue
+        changed = True
+        rows.append(_build_normalized_sample(bronze, repo_root, runtime))
+    if changed or not silver_samples_manifest_path(repo_root, runtime).exists():
+        write_ndjson(silver_samples_manifest_path(repo_root, runtime), rows)
     return rows
 
 
@@ -188,14 +279,31 @@ def _build_subject_record(sample: dict[str, Any], repo_root: Path, runtime: dict
         "crop_bbox": {"left": bbox[0], "top": bbox[1], "right": bbox[2], "bottom": bbox[3]},
         "segmentation_status": segmentation_status,
         "segmentation_score": segmentation_score,
-        "lineage": {**sample["lineage"], "subject_stage": "enrich_and_crop_subjects"},
+        "lineage": {
+            **sample["lineage"],
+            "silver_input_hash": _row_input_hash(sample),
+            "subject_config_hash": _subject_config_hash(runtime),
+            "subject_stage": "enrich_and_crop_subjects",
+        },
     }
 
 
 def enrich_and_crop_subjects(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
     silver_records = read_ndjson(silver_samples_manifest_path(repo_root, runtime))
-    rows = [_build_subject_record(sample, repo_root, runtime) for sample in silver_records]
-    write_ndjson(silver_subjects_manifest_path(repo_root, runtime), rows)
+    existing_rows = {row["sample_id"]: row for row in read_ndjson(silver_subjects_manifest_path(repo_root, runtime))}
+    stage_hash = _subject_config_hash(runtime)
+    expected_ids = {row["sample_id"] for row in silver_records}
+    changed = set(existing_rows) != expected_ids
+    rows: list[dict[str, Any]] = []
+    for sample in silver_records:
+        existing = existing_rows.get(sample["sample_id"])
+        if existing and _subject_row_reusable(existing, sample, repo_root, stage_hash):
+            rows.append(existing)
+            continue
+        changed = True
+        rows.append(_build_subject_record(sample, repo_root, runtime))
+    if changed or not silver_subjects_manifest_path(repo_root, runtime).exists():
+        write_ndjson(silver_subjects_manifest_path(repo_root, runtime), rows)
     return rows
 
 
@@ -210,9 +318,19 @@ def _build_initial_diagram_attempt(
     category_paths = _silver_category_paths(repo_root, runtime, sample["category"])
     subject_path = resolve_repo_path(repo_root, sample["crop_path"])
     image = open_image(subject_path)
+    subject_mask = None
+    if sample.get("mask_path"):
+        subject_mask = Image.open(resolve_repo_path(repo_root, sample["mask_path"])).crop(
+            (
+                int(sample["crop_bbox"]["left"]),
+                int(sample["crop_bbox"]["top"]),
+                int(sample["crop_bbox"]["right"]),
+                int(sample["crop_bbox"]["bottom"]),
+            )
+        ).resize(image.size, Image.Resampling.NEAREST)
     params = dict(generator_cfg.get("default_params", {}))
     destination = category_paths["diagrams"] / f"{sample['sample_id']}_attempt01.png"
-    result = run_outline_pass(image, destination, params, outline_generator, outline_rectifier)
+    result = run_outline_pass(sample, image, subject_mask, destination, params, outline_generator, outline_rectifier)
     return {
         **_base_sample_fields(sample),
         "diagram_path": str(result.diagram_path.relative_to(repo_root)),
@@ -220,19 +338,40 @@ def _build_initial_diagram_attempt(
         "outline_params": params,
         "outline_generator_backend": result.generator_metadata,
         "outline_rectifier_backend": result.rectifier_metadata,
-        "lineage": {"subject_sample_id": sample["sample_id"], "generated_at": utc_now()},
+        "lineage": {
+            "subject_sample_id": sample["sample_id"],
+            "subject_input_hash": _row_input_hash(sample),
+            "outline_generation_config_hash": _outline_generation_config_hash(runtime),
+            "generated_at": utc_now(),
+        },
     }
 
 
 def generate_line_diagrams(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
-    outline_generator = build_outline_generator(runtime["models"]["outline_generator"])
-    outline_rectifier = build_outline_rectifier(runtime["models"]["outline_rectifier"])
     samples = _accepted_subject_samples(repo_root, runtime)
-    rows = [
-        _build_initial_diagram_attempt(sample, repo_root, runtime, outline_generator, outline_rectifier)
-        for sample in samples
-    ]
-    write_ndjson(line_diagram_attempts_manifest_path(repo_root, runtime), rows)
+    existing_rows = {row["sample_id"]: row for row in read_ndjson(line_diagram_attempts_manifest_path(repo_root, runtime))}
+    stage_hash = _outline_generation_config_hash(runtime)
+    expected_ids = {row["sample_id"] for row in samples}
+    changed = set(existing_rows) != expected_ids
+    rows: list[dict[str, Any]] = []
+    missing_samples: list[dict[str, Any]] = []
+    for sample in samples:
+        existing = existing_rows.get(sample["sample_id"])
+        if existing and _diagram_attempt_reusable(existing, sample, repo_root, stage_hash):
+            rows.append(existing)
+            continue
+        changed = True
+        missing_samples.append(sample)
+    if missing_samples:
+        outline_generator = build_outline_generator(runtime["models"]["outline_generator"])
+        outline_rectifier = build_outline_rectifier(runtime["models"]["outline_rectifier"])
+        rows.extend(
+            _build_initial_diagram_attempt(sample, repo_root, runtime, outline_generator, outline_rectifier)
+            for sample in missing_samples
+        )
+        rows.sort(key=lambda row: row["sample_id"])
+    if changed or not line_diagram_attempts_manifest_path(repo_root, runtime).exists():
+        write_ndjson(line_diagram_attempts_manifest_path(repo_root, runtime), rows)
     return rows
 
 
@@ -259,7 +398,12 @@ def _accepted_diagram_record(
         "outline_validator_reason": semantic_result.reason,
         "selected_for_gold": False,
         "selection_rank": None,
-        "lineage": {"subject_sample_id": sample["sample_id"], "diagram_attempt_count": 1},
+        "lineage": {
+            "subject_sample_id": sample["sample_id"],
+            "initial_attempt_hash": _row_input_hash(initial),
+            "validation_config_hash": _outline_validation_config_hash(runtime),
+            "diagram_attempt_count": 1,
+        },
     }
 
 
@@ -283,6 +427,7 @@ def _validate_single_diagram(
     retried = run_langgraph_validation_loop(
         sample=sample,
         subject_path=resolve_repo_path(repo_root, sample["crop_path"]),
+        subject_mask_path=resolve_repo_path(repo_root, sample["mask_path"]) if sample.get("mask_path") else None,
         diagram_root=_silver_category_paths(repo_root, runtime, sample["category"])["diagrams"].parent,
         outline_generator=outline_generator,
         outline_rectifier=outline_rectifier,
@@ -298,24 +443,41 @@ def _validate_single_diagram(
 
 def validate_and_retry_diagrams(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
     model_cfg = runtime["models"]
-    outline_validator = build_outline_validator(model_cfg["outline_validator"])
-    outline_generator = build_outline_generator(model_cfg["outline_generator"])
-    outline_rectifier = build_outline_rectifier(model_cfg["outline_rectifier"])
     initial_attempts = {row["sample_id"]: row for row in read_ndjson(line_diagram_attempts_manifest_path(repo_root, runtime))}
     samples = _accepted_subject_samples(repo_root, runtime)
-    rows = [
-        _validate_single_diagram(
-            sample,
-            initial_attempts[sample["sample_id"]],
-            repo_root,
-            runtime,
-            outline_generator,
-            outline_rectifier,
-            outline_validator,
+    existing_rows = {row["sample_id"]: row for row in read_ndjson(validated_diagrams_manifest_path(repo_root, runtime))}
+    stage_hash = _outline_validation_config_hash(runtime)
+    expected_ids = {row["sample_id"] for row in samples}
+    changed = set(existing_rows) != expected_ids
+    rows: list[dict[str, Any]] = []
+    missing_pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for sample in samples:
+        initial = initial_attempts[sample["sample_id"]]
+        existing = existing_rows.get(sample["sample_id"])
+        if existing and _validated_row_reusable(existing, initial, repo_root, stage_hash):
+            rows.append(existing)
+            continue
+        changed = True
+        missing_pairs.append((sample, initial))
+    if missing_pairs:
+        outline_validator = build_outline_validator(model_cfg["outline_validator"])
+        outline_generator = build_outline_generator(model_cfg["outline_generator"])
+        outline_rectifier = build_outline_rectifier(model_cfg["outline_rectifier"])
+        rows.extend(
+            _validate_single_diagram(
+                sample,
+                initial,
+                repo_root,
+                runtime,
+                outline_generator,
+                outline_rectifier,
+                outline_validator,
+            )
+            for sample, initial in missing_pairs
         )
-        for sample in samples
-    ]
-    write_ndjson(validated_diagrams_manifest_path(repo_root, runtime), rows)
+        rows.sort(key=lambda row: row["sample_id"])
+    if changed or not validated_diagrams_manifest_path(repo_root, runtime).exists():
+        write_ndjson(validated_diagrams_manifest_path(repo_root, runtime), rows)
     return rows
 
 
@@ -328,11 +490,33 @@ def _apply_selection_ranks(rows: list[dict[str, Any]]) -> None:
 
 def select_final_by_angle(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
     validated = [row for row in read_ndjson(validated_diagrams_manifest_path(repo_root, runtime)) if row["diagram_validation_status"] == "accepted"]
+    existing_rows = read_ndjson(selected_diagrams_manifest_path(repo_root, runtime))
+    selection_source_hash = config_hash(
+        [
+            {
+                "sample_id": row["sample_id"],
+                "category": row["category"],
+                "subcategory": row["subcategory"],
+                "angle_bucket": row["angle_bucket"],
+                "diagram_validation_score": row["diagram_validation_score"],
+            }
+            for row in sorted(validated, key=lambda item: item["sample_id"])
+        ]
+    )
+    if existing_rows:
+        reusable = len(existing_rows) == len(validated) and all(
+            row.get("lineage", {}).get("selection_source_hash") == selection_source_hash
+            for row in existing_rows
+        )
+        if reusable:
+            return existing_rows
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in validated:
         grouped[(row["category"], row["subcategory"], row["angle_bucket"])].append(row)
     for rows in grouped.values():
         _apply_selection_ranks(rows)
     all_rows = sorted(validated, key=lambda row: (row["category"], row["subcategory"], row["angle_bucket"], -row["diagram_validation_score"]))
+    for row in all_rows:
+        row["lineage"] = {**row.get("lineage", {}), "selection_source_hash": selection_source_hash}
     write_ndjson(selected_diagrams_manifest_path(repo_root, runtime), all_rows)
     return all_rows

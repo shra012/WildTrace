@@ -15,10 +15,26 @@ from wildtrace.stage_io import (
     bronze_curated_manifest_path,
     bronze_accepted_manifest_path,
     diagram_trajectories_manifest_path,
+    gold_records_dir,
     selected_diagrams_manifest_path,
     silver_subjects_manifest_path,
     validated_diagrams_manifest_path,
 )
+
+
+def _row_input_hash(row: dict[str, Any]) -> str:
+    return json.dumps(row, sort_keys=True)
+
+
+def _trajectory_config_hash(runtime: dict[str, Any]) -> str:
+    return json.dumps(runtime["export"], sort_keys=True)
+
+
+def _paths_exist(repo_root: Path, *values: str | None) -> bool:
+    for value in values:
+        if value and not resolve_repo_path(repo_root, value).exists():
+            return False
+    return True
 
 
 def _gold_category_paths(repo_root: Path, runtime: dict[str, Any], category: str) -> dict[str, Path]:
@@ -112,8 +128,22 @@ def _write_trajectory_assets(
 
 def extract_trajectories(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
     export = runtime["export"]
+    existing_rows = {row["sample_id"]: row for row in read_ndjson(diagram_trajectories_manifest_path(repo_root, runtime))}
+    trajectory_hash = _trajectory_config_hash(runtime)
     rows: list[dict[str, Any]] = []
+    changed = set(existing_rows) != {row["sample_id"] for row in _selected_gold_candidates(repo_root, runtime)}
     for record in _selected_gold_candidates(repo_root, runtime):
+        existing = existing_rows.get(record["sample_id"])
+        if existing:
+            lineage = existing.get("lineage", {})
+            if (
+                lineage.get("trajectory_source_hash") == _row_input_hash(record)
+                and lineage.get("trajectory_config_hash") == trajectory_hash
+                and _paths_exist(repo_root, existing.get("diagram_path"), existing.get("svg_path"), existing.get("trajectory_path"))
+            ):
+                rows.append(existing)
+                continue
+        changed = True
         category_paths = _gold_category_paths(repo_root, runtime, record["category"])
         diagram_path = resolve_repo_path(repo_root, record["diagram_path"])
         copied_diagram_path = category_paths["diagrams"] / f"{record['sample_id']}.png"
@@ -125,9 +155,15 @@ def extract_trajectories(repo_root: Path, runtime: dict[str, Any]) -> list[dict[
                 **record,
                 "diagram_path": str(copied_diagram_path.relative_to(repo_root)),
                 **trajectory_assets,
+                "lineage": {
+                    **record.get("lineage", {}),
+                    "trajectory_source_hash": _row_input_hash(record),
+                    "trajectory_config_hash": trajectory_hash,
+                },
             }
         )
-    write_ndjson(diagram_trajectories_manifest_path(repo_root, runtime), rows)
+    if changed or not diagram_trajectories_manifest_path(repo_root, runtime).exists():
+        write_ndjson(diagram_trajectories_manifest_path(repo_root, runtime), rows)
     return rows
 
 
@@ -207,16 +243,35 @@ def _build_gold_record(
 
 
 def export_gold_ndjson(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
-    storage = runtime["storage"]
     bronze_records = _sample_lookup(bronze_accepted_manifest_path(repo_root, runtime))
     silver_records = _sample_lookup(silver_subjects_manifest_path(repo_root, runtime))
     validated = _sample_lookup(validated_diagrams_manifest_path(repo_root, runtime))
     extracted = _sample_lookup(diagram_trajectories_manifest_path(repo_root, runtime))
+    output_path = gold_records_dir(repo_root, runtime) / "gold_samples.ndjson"
+    existing_rows = {row["sample_id"]: row for row in read_ndjson(output_path)}
+    export_hash = json.dumps({"export": runtime["export"], "datasets": runtime["datasets"]["task_type"]}, sort_keys=True)
     rows: list[dict[str, Any]] = []
-    output_path = resolve_repo_path(repo_root, storage["gold"]["ndjson_dir"]) / "gold_samples.ndjson"
+    changed = set(existing_rows) != set(extracted)
     for sample_id, final_record in extracted.items():
-        rows.append(_build_gold_record(sample_id, bronze_records[sample_id], silver_records[sample_id], validated[sample_id], final_record, runtime))
-    write_ndjson(output_path, rows)
+        source_hash = json.dumps(
+            {
+                "bronze": bronze_records[sample_id],
+                "silver": silver_records[sample_id],
+                "validated": validated[sample_id],
+                "trajectory": final_record,
+            },
+            sort_keys=True,
+        )
+        existing = existing_rows.get(sample_id)
+        if existing and existing.get("lineage", {}).get("export_source_hash") == source_hash and existing.get("lineage", {}).get("export_config_hash") == export_hash:
+            rows.append(existing)
+            continue
+        changed = True
+        row = _build_gold_record(sample_id, bronze_records[sample_id], silver_records[sample_id], validated[sample_id], final_record, runtime)
+        row["lineage"] = {**row["lineage"], "export_source_hash": source_hash, "export_config_hash": export_hash}
+        rows.append(row)
+    if changed or not output_path.exists():
+        write_ndjson(output_path, rows)
     return rows
 
 
@@ -247,12 +302,20 @@ def _report_summary(
 
 def generate_dataset_report(repo_root: Path, runtime: dict[str, Any]) -> dict[str, Any]:
     storage = runtime["storage"]
-    gold_records = read_ndjson(resolve_repo_path(repo_root, storage["gold"]["ndjson_dir"]) / "gold_samples.ndjson")
+    gold_path = gold_records_dir(repo_root, runtime) / "gold_samples.ndjson"
+    gold_records = read_ndjson(gold_path)
     curated = read_ndjson(bronze_curated_manifest_path(repo_root, runtime))
     validated = read_ndjson(validated_diagrams_manifest_path(repo_root, runtime))
-    summary = _report_summary(gold_records, curated, validated)
     report_root = resolve_repo_path(repo_root, storage["reports_dir"])
+    report_json = report_root / "dataset_report.json"
+    source_hash = json.dumps({"gold": gold_records, "curated": curated, "validated": validated}, sort_keys=True)
+    if report_json.exists():
+        existing = json.loads(report_json.read_text(encoding="utf-8"))
+        if existing.get("source_hash") == source_hash:
+            return existing
+    summary = _report_summary(gold_records, curated, validated)
     report_root.mkdir(parents=True, exist_ok=True)
+    summary["source_hash"] = source_hash
     (report_root / "dataset_report.json").write_text(json.dumps(summary, sort_keys=True, indent=2), encoding="utf-8")
     markdown_lines = [
         "# Dataset Report",

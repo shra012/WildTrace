@@ -138,31 +138,8 @@ class LocalScoreViewpointBackend:
     def __init__(self, settings: dict[str, Any]) -> None:
         self.settings = settings
 
-    def classify(self, sample: dict[str, Any], config: dict[str, Any]) -> ViewpointResult:
-        features = sample.get("view_features") or {}
+    def _prefilter_flags(self, features: dict[str, Any], prefilter: dict[str, Any]) -> list[str]:
         flags: list[str] = []
-        prefilter = config["prefilter"]
-        if prefilter.get("require_mask", True) and not sample.get("mask_available"):
-            return ViewpointResult(
-                bucket="unknown",
-                confidence=0.0,
-                margin=0.0,
-                scores={},
-                status="rejected",
-                flags=["missing_mask"],
-                allowed_for_outline=False,
-            )
-        if not features:
-            return ViewpointResult(
-                bucket="unknown",
-                confidence=0.0,
-                margin=0.0,
-                scores={},
-                status="rejected",
-                flags=["missing_view_features"],
-                allowed_for_outline=False,
-            )
-
         if float(features["mask_coverage_ratio"]) < float(prefilter["min_mask_coverage_ratio"]):
             flags.append("low_mask_coverage")
         if float(features["border_touch_ratio"]) > float(prefilter["max_border_touch_ratio"]):
@@ -173,26 +150,21 @@ class LocalScoreViewpointBackend:
             flags.append("low_largest_component_ratio")
         if float(features["bbox_fill_ratio"]) < float(prefilter["min_bbox_fill_ratio"]):
             flags.append("low_bbox_fill_ratio")
+        max_top_dominance = prefilter.get("max_top_mass_dominance")
+        if max_top_dominance is not None:
+            top_dominance = float(features["top_mass_ratio"]) - float(features["bottom_mass_ratio"])
+            if top_dominance > float(max_top_dominance):
+                flags.append("top_heavy_pose")
+        return flags
 
-        if flags:
-            return ViewpointResult(
-                bucket="unknown",
-                confidence=0.0,
-                margin=0.0,
-                scores={},
-                status="rejected",
-                flags=flags,
-                allowed_for_outline=False,
-            )
-
-        scores = self._score_buckets(features, config["classifier"])
-        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-        top_bucket, top_score = ranked[0]
-        second_score = ranked[1][1] if len(ranked) > 1 else 0.0
-        score_sum = sum(scores.values())
-        confidence = float(top_score / max(score_sum, 1e-6))
-        margin = float(top_score - second_score)
-
+    def _score_status(
+        self,
+        top_bucket: str,
+        confidence: float,
+        margin: float,
+        config: dict[str, Any],
+        flags: list[str],
+    ) -> str:
         status = "accepted"
         if confidence < float(config["min_confidence"]):
             status = "unknown"
@@ -206,7 +178,39 @@ class LocalScoreViewpointBackend:
         if top_bucket not in config.get("allowed_buckets", []):
             status = "unknown"
             flags.append("disallowed_bucket")
+        return status
 
+    def classify(self, sample: dict[str, Any], config: dict[str, Any]) -> ViewpointResult:
+        features = sample.get("view_features") or {}
+        prefilter = config["prefilter"]
+        if prefilter.get("require_mask", True) and not sample.get("mask_available"):
+            return ViewpointResult(
+                bucket="unknown", confidence=0.0, margin=0.0, scores={},
+                status="rejected", flags=["missing_mask"], allowed_for_outline=False,
+            )
+        if not features:
+            return ViewpointResult(
+                bucket="unknown", confidence=0.0, margin=0.0, scores={},
+                status="rejected", flags=["missing_view_features"], allowed_for_outline=False,
+            )
+
+        flags = self._prefilter_flags(features, prefilter)
+        if flags:
+            return ViewpointResult(
+                bucket="unknown", confidence=0.0, margin=0.0, scores={},
+                status="rejected", flags=flags, allowed_for_outline=False,
+            )
+
+        scores = self._score_buckets(features, config["classifier"])
+        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+        top_bucket, top_score = ranked[0]
+        second_score = ranked[1][1] if len(ranked) > 1 else 0.0
+        score_sum = sum(scores.values())
+        confidence = float(top_score / max(score_sum, 1e-6))
+        margin = float(top_score - second_score)
+
+        flags = []
+        status = self._score_status(top_bucket, confidence, margin, config, flags)
         return ViewpointResult(
             bucket=top_bucket if status == "accepted" else "unknown",
             confidence=confidence,

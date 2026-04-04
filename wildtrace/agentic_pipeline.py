@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from wildtrace.bronze_stage import curate_bronze
 from wildtrace.gold_stage import export_gold_ndjson, extract_trajectories, generate_dataset_report
-from wildtrace.pipeline import fetch_main
+from wildtrace.pipeline import fetch_main, reconcile_fetch_storage_main
 from wildtrace.silver_stage import (
     enrich_and_crop_subjects,
     generate_line_diagrams,
@@ -64,6 +64,7 @@ __all__ = [
     "generate_line_diagrams_main",
     "normalize_main",
     "normalize_to_silver",
+    "reconcile_fetch_storage_main",
     "report_main",
     "select_final_by_angle",
     "select_final_by_angle_main",

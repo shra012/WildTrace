@@ -262,6 +262,112 @@ def fetch_record_is_current(repo_root: Path, record: dict[str, Any]) -> bool:
     return True
 
 
+def _legacy_fetch_path_candidates(repo_root: Path, runtime: dict[str, Any], record: dict[str, Any], key: str) -> list[Path]:
+    value = record.get(key)
+    if not value:
+        return []
+    current = resolve_repo_path(repo_root, value)
+    if current.exists():
+        return [current]
+    category = record.get("category")
+    sample_id = record.get("sample_id")
+    if not category or not sample_id:
+        return []
+    filename = Path(value).name
+    if key == "image_path":
+        root = bronze_images_root(repo_root, runtime)
+    elif key == "mask_path":
+        root = bronze_masks_root(repo_root, runtime)
+    elif key == "metadata_path":
+        root = bronze_metadata_root(repo_root, runtime)
+    else:
+        return []
+    candidate = root / category / sample_id / filename
+    return [candidate] if candidate.exists() else []
+
+
+def repair_fetch_record_paths(repo_root: Path, runtime: dict[str, Any], records: list[dict[str, Any]]) -> bool:
+    changed = False
+    for record in records:
+        for key, uri_key in (("image_path", "image_uri"), ("mask_path", "mask_uri"), ("metadata_path", None)):
+            candidates = _legacy_fetch_path_candidates(repo_root, runtime, record, key)
+            if not candidates:
+                continue
+            candidate = candidates[0]
+            new_value = str(candidate.relative_to(repo_root))
+            if record.get(key) != new_value:
+                record[key] = new_value
+                changed = True
+            if uri_key:
+                new_uri = relative_local_uri(repo_root, candidate)
+                if record.get(uri_key) != new_uri:
+                    record[uri_key] = new_uri
+                    changed = True
+    return changed
+
+
+def current_fetch_records(repo_root: Path, records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    current: dict[str, dict[str, Any]] = {}
+    for record in records:
+        if record.get("fetch_status") != "success":
+            continue
+        if not fetch_record_is_current(repo_root, record):
+            continue
+        sample_id = record["sample_id"]
+        version = int(record.get("asset_version", 0) or 0)
+        previous = current.get(sample_id)
+        if previous is None or version >= int(previous.get("asset_version", 0) or 0):
+            current[sample_id] = record
+    return current
+
+
+def write_current_fetch_view(repo_root: Path, ledger_path: Path, latest_view_path: Path) -> list[dict[str, Any]]:
+    current = current_fetch_records(repo_root, read_ndjson(ledger_path))
+    rows = sorted(current.values(), key=lambda row: (row.get("category", ""), row["sample_id"]))
+    write_ndjson(latest_view_path, rows)
+    return rows
+
+
+def _cleanup_fetch_record_files(repo_root: Path, record: dict[str, Any]) -> None:
+    for key in ("image_path", "mask_path", "metadata_path"):
+        value = record.get(key)
+        if not value:
+            continue
+        path = resolve_repo_path(repo_root, value)
+        if path.exists():
+            path.unlink()
+
+
+def reconcile_fetch_storage(repo_root: Path, records: list[dict[str, Any]]) -> None:
+    by_sample: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        if record.get("fetch_status") == "success":
+            by_sample[record["sample_id"]].append(record)
+    for sample_records in by_sample.values():
+        current_records = [record for record in sample_records if fetch_record_is_current(repo_root, record)]
+        by_checksum: dict[tuple[str | None, str | None], list[dict[str, Any]]] = defaultdict(list)
+        for record in current_records:
+            key = (record.get("image_checksum"), record.get("mask_checksum"))
+            by_checksum[key].append(record)
+        for records_with_same_content in by_checksum.values():
+            if len(records_with_same_content) < 2:
+                continue
+            keep = max(records_with_same_content, key=lambda row: int(row.get("asset_version", 0) or 0))
+            for record in records_with_same_content:
+                if record is keep:
+                    continue
+                _cleanup_fetch_record_files(repo_root, record)
+
+
+def category_limit_satisfied(runtime: dict[str, Any], current_records: dict[str, dict[str, Any]]) -> bool:
+    limits = category_limits(runtime)
+    counts = Counter(record["category"] for record in current_records.values())
+    for category, limit in limits.items():
+        if limit and counts.get(category, 0) < limit:
+            return False
+    return True
+
+
 def next_asset_version(record: dict[str, Any] | None) -> int:
     return int(record.get("asset_version", 0) or 0) + 1 if record else 1
 
@@ -294,10 +400,25 @@ def fetch_openimages(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str,
     metadata_root = bronze_metadata_root(repo_root, runtime)
     archive_root = metadata_root / "mask_archives"
     existing = read_ndjson(ledger_path)
+    if repair_fetch_record_paths(repo_root, runtime, existing):
+        write_ndjson(ledger_path, existing)
+    reconcile_fetch_storage(repo_root, existing)
     latest_success = latest_successful_records(existing, "fetch_status")
+    current_success = current_fetch_records(repo_root, existing)
+    if category_limit_satisfied(runtime, current_success):
+        write_current_fetch_view(repo_root, ledger_path, latest_view)
+        return []
     fetched_records: list[dict[str, Any]] = []
 
     for record in discovered_fetch_records(runtime, repo_root):
+        current = current_success.get(record["sample_id"])
+        if current:
+            current_source_checksum = current_file_checksum(record.get("source_url"))
+            current_mask_source_checksum = current_file_checksum(record.get("mask_source_url"))
+            image_changed = current_source_checksum is not None and current_source_checksum != current.get("image_checksum")
+            mask_changed = current_mask_source_checksum is not None and current_mask_source_checksum != current.get("mask_checksum")
+            if not image_changed and not mask_changed:
+                continue
         latest = latest_success.get(record["sample_id"])
         current_source_checksum = current_file_checksum(record.get("source_url"))
         current_mask_source_checksum = current_file_checksum(record.get("mask_source_url"))
@@ -389,11 +510,27 @@ def fetch_openimages(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str,
             }
         append_ndjson(ledger_path, fetch_record)
         fetched_records.append(fetch_record)
-    write_latest_success_view(ledger_path, latest_view, "fetch_status")
+    write_current_fetch_view(repo_root, ledger_path, latest_view)
     return fetched_records
+
+
+def reconcile_fetch_storage_stage(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
+    ledger_path = fetch_manifest_path(repo_root, runtime)
+    latest_view = fetch_latest_view_path(repo_root, runtime)
+    existing = read_ndjson(ledger_path)
+    if repair_fetch_record_paths(repo_root, runtime, existing):
+        write_ndjson(ledger_path, existing)
+    reconcile_fetch_storage(repo_root, existing)
+    return write_current_fetch_view(repo_root, ledger_path, latest_view)
 
 
 def fetch_main() -> int:
     repo_root, runtime = load_runtime(parse_common_args("Fetch Open Images assets into bronze storage."))
     fetch_openimages(repo_root, runtime)
+    return 0
+
+
+def reconcile_fetch_storage_main() -> int:
+    repo_root, runtime = load_runtime(parse_common_args("Reconcile bronze fetch storage and refresh the current-view manifest."))
+    reconcile_fetch_storage_stage(repo_root, runtime)
     return 0

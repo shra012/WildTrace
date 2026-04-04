@@ -9,11 +9,4 @@ __pycache__/
 *.pyd
 
 # Pipeline outputs
-artifacts/reports/
-raw_data/bronze/openimages/images/
-raw_data/bronze/openimages/masks/
-raw_data/bronze/openimages/metadata/
-raw_data/bronze/openimages/logs/
-raw_data/bronze/manifests/
-processed/silver/
-processed/gold/
+outputs/

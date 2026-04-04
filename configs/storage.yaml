@@ -1,23 +1,23 @@
-raw_root: raw_data
-processed_root: processed
-artifacts_root: artifacts
+raw_root: outputs
+processed_root: outputs
+artifacts_root: outputs
 bronze:
-  images_dir: raw_data/bronze/openimages/images
-  masks_dir: raw_data/bronze/openimages/masks
-  metadata_dir: raw_data/bronze/openimages/metadata
-  logs_dir: raw_data/bronze/openimages/logs
-  manifests_dir: raw_data/bronze/manifests
+  images_dir: outputs/bronze/images
+  masks_dir: outputs/bronze/masks
+  metadata_dir: outputs/bronze/metadata
+  logs_dir: outputs/bronze/logs
+  manifests_dir: outputs/bronze/manifests
 silver:
-  images_dir: processed/silver/images
-  masks_dir: processed/silver/masks
-  isolated_dir: processed/silver/isolated
-  crops_dir: processed/silver/crops
-  diagrams_dir: processed/silver/diagrams
-  qa_dir: processed/silver/qa
+  images_dir: outputs/silver/images
+  masks_dir: outputs/silver/masks
+  isolated_dir: outputs/silver/isolated_subjects
+  crops_dir: outputs/silver/crops
+  diagrams_dir: outputs/silver/line_diagrams
+  checkpoints_dir: outputs/silver/checkpoints
 gold:
-  diagrams_dir: processed/gold/diagrams
-  outlines_dir: processed/gold/outlines
-  svg_dir: processed/gold/svg
-  trajectories_dir: processed/gold/trajectories
-  ndjson_dir: processed/gold/ndjson
-reports_dir: artifacts/reports
+  diagrams_dir: outputs/gold/diagrams
+  outlines_dir: outputs/gold/outlines
+  svg_dir: outputs/gold/svg
+  trajectories_dir: outputs/gold/trajectories
+  records_dir: outputs/gold/records
+reports_dir: outputs/reports
