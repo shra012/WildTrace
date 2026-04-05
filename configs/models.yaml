@@ -9,7 +9,7 @@ enrichment:
   default_confidence: 0.72
 outline_rectifier:
   backend: flux_silhouette_rectifier
-  strength: 0.90
+  strength: 0.85
   min_component_area: 80
   subject_threshold: 248
   silhouette_close_kernel: 9

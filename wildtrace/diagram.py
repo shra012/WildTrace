@@ -897,6 +897,51 @@ class FluxSilhouetteRectifier(OutlineRectifier):
         super().__init__(settings)
         self._pipeline: Any | None = None
 
+    def _build_flux_prompt(self, sample: dict[str, Any]) -> str:
+        species = str(sample.get("category", "animal")).lower()
+        subcategory = str(sample.get("subcategory", "")).lower()
+        angle = str(sample.get("angle_bucket", "")).replace("_", " ")
+        view_features = sample.get("view_features", {})
+
+        # Breed/subspecies term — use subcategory only when it adds info beyond the species.
+        # Strip common redundant prefixes like "domestic_cat" when species is already "cat".
+        clean_sub = subcategory.replace("domestic_", "").replace("_", " ")
+        breed = clean_sub if clean_sub and clean_sub != species else ""
+
+        # Pose from view_features
+        symmetry = float(view_features.get("symmetry_score", 0.0))
+        bottom_mass = float(view_features.get("bottom_mass_ratio", 0.5))
+        direction = float(view_features.get("direction_score", 0.0))
+
+        # Sitting: high symmetry + mass concentrated in lower half (not applicable to fish/bird)
+        no_legs = species in ("fish", "snake", "worm")
+        if no_legs:
+            pose = "swimming" if species == "fish" else "moving"
+        elif symmetry > 0.35 and bottom_mass > 0.6:
+            pose = "sitting"
+        elif symmetry > 0.35:
+            pose = "standing, front view"
+        elif direction < -0.3:
+            pose = "walking, facing left"
+        elif direction > 0.3:
+            pose = "walking, facing right"
+        else:
+            pose = "standing"
+
+        # Viewing angle descriptor
+        angle_desc = angle if angle else "side view"
+
+        subject = f"{breed} {species}".strip() if breed else species
+
+        parts = [
+            f"simple clean line drawing of a {subject}, {pose}, {angle_desc}",
+            "coloring book page for children",
+            f"full body visible, {subject} with distinct features matching the pose",
+            "black outline on white background",
+            "minimalist doodle, no shading, no fill, no color",
+        ]
+        return ", ".join(parts)
+
     def _import_torch(self) -> Any:
         try:
             import torch
@@ -998,19 +1043,10 @@ class FluxSilhouetteRectifier(OutlineRectifier):
 
         # --- Stage 2: FLUX img2img Refinement ---
         pipe = self._load_pipeline()
-        
+
         input_img = silhouette.convert("RGB")
-        
-        species = str(sample.get("category", "animal")).lower()
-        prompt_template = str(self.settings.get(
-            "prompt", 
-            "simple clean line drawing of a {species}, coloring book page for children, "
-            "cute {species} with visible features, black outline on white background, "
-            "minimalist simple doodle, no shading, no fill, no color"
-        ))
-        prompt = prompt_template.format(species=species)
-        
-        strength = float(params.get("strength", self.settings.get("strength", 0.90)))
+        prompt = self._build_flux_prompt(sample)
+        strength = float(params.get("strength", self.settings.get("strength", 0.85)))
         
         result = pipe(
             prompt=prompt,

@@ -6,6 +6,7 @@ that the pipeline stages use. Uses the configured outline_rectifier from configs
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -34,6 +35,10 @@ def load_subjects(repo_root: Path) -> list[dict]:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Sweep diagram pipeline across silver subjects.")
+    parser.add_argument("--limit", type=int, default=None, help="Max number of subjects to process.")
+    args = parser.parse_args()
+
     OUT = REPO_ROOT / "outputs" / "flux_sweep"
     OUT.mkdir(parents=True, exist_ok=True)
 
@@ -44,7 +49,9 @@ def main() -> None:
     rectifier = build_outline_rectifier(config["outline_rectifier"])
 
     subjects = load_subjects(REPO_ROOT)
-    print(f"Found {len(subjects)} subjects in silver manifest.")
+    if args.limit:
+        subjects = subjects[: args.limit]
+    print(f"Processing {len(subjects)} subjects.")
 
     results = []
 

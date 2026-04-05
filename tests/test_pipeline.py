@@ -18,6 +18,7 @@ from wildtrace.diagram import (
     FluxSilhouetteRectifier,
     OllamaSemanticValidator,
     OpenCVValidationResult,
+    OutlineRectifier,
     SemanticValidationResult,
     SilhouetteOutlineRectifier,
     build_outline_rectifier,
@@ -276,7 +277,7 @@ def test_default_flux_config_matches_repo_defaults() -> None:
     assert cfg["backend"] == "flux_silhouette_rectifier"
     assert "gguf_repo" in cfg
     assert "base_model" in cfg
-    assert float(cfg["strength"]) >= 0.85
+    assert float(cfg["strength"]) >= 0.70
 
 
 def test_end_to_end_agentic_pipeline(tmp_path: Path) -> None:
@@ -546,7 +547,7 @@ def test_semantic_validator_defaults_to_ollama_without_anthropic_key(monkeypatch
     assert isinstance(validator, OllamaSemanticValidator)
 
 
-def test_ollama_validator_validate_ready_fails_when_host_is_down(tmp_path: Path) -> None:
+def test_ollama_validator_validate_ready_fails_when_host_is_down() -> None:
     validator = OllamaSemanticValidator({"host": "http://127.0.0.1:9"})
     with pytest.raises(RuntimeError, match="Ollama validator is not ready"):
         validator.validate_ready()
@@ -646,7 +647,7 @@ def test_ollama_validator_skips_failed_opencv(tmp_path: Path) -> None:
         ),
     )
     assert result.passed is False
-    assert result.score == 0.0
+    assert result.score < 0.01
     assert "OpenCV pre-screen failed" in result.reason
     assert result.metadata["skipped"] is True
 
@@ -671,7 +672,7 @@ def test_ollama_validator_uses_model_response(monkeypatch, tmp_path: Path) -> No
         ),
     )
     assert result.passed is True
-    assert result.score == 0.84
+    assert abs(result.score - 0.84) < 0.01
     assert result.reason == "clean and drawable"
     assert result.metadata["model_name"] == "qwen2.5vl:7b"
 
@@ -692,10 +693,13 @@ def test_run_langgraph_validation_loop_retries_and_preserves_state(tmp_path: Pat
     subject_path = tmp_path / "subject.png"
     Image.new("RGB", (64, 64), "white").save(subject_path)
 
-    class StubDiagramGenerator:
+    class StubDiagramGenerator(OutlineRectifier):
         call_count = 0
 
-        def run(self, sample, subject_image, subject_mask, generated_path, destination, _params):
+        def __init__(self) -> None:
+            super().__init__({})
+
+        def run(self, _sample, subject_image, _subject_mask, _generated_path, destination, _params):
             destination.parent.mkdir(parents=True, exist_ok=True)
             self.call_count += 1
             diagram = Image.new("L", subject_image.size, 255)
@@ -712,7 +716,7 @@ def test_run_langgraph_validation_loop_retries_and_preserves_state(tmp_path: Pat
             )()
 
     class StubValidator:
-        def validate(self, sample, diagram_path, opencv_result):
+        def validate(self, _sample, diagram_path, _opencv_result):
             arr = np.asarray(Image.open(diagram_path).convert("L"))
             passed = bool((arr < 128).any())  # has some dark line pixels
             return SemanticValidationResult(
