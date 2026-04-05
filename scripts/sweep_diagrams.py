@@ -60,6 +60,7 @@ def main() -> None:
         species = subj["category"]
         crop_path = REPO_ROOT / subj["crop_path"]
         mask_path = REPO_ROOT / subj["mask_path"]
+        isolated_path = REPO_ROOT / subj["isolated_path"] if subj.get("isolated_path") else None
 
         if not crop_path.exists() or not mask_path.exists():
             print(f"SKIP {species}/{sid} — missing files")
@@ -68,12 +69,14 @@ def main() -> None:
         print(f"Processing {species}/{sid}...")
 
         crop = Image.open(crop_path)
+        isolated = Image.open(isolated_path) if isolated_path and isolated_path.exists() else None
+        conditioning_image = rectifier.prepare_conditioning_image(crop, isolated)
         mask = Image.open(mask_path)
         destination = OUT / f"{species}_{sid}_final.png"
 
         result = rectifier.run(
             sample=subj,
-            subject_image=crop,
+            subject_image=conditioning_image,
             subject_mask=mask,
             generated_path=None,
             destination=destination,
@@ -81,7 +84,7 @@ def main() -> None:
         )
 
         final = Image.open(result.diagram_path)
-        results.append((species, sid, crop, final))
+        results.append((species, sid, conditioning_image, final))
         print(f"  ✓ Saved {destination.name}")
 
     if not results:

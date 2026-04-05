@@ -75,6 +75,13 @@ class OutlineRectifier:
     def validate_ready(self) -> None:
         return None
 
+    def prepare_conditioning_image(
+        self,
+        crop_image: Image.Image,
+        isolated_image: Image.Image | None = None,
+    ) -> Image.Image:
+        return crop_image
+
     def run(
         self,
         sample: dict[str, Any],
@@ -703,6 +710,7 @@ def next_generator_params(current: dict[str, Any], opencv_flags: list[str], sema
 class ValidationGraphState(TypedDict, total=False):
     sample: dict[str, Any]
     subject_path: str
+    conditioning_path: str | None
     subject_mask_path: str | None
     diagram_root: str
     max_attempts: int
@@ -722,7 +730,11 @@ class ValidationGraphState(TypedDict, total=False):
 
 
 def _generate_attempt(state: ValidationGraphState) -> ValidationGraphState:
-    subject_image = Image.open(state["subject_path"]).convert("RGB")
+    crop_image = Image.open(state["subject_path"]).convert("RGB")
+    isolated_image = None
+    if state.get("conditioning_path"):
+        isolated_image = Image.open(state["conditioning_path"]).convert("RGB")
+    subject_image = state["diagram_generator"].prepare_conditioning_image(crop_image, isolated_image)
     subject_mask = None
     if state.get("subject_mask_path"):
         subject_mask = _cropped_mask_image(
@@ -836,6 +848,7 @@ def _prepare_retry(state: ValidationGraphState) -> ValidationGraphState:
 def run_langgraph_validation_loop(
     sample: dict[str, Any],
     subject_path: Path,
+    conditioning_path: Path | None,
     subject_mask_path: Path | None,
     diagram_root: Path,
     diagram_generator: OutlineRectifier,
@@ -848,6 +861,7 @@ def run_langgraph_validation_loop(
     state: ValidationGraphState = {
         "sample": sample,
         "subject_path": str(subject_path),
+        "conditioning_path": str(conditioning_path) if conditioning_path else None,
         "subject_mask_path": str(subject_mask_path) if subject_mask_path else None,
         "diagram_root": str(diagram_root),
         "diagram_generator": diagram_generator,
@@ -892,10 +906,35 @@ def run_langgraph_validation_loop(
     app = graph.compile()
     result = app.invoke(state)
     return dict(result["final_record"])
+
+
 class FluxSilhouetteRectifier(OutlineRectifier):
     def __init__(self, settings: dict[str, Any]) -> None:
         super().__init__(settings)
         self._pipeline: Any | None = None
+
+    def prepare_conditioning_image(
+        self,
+        crop_image: Image.Image,
+        isolated_image: Image.Image | None = None,
+    ) -> Image.Image:
+        mode = str(self.settings.get("conditioning_mode", "isolated_only")).strip().lower()
+        if mode == "crop_only":
+            return crop_image.copy()
+        if isolated_image is None:
+            raise ValueError("Flux conditioning requires an isolated subject image.")
+
+        crop = crop_image.convert("RGB")
+        isolated = isolated_image.convert("RGB")
+        if isolated.size != crop.size:
+            isolated = isolated.resize(crop.size, Image.Resampling.LANCZOS)
+        if mode == "isolated_only":
+            return isolated
+        if mode == "blended":
+            return Image.blend(crop, isolated, alpha=0.5)
+        raise ValueError(
+            f"Unknown Flux conditioning mode: {mode}. Expected `crop_only`, `isolated_only`, or `blended`."
+        )
 
     def _build_flux_prompt(self, sample: dict[str, Any]) -> str:
         species = str(sample.get("category", "animal")).lower()

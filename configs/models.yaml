@@ -8,7 +8,8 @@ enrichment:
   top_k_tags: 3
   default_confidence: 0.72
 outline_rectifier:
-  backend: flux_silhouette_rectifier
+  backend: ${OUTLINE_RECTIFIER_BACKEND:-flux_silhouette_rectifier}
+  conditioning_mode: ${OUTLINE_RECTIFIER_CONDITIONING_MODE:-isolated_only}
   strength: 0.85
   min_component_area: 80
   subject_threshold: 248

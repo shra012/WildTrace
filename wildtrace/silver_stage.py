@@ -313,7 +313,11 @@ def _build_initial_diagram_attempt(
     generator_cfg = runtime["models"]["outline_rectifier"]
     category_paths = _silver_category_paths(repo_root, runtime, sample["category"])
     subject_path = resolve_repo_path(repo_root, sample["crop_path"])
-    image = open_image(subject_path)
+    crop_image = open_image(subject_path)
+    isolated_image = None
+    if sample.get("isolated_path"):
+        isolated_image = open_image(resolve_repo_path(repo_root, sample["isolated_path"]))
+    image = diagram_generator.prepare_conditioning_image(crop_image, isolated_image)
     subject_mask = None
     if sample.get("mask_path"):
         subject_mask = Image.open(resolve_repo_path(repo_root, sample["mask_path"])).crop(
@@ -419,6 +423,7 @@ def _validate_single_diagram(
     retried = run_langgraph_validation_loop(
         sample=sample,
         subject_path=resolve_repo_path(repo_root, sample["crop_path"]),
+        conditioning_path=resolve_repo_path(repo_root, sample["isolated_path"]) if sample.get("isolated_path") else None,
         subject_mask_path=resolve_repo_path(repo_root, sample["mask_path"]) if sample.get("mask_path") else None,
         diagram_root=_silver_category_paths(repo_root, runtime, sample["category"])["diagrams"].parent,
         diagram_generator=diagram_generator,

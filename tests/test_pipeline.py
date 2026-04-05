@@ -275,6 +275,7 @@ def test_default_flux_config_matches_repo_defaults() -> None:
     runtime = load_runtime_config(project_root, project_root / "configs")
     cfg = runtime["models"]["outline_rectifier"]
     assert cfg["backend"] == "flux_silhouette_rectifier"
+    assert cfg["conditioning_mode"] == "isolated_only"
     assert "gguf_repo" in cfg
     assert "base_model" in cfg
     assert float(cfg["strength"]) >= 0.70
@@ -571,6 +572,26 @@ def test_build_outline_rectifier_supports_flux(monkeypatch) -> None:
     assert isinstance(rectifier, FluxSilhouetteRectifier)
 
 
+def test_flux_rectifier_conditioning_modes_resize_and_blend() -> None:
+    crop = Image.new("RGB", (64, 32), "red")
+    isolated = Image.new("RGB", (128, 96), "blue")
+
+    crop_rectifier = FluxSilhouetteRectifier({"conditioning_mode": "crop_only"})
+    crop_result = crop_rectifier.prepare_conditioning_image(crop, isolated)
+    assert crop_result.size == crop.size
+    assert crop_result.getpixel((0, 0)) == (255, 0, 0)
+
+    isolated_rectifier = FluxSilhouetteRectifier({"conditioning_mode": "isolated_only"})
+    isolated_result = isolated_rectifier.prepare_conditioning_image(crop, isolated)
+    assert isolated_result.size == crop.size
+    assert isolated_result.getpixel((0, 0)) == (0, 0, 255)
+
+    blended_rectifier = FluxSilhouetteRectifier({"conditioning_mode": "blended"})
+    blended_result = blended_rectifier.prepare_conditioning_image(crop, isolated)
+    assert blended_result.size == crop.size
+    assert blended_result.getpixel((0, 0)) in {(127, 0, 127), (128, 0, 128)}
+
+
 def test_flux_rectifier_writes_output_and_metadata(monkeypatch, tmp_path: Path) -> None:
     subject_image = Image.new("RGB", (128, 128), "white")
     draw = ImageDraw.Draw(subject_image)
@@ -691,13 +712,21 @@ def test_ollama_validator_prompt_is_outline_only() -> None:
 
 def test_run_langgraph_validation_loop_retries_and_preserves_state(tmp_path: Path) -> None:
     subject_path = tmp_path / "subject.png"
+    conditioning_path = tmp_path / "isolated.png"
     Image.new("RGB", (64, 64), "white").save(subject_path)
+    Image.new("RGB", (40, 40), "white").save(conditioning_path)
 
     class StubDiagramGenerator(OutlineRectifier):
         call_count = 0
+        conditioning_seen: tuple[tuple[int, int], tuple[int, int] | None] | None = None
 
         def __init__(self) -> None:
-            super().__init__({})
+            super().__init__({"conditioning_mode": "isolated_only"})
+
+        def prepare_conditioning_image(self, crop_image, isolated_image=None):
+            self.conditioning_seen = (crop_image.size, isolated_image.size if isolated_image else None)
+            assert isolated_image is not None
+            return crop_image
 
         def run(self, _sample, subject_image, _subject_mask, _generated_path, destination, _params):
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -726,12 +755,14 @@ def test_run_langgraph_validation_loop_retries_and_preserves_state(tmp_path: Pat
                 metadata={"model_name": "stub-validator"},
             )
 
+    diagram_generator = StubDiagramGenerator()
     result = run_langgraph_validation_loop(
         sample={"sample_id": "bird-1", "category": "Bird", "subcategory": "hummingbird", "angle_bucket": "front"},
         subject_path=subject_path,
+        conditioning_path=conditioning_path,
         subject_mask_path=None,
         diagram_root=tmp_path / "diagrams",
-        diagram_generator=StubDiagramGenerator(),
+        diagram_generator=diagram_generator,
         outline_validator=StubValidator(),
         opencv_settings={
             "min_foreground_ratio": 0.03,
@@ -748,6 +779,7 @@ def test_run_langgraph_validation_loop_retries_and_preserves_state(tmp_path: Pat
     assert result["diagram_attempt"] == 2
     assert result["outline_validator_model"] == "stub-validator"
     assert result["diagram_generator_backend"]["model_name"] == "stub-diagram-generator"
+    assert diagram_generator.conditioning_seen == ((64, 64), (40, 40))
 
 
 def test_select_final_by_angle_keeps_best_score_per_bucket(tmp_path: Path) -> None:
