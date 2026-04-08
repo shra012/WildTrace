@@ -117,6 +117,8 @@ def border_points(component: Iterable[tuple[int, int]], mask: np.ndarray) -> lis
     return borders
 
 
+import cv2
+
 def sample_outline_strokes(
     outline: Image.Image,
     max_strokes: int,
@@ -124,23 +126,25 @@ def sample_outline_strokes(
     min_points_per_stroke: int,
 ) -> list[list[tuple[float, float]]]:
     arr = np.asarray(outline, dtype=np.uint8)
-    binary = np.where(arr < 180, 1, 0).astype(np.uint8)
-    components = connected_components(binary)
-    components.sort(key=len, reverse=True)
+    binary = np.where(arr < 180, 255, 0).astype(np.uint8)
+    
+    contours, hierarchy = cv2.findContours(binary, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
+    if hierarchy is not None:
+        hr = hierarchy[0]
+        contours = [c for i, c in enumerate(contours) if hr[i][3] == -1]
+    
+    contours = sorted(contours, key=len, reverse=True)
+    
     strokes: list[list[tuple[float, float]]] = []
     height, width = binary.shape
-    for component in components[:max_strokes]:
-        borders = border_points(component, binary)
-        if len(borders) < min_points_per_stroke:
+    for contour in contours[:max_strokes]:
+        if len(contour) < min_points_per_stroke:
             continue
-        pts = np.asarray(borders, dtype=np.float32)
-        centroid = pts.mean(axis=0)
-        angles = np.arctan2(pts[:, 1] - centroid[1], pts[:, 0] - centroid[0])
-        ordered = pts[np.argsort(angles)]
-        if len(ordered) > max_points_per_stroke:
-            indices = np.linspace(0, len(ordered) - 1, max_points_per_stroke, dtype=int)
-            ordered = ordered[indices]
-        stroke = [(float(x) / max(width - 1, 1), float(y) / max(height - 1, 1)) for x, y in ordered]
+        pts = contour.reshape(-1, 2).astype(np.float32)
+        if len(pts) > max_points_per_stroke:
+            indices = np.linspace(0, len(pts) - 1, max_points_per_stroke, dtype=int)
+            pts = pts[indices]
+        stroke = [(float(x) / max(width - 1, 1), float(y) / max(height - 1, 1)) for x, y in pts]
         strokes.append(stroke)
     return strokes
 

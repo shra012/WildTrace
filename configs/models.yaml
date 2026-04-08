@@ -29,7 +29,7 @@ outline_validator:
   anthropic_temperature: 0.0
   min_score: 0.55
 opencv_prescreen:
-  min_foreground_ratio: 0.03
+  min_foreground_ratio: 0.01
   max_foreground_ratio: 0.32
   target_foreground_ratio: 0.16
   max_component_count: 18

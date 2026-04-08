@@ -884,6 +884,15 @@ def run_langgraph_validation_loop(
             state.update(_prepare_retry(state))
         return state["final_record"]
 
+    app = build_validation_langgraph()
+    result = app.invoke(state)
+    return dict(result["final_record"])
+
+
+def build_validation_langgraph():
+    if StateGraph is None:
+        raise RuntimeError("langgraph is not installed.")
+
     graph = StateGraph(ValidationGraphState)
     graph.add_node("generate", _generate_attempt)
     graph.add_node("opencv", _opencv_validate)
@@ -903,9 +912,7 @@ def run_langgraph_validation_loop(
     )
     graph.add_edge("feedback", "prepare_retry")
     graph.add_edge("prepare_retry", "generate")
-    app = graph.compile()
-    result = app.invoke(state)
-    return dict(result["final_record"])
+    return graph.compile()
 
 
 class FluxSilhouetteRectifier(OutlineRectifier):
