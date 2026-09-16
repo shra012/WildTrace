@@ -37,8 +37,7 @@ DRAWING = CONFIG["drawing"]
 def _load_robot():
     from isaacsim.core.utils.stage import add_reference_to_stage
 
-    usd_path = str((PROJECT_ROOT / "assets" / "xarm7" / "xarm7.usd").resolve())
-    add_reference_to_stage(usd_path, ROBOT["prim_path"])
+    add_reference_to_stage(ROBOT["usd_path"], ROBOT["prim_path"])
 
 
 def _create_stage_dressing():

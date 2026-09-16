@@ -5,6 +5,7 @@ import argparse
 import json
 import sys
 import traceback
+from collections import deque
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -61,14 +62,14 @@ def _workspace_check(targets, minimum, maximum) -> None:
     high = np.asarray(maximum, dtype=np.float64)
     for index, target in enumerate(targets):
         if not np.isfinite(target.position).all() or np.any(target.position < low) or np.any(target.position > high):
-            raise RuntimeError(f"Target {index} in {target.state.value} is outside workspace: {target.position}")
+            raise RuntimeError(f"Target {index} in {target.state} is outside workspace: {target.position}")
 
 
 def _lookahead(machine, count: int):
     import numpy as np
 
     target = machine.current_target
-    values = machine.phases[machine.state]
+    values = machine.phases[machine.phase_index].targets
     selected = [value.position for value in values[machine.target_index + 1 : machine.target_index + 1 + count]]
     pad = target.position if not selected else selected[-1]
     while len(selected) < count:
@@ -118,6 +119,107 @@ def _write_comparison(path: Path, desired_strokes, executed_by_stroke) -> None:
     plt.close(figure)
 
 
+def _write_diagnostics(path: Path, rows) -> None:
+    """Time-series tracking diagnostics on unclipped, error-native axes."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if not rows:
+        print("[WARN] No executed samples; skipping tracking diagnostics")
+        return
+
+    def column(name):
+        return np.asarray([row[name] for row in rows], dtype=np.float64)
+
+    time_s = column("simulation_time_s")
+    pen_down = column("pen_down") > 0.5
+    figure, axes = plt.subplots(7, 1, figsize=(12, 20), sharex=True)
+
+    axes[0].plot(time_s, column("target_x_m"), label="desired x", linewidth=1.6)
+    axes[0].plot(time_s, column("tip_x_m"), label="actual x", linewidth=1.0)
+    axes[0].set_ylabel("world X (m)")
+
+    axes[1].plot(time_s, column("target_y_m"), label="desired y", linewidth=1.6)
+    axes[1].plot(time_s, column("tip_y_m"), label="actual y", linewidth=1.0)
+    axes[1].set_ylabel("world Y (m)")
+
+    error = column("tracking_error_m")
+    axes[2].plot(time_s, error * 1000.0, linewidth=0.9, label="position error")
+    if pen_down.any():
+        axes[2].plot(
+            time_s[pen_down], error[pen_down] * 1000.0, ".", markersize=1.5, label="pen down"
+        )
+    axes[2].set_ylabel("position error (mm)")
+
+    heading_valid = column("heading_valid") > 0.5
+    heading_deg = np.degrees(column("heading_error_rad"))
+    axes[3].plot(
+        time_s[heading_valid], heading_deg[heading_valid], linewidth=0.8, label="heading error"
+    )
+    axes[3].set_ylabel("heading error (deg)")
+
+    tip_speed_mm_s = column("tip_speed_mm_s")
+    axes[4].plot(time_s, tip_speed_mm_s, linewidth=0.8, label="tip speed")
+    # Show velocity gate if enabled
+    has_velocity_gate = "velocity_settled" in rows[0]
+    if has_velocity_gate:
+        velocity_settled = column("velocity_settled") > 0.5
+        unsettled_mask = ~velocity_settled & pen_down
+        if unsettled_mask.any():
+            axes[4].plot(
+                time_s[unsettled_mask], 
+                tip_speed_mm_s[unsettled_mask], 
+                "r.", 
+                markersize=1.5, 
+                label="velocity not settled"
+            )
+    axes[4].set_ylabel("tip speed (mm/s)")
+    twin = axes[4].twinx()
+    twin.plot(
+        time_s, column("max_joint_speed_rad_s"), linewidth=0.8, color="tab:red", label="max joint speed"
+    )
+    twin.set_ylabel("max joint speed (rad/s)")
+    twin.legend(loc="upper right", fontsize=8)
+
+    axes[5].plot(
+        time_s, column("max_commanded_joint_delta_rad"), linewidth=0.8, label="commanded joint step"
+    )
+    clamped = column("joint_delta_clamped") > 0.5
+    if clamped.any():
+        axes[5].plot(
+            time_s[clamped],
+            column("max_commanded_joint_delta_rad")[clamped],
+            ".",
+            markersize=2.0,
+            label="slew limited",
+        )
+    axes[5].set_ylabel("joint step (rad)")
+
+    # NEW: IK tolerance used (adaptive at corners)
+    has_adaptive_ik = "active_ik_tolerance_m" in rows[0]
+    if has_adaptive_ik:
+        ik_tol = column("active_ik_tolerance_m") * 1000.0
+        axes[6].plot(time_s, ik_tol, linewidth=0.8, label="IK tolerance")
+        axes[6].set_ylabel("IK tolerance (mm)")
+        axes[6].set_xlabel("simulation time (s)")
+    else:
+        # Hide if not available
+        axes[6].set_visible(False)
+
+    for axis in axes:
+        if axis.get_visible():
+            axis.grid(True, alpha=0.25)
+            axis.legend(loc="upper left", fontsize=8)
+    figure.suptitle("xArm 7 pen-tip tracking diagnostics", y=0.999)
+    figure.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(path, dpi=140)
+    plt.close(figure)
+
+
 def main() -> int:
     import numpy as np
     from isaacsim.core.api import World
@@ -138,7 +240,14 @@ def main() -> int:
         flatten_desired_targets,
     )
     from ik_controller import SafeLulaIKController
-    from metrics import nearest_path_errors, summarize_errors, write_csv, write_metrics
+    from metrics import (
+        nearest_path_errors,
+        summarize_angle_errors,
+        summarize_errors,
+        write_csv,
+        write_metrics,
+    )
+    from path_geometry import corner_flags, heading_from_history, polyline_headings, wrap_angle
     from project_config import load_config
     from trajectory_loader import load_trajectory
     from xarm7_loader import add_robot_reference, find_articulation_root, inspect_urdf
@@ -250,8 +359,9 @@ def main() -> int:
         urdf_path,
         robot_config["end_effector_frame"],
         joint_limits,
-        float(drawing["target_tolerance_m"]),
+        float(drawing["ik_position_tolerance_m"]),
         float(drawing["orientation_tolerance_rad"]),
+        max_joint_delta_rad=float(robot_config["max_joint_delta_rad"]),
     )
     phases = build_motion_sequence(
         mapped["strokes"],
@@ -259,6 +369,9 @@ def main() -> int:
         pen_up_z=float(drawing["pen_up_z_m"]),
         approach_height=float(drawing["approach_height_m"]),
         max_cartesian_step=float(drawing["max_cartesian_step_m"]),
+        corner_angle_degrees=float(drawing["corner_angle_degrees"]),
+        corner_densify_window=int(drawing["corner_window_points"]),
+        corner_densify_factor=int(drawing["corner_densify_factor"]),
     )
     # Enforce max step from the actual simulated home pen pose to first approach.
     home_tip, _ = ik.end_effector_pose()
@@ -276,10 +389,35 @@ def main() -> int:
     desired_targets = flatten_desired_targets(phases)
     _workspace_check(desired_targets, safety["workspace_min_m"], safety["workspace_max_m"])
 
+    # Desired path tangent and corner classification are properties of the
+    # commanded waypoint sequence, so they are computed once per phase. The
+    # tangent chord matches the distance the measured heading is estimated
+    # over, so the two are compared on the same spatial scale.
+    phase_headings = [
+        polyline_headings(
+            [t.position for t in phase.targets],
+            min_segment_m=float(drawing["heading_chord_m"]),
+            trailing=True,
+        )
+        for phase in phases
+    ]
+    phase_target_xy = [
+        np.asarray([t.position[:2] for t in phase.targets], dtype=np.float64) for phase in phases
+    ]
+    phase_corners = [
+        corner_flags(
+            [t.position for t in phase.targets],
+            float(drawing["corner_angle_degrees"]),
+            int(drawing["corner_window_points"]),
+        )
+        for phase in phases
+    ]
+    corner_target_count = int(sum(int(flags.sum()) for flags in phase_corners))
+
     desired_rows = [
         {
             "sequence_index": index,
-            "state": target.state.value,
+            "state": target.state,
             "stroke_id": target.stroke_id,
             "waypoint_index": target.waypoint_index,
             "pen_down": int(target.pen_down),
@@ -316,6 +454,24 @@ def main() -> int:
     orientation = np.asarray(drawing["orientation_wxyz"], dtype=np.float64)
     recorder = None
     last_home_error = None
+    physics_dt = float(safety["physics_dt_s"])
+    target_tolerance = float(drawing["target_tolerance_m"])
+    corner_tolerance = float(drawing["corner_tolerance_m"])
+    max_tip_speed_mm_s = float(drawing.get("max_tip_speed_mm_s", 0.0))  # 0.0 disables velocity gate
+    corner_ik_tolerance = float(drawing.get("corner_ik_tolerance_m", drawing["ik_position_tolerance_m"]))
+    normal_ik_tolerance = float(drawing["ik_position_tolerance_m"])
+    heading_chord = float(drawing["heading_chord_m"])
+    heading_history = deque(maxlen=int(drawing["heading_history_samples"]))
+    # The tip trails the waypoint it is chasing, so the desired tangent is
+    # read at the nearest already-passed waypoint rather than the commanded
+    # one. The lookback is bounded so a closed outline cannot match a
+    # waypoint from the far side of the loop.
+    heading_lookback_targets = int(drawing["heading_lookback_targets"])
+    heading_phase_index = None
+    max_ik_failures = int(safety["max_ik_failures"])
+    consecutive_ik_failures = 0
+    previous_tip_xy = None
+    actual_heading = None
     if ARGS.record_demonstration:
         recorder = DemonstrationRecorder(
             mapped["drawing_id"],
@@ -346,26 +502,80 @@ def main() -> int:
                 machine.fail(f"Home joint-position timeout (max error {last_home_error:.6f} rad, q={q.tolist()})")
         else:
             target = machine.current_target
+            phase_index, target_index = machine.phase_index, machine.target_index
+            is_corner = bool(phase_corners[phase_index][target_index])
+            if phase_index != heading_phase_index:
+                # A chord must not span a pen-up travel leg or a different
+                # stroke, so the travelled history restarts with each phase.
+                heading_history.clear()
+                actual_heading = None
+                heading_phase_index = phase_index
             target_marker.set_world_pose(position=target.position)
             tip_position, tip_rotation = ik.end_effector_pose()
             error = float(np.linalg.norm(np.asarray(tip_position) - target.position))
+            
+            # Adaptive IK tolerance: tighter convergence at corners
+            active_ik_tolerance = corner_ik_tolerance if is_corner else normal_ik_tolerance
+            if active_ik_tolerance != ik.position_tolerance_m:
+                ik.position_tolerance_m = active_ik_tolerance
+            
             action, success = ik.solve(target.position, orientation)
             if not success:
-                machine.fail(
-                    f"IK failed in {machine.state.value}, stroke={target.stroke_id}, waypoint={target.waypoint_index}"
-                )
-                print(f"[SAFE STOP] {machine.failure_reason}")
-                break
+                consecutive_ik_failures += 1
+                if consecutive_ik_failures >= max_ik_failures:
+                    machine.fail(
+                        f"IK failed {consecutive_ik_failures}x in {machine.state}, "
+                        f"stroke={target.stroke_id}, waypoint={target.waypoint_index}"
+                    )
+                    print(f"[SAFE STOP] {machine.failure_reason}")
+                    break
+                # Hold the previous command for this step and retry next step.
+                world.step(render=not ARGS.headless)
+                step_count += 1
+                continue
+            consecutive_ik_failures = 0
             ik.apply(action)
             q = np.asarray(robot.get_joint_positions(), dtype=np.float64)
             qd = np.asarray(robot.get_joint_velocities(), dtype=np.float64)
+
+            # Actual heading is the direction the pen tip is travelling, not a
+            # base yaw. It is measured over however many samples it takes to
+            # travel heading_chord_m, matching the chord the desired tangent
+            # uses: a settling waypoint moves in random directions from one
+            # physics step to the next.
+            tip_xy = np.asarray(tip_position, dtype=np.float64)[:2]
+            tip_speed = 0.0
+            if previous_tip_xy is not None:
+                tip_speed = float(np.linalg.norm(tip_xy - previous_tip_xy)) / physics_dt
+            previous_tip_xy = tip_xy
+            heading_history.append(tip_xy)
+            measured_heading = heading_from_history(heading_history, heading_chord)
+            heading_valid = measured_heading is not None
+            if heading_valid:
+                actual_heading = measured_heading
+
+            # Read the desired tangent where the pen actually is, searching
+            # only waypoints at or before the one being chased.
+            low = max(0, target_index - heading_lookback_targets)
+            candidates = phase_target_xy[phase_index][low : target_index + 1]
+            nearest = low + int(np.argmin(np.linalg.norm(candidates - tip_xy, axis=1)))
+            desired_heading = float(phase_headings[phase_index][nearest])
+            heading_error_rad = (
+                float(wrap_angle(desired_heading - actual_heading)) if heading_valid else 0.0
+            )
+
+            # Convert tip speed to mm/s for velocity gate check
+            tip_speed_mm_s = tip_speed * 1000.0
+            velocity_settled = (max_tip_speed_mm_s <= 0.0) or (tip_speed_mm_s <= max_tip_speed_mm_s)
+            
             executed_rows.append(
                 {
                     "simulation_time_s": sim_time,
-                    "state": machine.state.value,
+                    "state": machine.state,
                     "stroke_id": target.stroke_id,
                     "waypoint_index": target.waypoint_index,
                     "pen_down": int(target.pen_down),
+                    "is_corner": int(is_corner),
                     "target_x_m": float(target.position[0]),
                     "target_y_m": float(target.position[1]),
                     "target_z_m": float(target.position[2]),
@@ -373,6 +583,17 @@ def main() -> int:
                     "tip_y_m": float(tip_position[1]),
                     "tip_z_m": float(tip_position[2]),
                     "tracking_error_m": error,
+                    "heading_valid": int(heading_valid),
+                    "desired_heading_rad": desired_heading,
+                    "actual_heading_rad": float(actual_heading) if actual_heading is not None else "",
+                    "heading_error_rad": heading_error_rad,
+                    "tip_speed_m_s": tip_speed,
+                    "tip_speed_mm_s": tip_speed_mm_s,
+                    "velocity_settled": int(velocity_settled),
+                    "active_ik_tolerance_m": active_ik_tolerance,
+                    "max_joint_speed_rad_s": float(np.max(np.abs(qd))),
+                    "max_commanded_joint_delta_rad": float(np.max(np.abs(ik.last_commanded_delta_rad))),
+                    "joint_delta_clamped": int(ik.last_command_was_clamped),
                 }
             )
             if target.pen_down:
@@ -389,15 +610,17 @@ def main() -> int:
                     current_target_m=target.position,
                     upcoming_targets_m=_lookahead(machine, recorder.lookahead_points),
                     pen_down=target.pen_down,
-                    state=machine.state.value,
+                    state=machine.state,
                 )
             previous_state = machine.state
-            reached = error <= float(drawing["target_tolerance_m"])
+            position_reached = error <= (corner_tolerance if is_corner else target_tolerance)
+            # Combined gate: position within tolerance AND velocity settled (if enabled)
+            reached = position_reached and velocity_settled
             if reached:
                 reached_target_errors.append(error)
             machine.update(sim_time, reached)
             if machine.state != previous_state:
-                print(f"[STATE] {previous_state.value} -> {machine.state.value}")
+                print(f"[STATE] {previous_state} -> {machine.state}")
 
         world.step(render=not ARGS.headless)
         step_count += 1
@@ -410,6 +633,7 @@ def main() -> int:
         "stroke_id",
         "waypoint_index",
         "pen_down",
+        "is_corner",
         "target_x_m",
         "target_y_m",
         "target_z_m",
@@ -417,6 +641,17 @@ def main() -> int:
         "tip_y_m",
         "tip_z_m",
         "tracking_error_m",
+        "heading_valid",
+        "desired_heading_rad",
+        "actual_heading_rad",
+        "heading_error_rad",
+        "tip_speed_m_s",
+        "tip_speed_mm_s",
+        "velocity_settled",
+        "active_ik_tolerance_m",
+        "max_joint_speed_rad_s",
+        "max_commanded_joint_delta_rad",
+        "joint_delta_clamped",
     ]
     write_csv(output_dir / "executed_path.csv", executed_rows, fields)
     _write_comparison(
@@ -424,6 +659,7 @@ def main() -> int:
         {key: np.asarray(value)[:, :2] for key, value in desired_down_by_stroke.items()},
         {key: np.asarray(value)[:, :2] if len(value) else [] for key, value in actual_by_stroke.items()},
     )
+    _write_diagnostics(output_dir / "tracking_diagnostics.png", executed_rows)
     executed_down = [point for points in actual_by_stroke.values() for point in points]
     desired_down = [point for points in desired_down_by_stroke.values() for point in points]
     metrics = {
@@ -431,12 +667,84 @@ def main() -> int:
         "failure_reason": machine.failure_reason,
         "drawing_id": mapped["drawing_id"],
         "requested_stroke_count": 2,
-        "visited_states": [state.value for state in machine.visited_states],
+        "visited_states": list(machine.visited_states),
         "simulation_steps": step_count,
         "simulation_duration_s": float(world.current_time) - start_time,
         "desired_pen_down_points": len(desired_down),
         "executed_pen_down_samples": len(executed_down),
+        "corner_gated_targets": corner_target_count,
+        "tolerances": {
+            "target_tolerance_m": target_tolerance,
+            "corner_tolerance_m": corner_tolerance,
+            "ik_position_tolerance_m": float(drawing["ik_position_tolerance_m"]),
+            "corner_ik_tolerance_m": corner_ik_tolerance,
+            "max_joint_delta_rad": float(robot_config["max_joint_delta_rad"]),
+            "max_tip_speed_mm_s": max_tip_speed_mm_s if max_tip_speed_mm_s > 0 else None,
+        },
+        "control_parameters": {
+            "drive_stiffness": float(robot_config["drive_stiffness"]),
+            "drive_damping": float(robot_config["drive_damping"]),
+            "corner_densify_factor": int(drawing["corner_densify_factor"]),
+            "corner_window_points": int(drawing["corner_window_points"]),
+            "smoothing_strength": float(drawing["smoothing_strength"]),
+        },
+        # Heading errors below are only meaningful at this chord length.
+        "heading_chord_m": heading_chord,
     }
+    pen_down_rows = [row for row in executed_rows if row["pen_down"]]
+    if pen_down_rows:
+        metrics["clamped_command_fraction"] = float(
+            sum(row["joint_delta_clamped"] for row in pen_down_rows) / len(pen_down_rows)
+        )
+        # NEW: Velocity gate statistics
+        if max_tip_speed_mm_s > 0 and "velocity_settled" in pen_down_rows[0]:
+            velocity_settled_count = sum(row["velocity_settled"] for row in pen_down_rows)
+            metrics["velocity_settled_fraction"] = float(velocity_settled_count / len(pen_down_rows))
+            tip_speeds_mm_s = [row["tip_speed_mm_s"] for row in pen_down_rows]
+            metrics["tip_speed_mm_s_stats"] = {
+                "mean": float(np.mean(tip_speeds_mm_s)),
+                "median": float(np.median(tip_speeds_mm_s)),
+                "p95": float(np.percentile(tip_speeds_mm_s, 95)),
+                "max": float(np.max(tip_speeds_mm_s)),
+            }
+        # Heading is only defined once the tip has travelled a full chord
+        # inside the current phase, so those samples are reported separately
+        # rather than being padded with a placeholder value.
+        heading_rows = [row for row in pen_down_rows if row["heading_valid"]]
+        metrics["heading_valid_fraction"] = float(len(heading_rows) / len(pen_down_rows))
+        per_stroke = {}
+        for stroke_id in sorted({row["stroke_id"] for row in pen_down_rows}):
+            stroke_rows = [row for row in pen_down_rows if row["stroke_id"] == stroke_id]
+            position = summarize_errors([row["tracking_error_m"] for row in stroke_rows])
+            entry = {
+                "RMSE_position_m": position["rmse_m"],
+                "max_position_error_m": position["max_error_m"],
+                "mean_position_error_m": position["mean_error_m"],
+                "sample_count": position["sample_count"],
+            }
+            stroke_headings = [row["heading_error_rad"] for row in stroke_rows if row["heading_valid"]]
+            if stroke_headings:
+                heading = summarize_angle_errors(stroke_headings)
+                entry.update(
+                    {
+                        "RMSE_heading_rad": heading["rmse_rad"],
+                        "max_heading_error_rad": heading["max_abs_error_rad"],
+                        "RMSE_heading_deg": heading["rmse_deg"],
+                        "median_heading_error_deg": heading["median_abs_error_deg"],
+                        "p95_heading_error_deg": heading["p95_abs_error_deg"],
+                        "max_heading_error_deg": heading["max_abs_error_deg"],
+                        "heading_sample_count": heading["sample_count"],
+                    }
+                )
+            per_stroke[str(stroke_id)] = entry
+        metrics["per_stroke_tracking"] = per_stroke
+        if heading_rows:
+            metrics["heading_error"] = summarize_angle_errors(
+                [row["heading_error_rad"] for row in heading_rows]
+            )
+        metrics["pen_down_tracking_error"] = summarize_errors(
+            [row["tracking_error_m"] for row in pen_down_rows]
+        )
     if reached_target_errors:
         metrics["waypoint_reach_error"] = summarize_errors(reached_target_errors)
     if executed_down:

@@ -40,6 +40,9 @@ def main() -> int:
         pen_up_z=float(drawing["pen_up_z_m"]),
         approach_height=float(drawing["approach_height_m"]),
         max_cartesian_step=float(drawing["max_cartesian_step_m"]),
+        corner_angle_degrees=float(drawing["corner_angle_degrees"]),
+        corner_densify_window=int(drawing["corner_window_points"]),
+        corner_densify_factor=int(drawing["corner_densify_factor"]),
     )
     targets = flatten_desired_targets(phases)
     report = {

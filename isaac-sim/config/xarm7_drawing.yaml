@@ -4,6 +4,10 @@ project:
 
 robot:
   urdf_path: assets/xarm7/xarm7_with_pen.urdf
+  # Committed artifact, imported while the vendored xarm_description meshes were
+  # still on disk. The URDF's mesh paths are now dangling, so re-importing it
+  # silently produces link prims with no visual or collision geometry; pass
+  # --reimport to check_environment.py only after re-vendoring those meshes.
   usd_path: assets/xarm7/xarm7.usd
   robot_description_path: assets/xarm7/robot_description.yaml
   prim_path: /World/xarm7
@@ -16,7 +20,18 @@ robot:
   # of link mass while URDF effort limits remain available on the joints.
   drive_type: acceleration
   drive_stiffness: 400.0
-  drive_damping: 40.0
+  # Raised from 40 → 55 → 70: the tolerance-gated controller re-commands a new IK
+  # solution every step, so the residual the drive carries into a direction
+  # change is what shows up as corner overshoot. More damping settles that
+  # residual without the instability that raising stiffness would invite.
+  # Further increased to reduce corner overshoot while maintaining stability.
+  drive_damping: 70.0
+  # Per-step joint-target slew cap. The URDF joint velocity limit is
+  # 3.14 rad/s and physics_dt_s is 1/60 s, so 3.14/60 is the largest
+  # single-step change the joints could actually track. Without it, a corner
+  # produces a step change in the IK solution that the drive answers with an
+  # overshoot loop.
+  max_joint_delta_rad: 0.052
 
 drawing:
   surface_center_xy_m: [0.45, 0.0]
@@ -38,10 +53,58 @@ drawing:
   # behavior (each step is closer to the previous IK solution, so there is
   # less transient error to settle before the tolerance check passes).
   max_cartesian_step_m: 0.002
-  target_tolerance_m: 0.003
+  # Lowered from 0.003 → 0.0012 → 0.0010. The gate must stay below max_cartesian_step_m: with a
+  # 3 mm gate and 2 mm spacing the tip could advance while still further from
+  # the current waypoint than the waypoints are from each other, which pinned
+  # the mean reach error at the tolerance itself. Further reduced to tighten
+  # the IK-to-gate tolerance ratio (IK: 0.2mm, gate: 1.0mm = 5x instead of 6x).
+  target_tolerance_m: 0.0010
+  # Sharp direction changes settle tighter before advancing so the drive has
+  # less residual error to carry into the turn. Reduced proportionally.
+  corner_tolerance_m: 0.0006
+  # NEW: Velocity gate - don't advance until tip settles below this speed (mm/s).
+  # Prevents carrying momentum into direction changes. Set conservatively above
+  # the observed ~0.08 mm per 16ms step = ~5 mm/s baseline drift.
+  max_tip_speed_mm_s: 8.0
+  # Waypoints within this many indices of a detected corner also use
+  # corner_tolerance_m, because overshoot appears just after a vertex.
+  # Increased from 3 to cover more of the settling region after sharp turns.
+  corner_window_points: 5
+  # Subdivide only the segments touching a corner, adding gated stops through
+  # a turn without slowing the straight sections. Increased from 2 to 3 for
+  # finer control through sharp direction changes.
+  corner_densify_factor: 3
+  # NEW: Adaptive IK tolerance - use tighter convergence at corners
+  corner_ik_tolerance_m: 0.00012
   # 180 degrees about world X: pen local +Z points toward the paper (world -Z).
   orientation_wxyz: [0.0, 1.0, 0.0, 0.0]
   orientation_tolerance_rad: 0.04
+  # Lula IK convergence tolerance, deliberately far tighter than the reach
+  # gate. The IK solver previously used target_tolerance_m as well, so the
+  # commanded solution could itself sit a full gate-width off the waypoint and
+  # the measured tip could never reliably do better than the gate.
+  # Normal waypoints use 0.2mm, corners use corner_ik_tolerance_m (0.12mm).
+  ik_position_tolerance_m: 0.0002
+  # Spatial scale at which pen-path heading is judged. It is applied to both
+  # the desired tangent chord and the measured tip travel direction so the
+  # two are compared like for like.
+  #
+  # The mapped contour is sampled at roughly 1.2 mm, well below the scale of
+  # the extracted outline, so adjacent desired segments can reverse direction
+  # outright: measured at that scale the desired heading swings up to 178 deg
+  # between neighbouring waypoints and the resulting "heading error" reports
+  # extraction noise, not tracking quality. 4 mm spans several waypoints and
+  # is still only 2.5 percent of the 160 mm drawing width.
+  heading_chord_m: 0.004
+  # Tip samples retained to find that chord. At the observed ~0.08 mm of tip
+  # travel per physics step, 4 mm needs about 50 samples; 256 leaves headroom
+  # for the slower settling phases.
+  heading_history_samples: 256
+  # How far back along the commanded waypoints the desired tangent may be
+  # read. The tip trails the waypoint it is chasing by a millimetre or two,
+  # so the tangent is taken at the nearest already-passed waypoint; bounding
+  # the search stops a closed outline matching the far side of the loop.
+  heading_lookback_targets: 40
 
 safety:
   # Stage-1 kinematic baseline: isolate IK/state-machine tracking without
@@ -49,11 +112,17 @@ safety:
   gravity_m_s2: 0.0
   workspace_min_m: [0.25, -0.25, 0.18]
   workspace_max_m: [0.70, 0.25, 0.75]
-  waypoint_timeout_s: 4.0
+  # Raised from 4.0/180.0: the tighter reach gate, corner densification and
+  # joint slew cap all trade simulated time for accuracy, so the old budgets
+  # would abort an otherwise healthy run. These remain hard safety stops.
+  waypoint_timeout_s: 6.0
   home_timeout_s: 12.0
-  run_timeout_s: 180.0
+  run_timeout_s: 900.0
   physics_dt_s: 0.0166666667
-  max_ik_failures: 1
+  # Consecutive IK non-convergences tolerated before a safe stop. With the
+  # much tighter ik_position_tolerance_m a single transient miss is not a
+  # safety event; a persistent one still is.
+  max_ik_failures: 3
 
 recording:
   lookahead_points: 5

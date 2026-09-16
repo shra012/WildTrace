@@ -22,7 +22,7 @@ def _parse_args():
     parser.add_argument("--config", default="config/xarm7_drawing.yaml")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--portable-root", default=str(PORTABLE_ROOT), help=argparse.SUPPRESS)
-    parser.add_argument("--skip-import", action="store_true", help="Inspect an existing USD instead of regenerating it")
+    parser.add_argument("--reimport", action="store_true", help="Re-import the URDF over the existing USD instead of inspecting it")
     return parser.parse_args()
 
 
@@ -76,7 +76,7 @@ def main() -> int:
     urdf_path = generate_xarm7_urdf(PROJECT_ROOT)
     description = inspect_urdf(urdf_path)
     usd_path = Path(config["robot"]["usd_path"])
-    if not ARGS.skip_import or not usd_path.is_file():
+    if ARGS.reimport or not usd_path.is_file():
         import_urdf_to_usd(
             urdf_path,
             usd_path,

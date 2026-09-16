@@ -7,6 +7,7 @@ from typing import List, Optional, Sequence
 import numpy as np
 
 from coordinate_mapper import interpolate_segment, resample_polyline
+from path_geometry import densify_near_corners
 
 HOME = "HOME"
 FINISHED = "FINISHED"
@@ -40,11 +41,17 @@ def build_motion_sequence(
     pen_up_z: float,
     approach_height: float,
     max_cartesian_step: float,
+    corner_angle_degrees: float = 35.0,
+    corner_densify_window: int = 0,
+    corner_densify_factor: int = 1,
 ) -> List[Phase]:
     """Build approach/lower/draw/lift phases for one or more strokes in order.
 
     A safe travel leg (lift height, then horizontal, then lower) is inserted
     between consecutive strokes; the first stroke is approached directly.
+
+    Draw phases may be densified around corners only. The default factor of 1
+    leaves the sampling unchanged.
     """
     if len(strokes) < 1:
         raise ValueError("At least one stroke is required")
@@ -88,9 +95,13 @@ def build_motion_sequence(
             )
         )
         draw_state = f"DRAW_STROKE_{stroke_id}"
-        phases.append(
-            Phase(draw_state, targets(draw_state, resample_polyline(_xyz(xy, pen_down_z), max_cartesian_step), stroke_id, True))
+        draw_points = densify_near_corners(
+            resample_polyline(_xyz(xy, pen_down_z), max_cartesian_step),
+            corner_angle_degrees,
+            corner_densify_window,
+            corner_densify_factor,
         )
+        phases.append(Phase(draw_state, targets(draw_state, draw_points, stroke_id, True)))
         up_point = np.r_[xy[-1], pen_up_z]
         lift_state = f"LIFT_PEN_STROKE_{stroke_id}"
         phases.append(

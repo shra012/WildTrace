@@ -6,6 +6,8 @@ from typing import Dict, Sequence, Tuple
 
 import numpy as np
 
+from path_geometry import limit_joint_delta
+
 
 class SafeLulaIKController:
     """Position-only articulation commands; never emits torque or hardware I/O."""
@@ -19,6 +21,7 @@ class SafeLulaIKController:
         joint_limits: Dict[str, Tuple[float, float]],
         position_tolerance_m: float,
         orientation_tolerance_rad: float,
+        max_joint_delta_rad: float | None = None,
     ):
         from isaacsim.robot_motion.motion_generation import ArticulationKinematicsSolver, LulaKinematicsSolver
 
@@ -33,6 +36,9 @@ class SafeLulaIKController:
         self.upper = np.asarray([joint_limits[name][1] for name in self.joint_names], dtype=np.float64)
         self.position_tolerance_m = float(position_tolerance_m)
         self.orientation_tolerance_rad = float(orientation_tolerance_rad)
+        self.max_joint_delta_rad = None if max_joint_delta_rad is None else float(max_joint_delta_rad)
+        self.last_commanded_delta_rad = np.zeros(len(self.joint_names), dtype=np.float64)
+        self.last_command_was_clamped = False
 
     def end_effector_pose(self):
         return self.solver.compute_end_effector_pose(position_only=False)
@@ -52,5 +58,23 @@ class SafeLulaIKController:
         return action, True
 
     def apply(self, action) -> None:
-        self.articulation_controller.apply_action(action)
+        """Apply the solution, slew-limited around the measured joint state.
 
+        Clamping toward a limit-checked solution from the measured position
+        keeps the command inside the joint limits that solve() already
+        verified, so no second limit check is required.
+        """
+        self.last_command_was_clamped = False
+        if self.max_joint_delta_rad and action.joint_positions is not None:
+            measured = np.asarray(self.articulation.get_joint_positions(), dtype=np.float64)
+            indices = getattr(action, "joint_indices", None)
+            if indices is not None:
+                measured = measured[np.asarray(indices, dtype=int)]
+            proposed = np.asarray(action.joint_positions, dtype=np.float64)
+            limited = limit_joint_delta(measured, proposed, self.max_joint_delta_rad)
+            self.last_commanded_delta_rad = limited - measured
+            self.last_command_was_clamped = bool(
+                np.any(np.abs(proposed - measured) > self.max_joint_delta_rad + 1e-12)
+            )
+            action.joint_positions = limited
+        self.articulation_controller.apply_action(action)

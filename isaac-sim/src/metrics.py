@@ -40,6 +40,34 @@ def summarize_errors(errors: Sequence[float]) -> Dict[str, float]:
     }
 
 
+def summarize_angle_errors(errors_rad: Sequence[float]) -> Dict[str, float]:
+    """Summarize signed heading errors by magnitude, reported in rad and deg.
+
+    Heading-error distributions on a closed outline are heavy-tailed: where a
+    thin feature doubles back inside the measurement chord the direction
+    genuinely reverses, so RMSE and max alone misrepresent typical tracking.
+    The median and p95 are reported so the distribution stays visible.
+    """
+    values = np.asarray(errors_rad, dtype=np.float64)
+    if values.size == 0 or not np.isfinite(values).all():
+        raise ValueError("Heading errors must be finite and non-empty")
+    magnitudes = np.abs(values)
+    rmse = float(np.sqrt(np.mean(values**2)))
+    return {
+        "mean_abs_error_rad": float(magnitudes.mean()),
+        "median_abs_error_rad": float(np.median(magnitudes)),
+        "rmse_rad": rmse,
+        "max_abs_error_rad": float(magnitudes.max()),
+        "p95_abs_error_rad": float(np.percentile(magnitudes, 95)),
+        "mean_abs_error_deg": float(np.degrees(magnitudes.mean())),
+        "median_abs_error_deg": float(np.degrees(np.median(magnitudes))),
+        "rmse_deg": float(np.degrees(rmse)),
+        "p95_abs_error_deg": float(np.degrees(np.percentile(magnitudes, 95))),
+        "max_abs_error_deg": float(np.degrees(magnitudes.max())),
+        "sample_count": int(values.size),
+    }
+
+
 def write_csv(path: str | Path, rows: Iterable[Mapping[str, Any]], fieldnames: Sequence[str]) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
