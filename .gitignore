@@ -10,3 +10,4 @@ __pycache__/
 
 # Pipeline outputs
 outputs/
+!isaac-sim/outputs/

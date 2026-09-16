@@ -1,0 +1,46 @@
+# Bulk inputs and runtime outputs. A small canonical sample is kept below.
+inputs/**/*
+outputs/**/*
+
+# Representative input sample and source records
+!inputs/records/
+!inputs/records/gold_samples.ndjson
+!inputs/diagrams/
+!inputs/diagrams/Dog/
+!inputs/diagrams/Dog/96ab6db6d9116afe.png
+!inputs/svg/
+!inputs/svg/Dog/
+!inputs/svg/Dog/96ab6db6d9116afe.svg
+!inputs/trajectories/
+!inputs/trajectories/Dog/
+!inputs/trajectories/Dog/96ab6db6d9116afe.json
+
+# Representative Isaac Sim results
+!outputs/demonstration_two_stroke.npz
+!outputs/desired_path.csv
+!outputs/two_stroke_comparison.png
+
+# Local Python environments and dependency installs
+.venv/
+venv/
+.vendor/
+
+# Build-time-only inputs for regenerating the URDF from source xacro
+# (scripts/generate_xarm7_urdf.py). Not needed to run the already-built
+# xarm7_with_pen.urdf/xarm7.usd this project actually loads at runtime.
+# xarm_ros2_source/ also carries its own nested .git -- never commit it
+# as plain tracked content (git will create a broken gitlink). Deleted
+# from disk as of the isaac-sim move; re-clone/re-vendor only if the URDF
+# ever needs regenerating.
+assets/xarm7/xacro_vendor/
+assets/xarm7/xarm_ros2_source/
+
+# Python caches and test tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Local editor settings
+.vscode/
+.idea/

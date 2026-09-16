@@ -1,0 +1,17 @@
+# Lula robot descriptor for the generated simulation-only xArm 7 URDF.
+api_version: 1.0
+cspace:
+  - joint1
+  - joint2
+  - joint3
+  - joint4
+  - joint5
+  - joint6
+  - joint7
+root_link: link_base
+default_q: [0.0, -0.35, 0.0, 1.20, 0.0, 1.55, 0.0]
+acceleration_limits: [6.0, 6.0, 6.0, 6.0, 8.0, 8.0, 8.0]
+jerk_limits: [300.0, 300.0, 300.0, 300.0, 400.0, 400.0, 400.0]
+cspace_to_urdf_rules: []
+collision_spheres: []
+

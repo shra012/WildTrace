@@ -1,0 +1,66 @@
+<?xml version="1.0"?>
+<!-- Simulation-only assembly around the official UFACTORY xarm7_urdf macro.
+     Deliberately excludes xarm_sdk, ros2_control, Gazebo, and all hardware plugins. -->
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="xarm7_drawing">
+  <xacro:include filename="$(find xarm_description)/urdf/common/common.material.xacro"/>
+  <xacro:include filename="$(find xarm_description)/urdf/common/common.link.xacro"/>
+  <xacro:include filename="$(find xarm_description)/urdf/xarm7/xarm7.urdf.xacro"/>
+
+  <xacro:property name="mesh_suffix" value="stl"/>
+  <xacro:property name="mesh_path" value="file://$(find xarm_description)/meshes"/>
+  <xacro:property name="use_xacro_load_yaml" value="true"/>
+  <xacro:common_material prefix=""/>
+
+  <link name="world"/>
+  <joint name="world_joint" type="fixed">
+    <parent link="world"/>
+    <child link="link_base"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- No full serial/model number was supplied, so use UFACTORY's default mesh
+       and default offline kinematic/inertial parameters. -->
+  <xacro:xarm7_urdf
+      prefix=""
+      model_num="-1"
+      inertial_params_filename=""
+      kinematics_params_filename="$(find xarm_description)/config/kinematics/default/xarm7_default_kinematics.yaml"/>
+
+  <!-- UFACTORY defines link_eef as the flange/TCP alias fixed to link7. -->
+  <link name="link_eef"/>
+  <joint name="joint_eef" type="fixed">
+    <parent link="link7"/>
+    <child link="link_eef"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Simulation-only stylus. At the configured drawing orientation the flange
+       local +Z axis points toward world -Z, so +Z ends at the pen tip. -->
+  <link name="pen_body">
+    <visual>
+      <origin xyz="0 0 0.06" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.006" length="0.12"/></geometry>
+      <material name="PenBlue"><color rgba="0.05 0.15 0.85 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.06" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.006" length="0.12"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0.06" rpy="0 0 0"/>
+      <mass value="0.04"/>
+      <inertia ixx="0.00004812" ixy="0" ixz="0" iyy="0.00004812" iyz="0" izz="0.00000072"/>
+    </inertial>
+  </link>
+  <joint name="pen_mount_joint" type="fixed">
+    <parent link="link_eef"/>
+    <child link="pen_body"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+  <link name="pen_tip"/>
+  <joint name="pen_tip_joint" type="fixed">
+    <parent link="pen_body"/>
+    <child link="pen_tip"/>
+    <origin xyz="0 0 0.12" rpy="0 0 0"/>
+  </joint>
+</robot>

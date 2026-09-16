@@ -1,0 +1,72 @@
+project:
+  trajectory_path: data/puppy_two_stroke.json
+  output_dir: outputs
+
+robot:
+  urdf_path: assets/xarm7/xarm7_with_pen.urdf
+  usd_path: assets/xarm7/xarm7.usd
+  robot_description_path: assets/xarm7/robot_description.yaml
+  prim_path: /World/xarm7
+  end_effector_frame: pen_tip
+  flange_frame: link_eef
+  expected_joint_names: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
+  home_joint_positions_rad: [0.0, -0.35, 0.0, 1.20, 0.0, 1.55, 0.0]
+  home_joint_tolerance_rad: 0.02
+  # Isaac/PhysX position-drive gains. Acceleration drives make gains independent
+  # of link mass while URDF effort limits remain available on the joints.
+  drive_type: acceleration
+  drive_stiffness: 400.0
+  drive_damping: 40.0
+
+drawing:
+  surface_center_xy_m: [0.45, 0.0]
+  surface_size_xy_m: [0.16, 0.12]
+  paper_top_z_m: 0.20
+  pen_down_z_m: 0.201
+  pen_up_z_m: 0.235
+  approach_height_m: 0.27
+  flip_image_y: true
+  # Raised from 0.08: contour-extraction noise leaves small zigzags that a
+  # tolerance-gated per-waypoint IK controller cannot track smoothly, showing
+  # up as small overshoot loops ("knots") at corners. corner_angle_degrees
+  # still protects genuine sharp corners (tail tips, ears) from being smoothed
+  # away.
+  smoothing_strength: 0.25
+  corner_angle_degrees: 35.0
+  # Halved from 0.005: smaller steps mean smaller direction-change-per-step at
+  # high-curvature points, which is what actually drives the overshoot/knot
+  # behavior (each step is closer to the previous IK solution, so there is
+  # less transient error to settle before the tolerance check passes).
+  max_cartesian_step_m: 0.002
+  target_tolerance_m: 0.003
+  # 180 degrees about world X: pen local +Z points toward the paper (world -Z).
+  orientation_wxyz: [0.0, 1.0, 0.0, 0.0]
+  orientation_tolerance_rad: 0.04
+
+safety:
+  # Stage-1 kinematic baseline: isolate IK/state-machine tracking without
+  # exceeding the official URDF effort caps. Tune gravity compensation later.
+  gravity_m_s2: 0.0
+  workspace_min_m: [0.25, -0.25, 0.18]
+  workspace_max_m: [0.70, 0.25, 0.75]
+  waypoint_timeout_s: 4.0
+  home_timeout_s: 12.0
+  run_timeout_s: 180.0
+  physics_dt_s: 0.0166666667
+  max_ik_failures: 1
+
+recording:
+  lookahead_points: 5
+  demo_path: outputs/demonstration_two_stroke.npz
+
+training:
+  hidden_layers: [256, 256, 128]
+  seed: 17
+  validation_fraction: 0.2
+  batch_size: 128
+  learning_rate: 0.001
+  max_epochs: 200
+  patience: 20
+  max_action_delta_m: 0.005
+  checkpoint_path: outputs/bc_best.pt
+  tensorboard_dir: outputs/tensorboard
