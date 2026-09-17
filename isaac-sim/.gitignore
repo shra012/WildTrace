@@ -1,24 +1,6 @@
 # Bulk inputs and runtime outputs. A small canonical sample is kept below.
-inputs/**/*
 outputs/**/*
 
-# Representative input sample and source records
-!inputs/records/
-!inputs/records/gold_samples.ndjson
-!inputs/diagrams/
-!inputs/diagrams/Dog/
-!inputs/diagrams/Dog/96ab6db6d9116afe.png
-!inputs/svg/
-!inputs/svg/Dog/
-!inputs/svg/Dog/96ab6db6d9116afe.svg
-!inputs/trajectories/
-!inputs/trajectories/Dog/
-!inputs/trajectories/Dog/96ab6db6d9116afe.json
-
-# Representative Isaac Sim results
-!outputs/demonstration_two_stroke.npz
-!outputs/desired_path.csv
-!outputs/two_stroke_comparison.png
 
 # Local Python environments and dependency installs
 .venv/

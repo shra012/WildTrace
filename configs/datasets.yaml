@@ -13,6 +13,8 @@ categories:
     limit: 100
   - name: Fish
     limit: 100
+  - name: Frog
+    limit: 40
 fetch:
   source_mode: official
   records_path: null

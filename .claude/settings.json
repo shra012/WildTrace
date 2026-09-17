@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(nvidia-smi --query-gpu=name,memory.total --format=csv)"
+    ]
+  }
+}

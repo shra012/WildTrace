@@ -27,7 +27,7 @@ from wildtrace.images import (
     save_image,
 )
 from wildtrace.io_utils import read_ndjson, resolve_repo_path, write_ndjson
-from wildtrace.pipeline import config_hash, utc_now
+from wildtrace.pipeline import category_in_scope, config_hash, utc_now
 from wildtrace.stage_io import (
     bronze_accepted_manifest_path,
     line_diagram_attempts_manifest_path,
@@ -348,7 +348,8 @@ def _build_initial_diagram_attempt(
 
 def generate_line_diagrams(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
     samples = _accepted_subject_samples(repo_root, runtime)
-    existing_rows = {row["sample_id"]: row for row in read_ndjson(line_diagram_attempts_manifest_path(repo_root, runtime))}
+    manifest_path = line_diagram_attempts_manifest_path(repo_root, runtime)
+    existing_rows = {row["sample_id"]: row for row in read_ndjson(manifest_path)}
     stage_hash = _outline_generation_config_hash(runtime)
     expected_ids = {row["sample_id"] for row in samples}
     changed = set(existing_rows) != expected_ids
@@ -359,17 +360,28 @@ def generate_line_diagrams(repo_root: Path, runtime: dict[str, Any]) -> list[dic
         if existing and _diagram_attempt_reusable(existing, sample, repo_root, stage_hash):
             rows.append(existing)
             continue
+        if not category_in_scope(runtime, sample["category"]):
+            # Out of --category scope: never regenerate here, but don't drop a
+            # row that a prior (unscoped) run already produced just because it
+            # no longer looks byte-for-byte reusable -- only a sample with no
+            # existing row at all is left out, as "not yet generated".
+            if existing:
+                rows.append(existing)
+            continue
         changed = True
         missing_samples.append(sample)
     if missing_samples:
         diagram_generator = build_outline_rectifier(runtime["models"]["outline_rectifier"])
-        rows.extend(
-            _build_initial_diagram_attempt(sample, repo_root, runtime, diagram_generator)
-            for sample in missing_samples
-        )
+        # Flux generation is GPU/host-RAM heavy and a single bad sample or an
+        # OOM partway through must not lose everything already generated --
+        # checkpoint the manifest every few samples instead of only at the end.
+        for index, sample in enumerate(missing_samples, start=1):
+            rows.append(_build_initial_diagram_attempt(sample, repo_root, runtime, diagram_generator))
+            if index % 5 == 0:
+                write_ndjson(manifest_path, sorted(rows, key=lambda row: row["sample_id"]))
         rows.sort(key=lambda row: row["sample_id"])
-    if changed or not line_diagram_attempts_manifest_path(repo_root, runtime).exists():
-        write_ndjson(line_diagram_attempts_manifest_path(repo_root, runtime), rows)
+    if changed or not manifest_path.exists():
+        write_ndjson(manifest_path, rows)
     return rows
 
 
@@ -439,39 +451,55 @@ def _validate_single_diagram(
 
 def validate_and_retry_diagrams(repo_root: Path, runtime: dict[str, Any]) -> list[dict[str, Any]]:
     model_cfg = runtime["models"]
+    manifest_path = validated_diagrams_manifest_path(repo_root, runtime)
     initial_attempts = {row["sample_id"]: row for row in read_ndjson(line_diagram_attempts_manifest_path(repo_root, runtime))}
     samples = _accepted_subject_samples(repo_root, runtime)
-    existing_rows = {row["sample_id"]: row for row in read_ndjson(validated_diagrams_manifest_path(repo_root, runtime))}
+    existing_rows = {row["sample_id"]: row for row in read_ndjson(manifest_path)}
     stage_hash = _outline_validation_config_hash(runtime)
     expected_ids = {row["sample_id"] for row in samples}
     changed = set(existing_rows) != expected_ids
     rows: list[dict[str, Any]] = []
     missing_pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for sample in samples:
-        initial = initial_attempts[sample["sample_id"]]
+        initial = initial_attempts.get(sample["sample_id"])
+        if initial is None:
+            # Not diagrammed yet (e.g. out of a prior --category scope) --
+            # nothing to validate until generate_line_diagrams covers it.
+            continue
         existing = existing_rows.get(sample["sample_id"])
         if existing and _validated_row_reusable(existing, initial, repo_root, stage_hash):
             rows.append(existing)
+            continue
+        if not category_in_scope(runtime, sample["category"]):
+            # Same carry-forward rule as generate_line_diagrams: don't drop a
+            # row a prior unscoped run already validated just because it's out
+            # of this run's scope.
+            if existing:
+                rows.append(existing)
             continue
         changed = True
         missing_pairs.append((sample, initial))
     if missing_pairs:
         outline_validator = build_outline_validator(model_cfg["outline_validator"])
         diagram_generator = build_outline_rectifier(model_cfg["outline_rectifier"])
-        rows.extend(
-            _validate_single_diagram(
-                sample,
-                initial,
-                repo_root,
-                runtime,
-                diagram_generator,
-                outline_validator,
+        # Each sample can drive several Flux retries plus a VLM call --
+        # checkpoint periodically so a crash doesn't lose the whole batch.
+        for index, (sample, initial) in enumerate(missing_pairs, start=1):
+            rows.append(
+                _validate_single_diagram(
+                    sample,
+                    initial,
+                    repo_root,
+                    runtime,
+                    diagram_generator,
+                    outline_validator,
+                )
             )
-            for sample, initial in missing_pairs
-        )
+            if index % 5 == 0:
+                write_ndjson(manifest_path, sorted(rows, key=lambda row: row["sample_id"]))
         rows.sort(key=lambda row: row["sample_id"])
-    if changed or not validated_diagrams_manifest_path(repo_root, runtime).exists():
-        write_ndjson(validated_diagrams_manifest_path(repo_root, runtime), rows)
+    if changed or not manifest_path.exists():
+        write_ndjson(manifest_path, rows)
     return rows
 
 

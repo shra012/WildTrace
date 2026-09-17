@@ -37,13 +37,36 @@ def parse_common_args(description: str) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--repo-root", default=".", help="Repo root for relative paths.")
     parser.add_argument("--config-dir", default=None, help="Config directory. Defaults to <repo-root>/configs.")
+    parser.add_argument(
+        "--category",
+        action="append",
+        default=None,
+        help="Restrict expensive per-sample work (Flux generation, VLM validation) to this "
+        "category. Repeatable, or comma-separated. Samples outside the scope are left "
+        "untouched (neither generated nor dropped from existing manifests) -- this narrows "
+        "blast radius when testing a newly-added category, it never widens or shrinks what "
+        "prior runs already produced for other categories.",
+    )
     return parser.parse_args()
 
 
 def load_runtime(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
     repo_root = Path(args.repo_root).resolve()
     config_dir = Path(args.config_dir).resolve() if args.config_dir else None
-    return repo_root, load_runtime_config(repo_root, config_dir)
+    runtime = load_runtime_config(repo_root, config_dir)
+    categories = getattr(args, "category", None)
+    if categories:
+        expanded = {name.strip() for item in categories for name in item.split(",") if name.strip()}
+        runtime["_run_scope"] = {"categories": expanded}
+    return repo_root, runtime
+
+
+def category_in_scope(runtime: dict[str, Any], category: str) -> bool:
+    """True unless --category was passed and this category isn't among them."""
+    scope = runtime.get("_run_scope")
+    if not scope or not scope.get("categories"):
+        return True
+    return category in scope["categories"]
 
 
 def category_limits(runtime: dict[str, Any]) -> dict[str, int]:

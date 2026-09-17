@@ -375,6 +375,12 @@ class OllamaSemanticValidator(SemanticValidator):
                 "temperature": float(self.settings.get("temperature", 0.0)),
                 "num_predict": int(self.settings.get("max_tokens", 200)),
             },
+            # Default keep_alive leaves the ~6GB vision model resident in RAM
+            # between calls. That's fine on its own, but concurrently with the
+            # Flux pipeline's ~20GB host-RAM working set it pushes this box
+            # over its 23GB and gets OOM-killed. Unload immediately after each
+            # response so Ollama's footprint only spikes during the call.
+            "keep_alive": "0s",
         }
         req = request.Request(
             f"{self._host().rstrip('/')}/api/generate",
@@ -1035,6 +1041,13 @@ class FluxSilhouetteRectifier(OutlineRectifier):
         except Exception as exc:
             raise RuntimeError(f"Failed to load FLUX GGUF pipeline: {exc}") from exc
 
+        # enable_sequential_cpu_offload() would give a much smaller steady
+        # -state footprint, but accelerate's per-tensor device hook chokes on
+        # this pipeline's GGUF-quantized transformer (KeyError on the quant
+        # type when moving a tensor to the "meta" device), so it's not usable
+        # here. Stuck with model_cpu_offload's ~20GB host-RAM footprint --
+        # see the swap-headroom note in generate_line_diagrams/validate_and_
+        # retry_diagrams docs for how the concurrent-Ollama OOM is handled.
         pipe.enable_model_cpu_offload()
         if hasattr(pipe, "safety_checker"):
             pipe.safety_checker = None
@@ -1093,14 +1106,27 @@ class FluxSilhouetteRectifier(OutlineRectifier):
         input_img = silhouette.convert("RGB")
         prompt = self._build_flux_prompt(sample)
         strength = float(params.get("strength", self.settings.get("strength", 0.85)))
-        
-        result = pipe(
-            prompt=prompt,
-            image=input_img,
-            strength=strength,
-            num_inference_steps=4,
-            guidance_scale=0.0,
-        ).images[0]
+
+        # Sequential calls on a cached pipeline otherwise accumulate host RAM
+        # (accelerate's cpu-offload hooks + autograd bookkeeping never release
+        # between calls) until the process is OOM-killed partway through a
+        # multi-sample batch. inference_mode stops graph retention; the
+        # explicit cache/gc pass after each call is the standard diffusers
+        # workaround for the offload-hook growth.
+        torch = self._import_torch()
+        with torch.inference_mode():
+            result = pipe(
+                prompt=prompt,
+                image=input_img,
+                strength=strength,
+                num_inference_steps=4,
+                guidance_scale=0.0,
+            ).images[0]
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        import gc
+
+        gc.collect()
 
         # Binarize output back to black lines on white
         r_gray = ImageOps.grayscale(result)

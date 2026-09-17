@@ -7,7 +7,7 @@ never touches the validator/GPU pipeline, never writes into WildTrace's own
 manifests. It only reads outputs/gold/trajectories/<Category>/*.json (the
 same files a human has been hand-picking all session) and writes this
 project's own outputs/mcp_sessions/job.json, which
-scripts/mcp_cat_drawing_controller.py already knows how to read.
+scripts/mcp_drawing_controller.py already knows how to read.
 
 On-demand generation of genuinely new trajectories (bypassing WildTrace's
 per-angle-bucket gold selection, or running the fetch/curate/diagram/validate
