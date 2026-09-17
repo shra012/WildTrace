@@ -24,14 +24,12 @@ robot:
   # solution every step, so the residual the drive carries into a direction
   # change is what shows up as corner overshoot. More damping settles that
   # residual without the instability that raising stiffness would invite.
-  # Further increased to reduce corner overshoot while maintaining stability.
-  drive_damping: 70.0
-  # Per-step joint-target slew cap. The URDF joint velocity limit is
-  # 3.14 rad/s and physics_dt_s is 1/60 s, so 3.14/60 is the largest
-  # single-step change the joints could actually track. Without it, a corner
-  # produces a step change in the IK solution that the drive answers with an
-  # overshoot loop.
-  max_joint_delta_rad: 0.052
+  # Raised again (70 → 85) to settle residual tip motion before corners;
+  # knots are mostly underdamped overshoot when the waypoint advances.
+  drive_damping: 95.0
+  # Per-step joint-target slew cap. Slightly below the URDF 3.14/60 limit so
+  # corner IK steps cannot slam the drive into an overshoot loop.
+  max_joint_delta_rad: 0.035
 
 drawing:
   surface_center_xy_m: [0.45, 0.0]
@@ -46,36 +44,31 @@ drawing:
   # up as small overshoot loops ("knots") at corners. corner_angle_degrees
   # still protects genuine sharp corners (tail tips, ears) from being smoothed
   # away.
-  smoothing_strength: 0.25
-  corner_angle_degrees: 35.0
+  # Stronger Laplacian pass to remove contour zigzags that show up as wavy
+  # executed strokes; genuine sharp corners stay protected by corner_angle.
+  smoothing_strength: 0.40
+  corner_angle_degrees: 28.0
   # Halved from 0.005: smaller steps mean smaller direction-change-per-step at
   # high-curvature points, which is what actually drives the overshoot/knot
   # behavior (each step is closer to the previous IK solution, so there is
   # less transient error to settle before the tolerance check passes).
-  max_cartesian_step_m: 0.002
-  # Lowered from 0.003 → 0.0012 → 0.0010. The gate must stay below max_cartesian_step_m: with a
-  # 3 mm gate and 2 mm spacing the tip could advance while still further from
-  # the current waypoint than the waypoints are from each other, which pinned
-  # the mean reach error at the tolerance itself. Further reduced to tighten
-  # the IK-to-gate tolerance ratio (IK: 0.2mm, gate: 1.0mm = 5x instead of 6x).
-  target_tolerance_m: 0.0010
+  max_cartesian_step_m: 0.0015
+  # Straights can be slightly looser than corners so the tip does not jitter
+  # between noisy waypoints; corners stay much tighter.
+  target_tolerance_m: 0.00075
   # Sharp direction changes settle tighter before advancing so the drive has
-  # less residual error to carry into the turn. Reduced proportionally.
-  corner_tolerance_m: 0.0006
-  # NEW: Velocity gate - don't advance until tip settles below this speed (mm/s).
-  # Prevents carrying momentum into direction changes. Set conservatively above
-  # the observed ~0.08 mm per 16ms step = ~5 mm/s baseline drift.
-  max_tip_speed_mm_s: 8.0
+  # less residual error to carry into the turn.
+  corner_tolerance_m: 0.00035
+  # Even stricter velocity gate (was 5.0): force near-stop before corners.
+  max_tip_speed_mm_s: 3.5
   # Waypoints within this many indices of a detected corner also use
   # corner_tolerance_m, because overshoot appears just after a vertex.
-  # Increased from 3 to cover more of the settling region after sharp turns.
-  corner_window_points: 5
+  corner_window_points: 8
   # Subdivide only the segments touching a corner, adding gated stops through
-  # a turn without slowing the straight sections. Increased from 2 to 3 for
-  # finer control through sharp direction changes.
-  corner_densify_factor: 3
-  # NEW: Adaptive IK tolerance - use tighter convergence at corners
-  corner_ik_tolerance_m: 0.00012
+  # a turn without slowing the straight sections.
+  corner_densify_factor: 5
+  # Adaptive IK tolerance - tighter convergence at corners
+  corner_ik_tolerance_m: 0.00008
   # 180 degrees about world X: pen local +Z points toward the paper (world -Z).
   orientation_wxyz: [0.0, 1.0, 0.0, 0.0]
   orientation_tolerance_rad: 0.04
@@ -115,9 +108,10 @@ safety:
   # Raised from 4.0/180.0: the tighter reach gate, corner densification and
   # joint slew cap all trade simulated time for accuracy, so the old budgets
   # would abort an otherwise healthy run. These remain hard safety stops.
-  waypoint_timeout_s: 6.0
+  # Raised again for stricter velocity/corner gates (more settle time).
+  waypoint_timeout_s: 14.0
   home_timeout_s: 12.0
-  run_timeout_s: 900.0
+  run_timeout_s: 1500.0
   physics_dt_s: 0.0166666667
   # Consecutive IK non-convergences tolerated before a safe stop. With the
   # much tighter ik_position_tolerance_m a single transient miss is not a
