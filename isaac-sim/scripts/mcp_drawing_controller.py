@@ -34,43 +34,64 @@ import omni.timeline
 from coordinate_mapper import interpolate_segment, map_trajectory_to_plane
 from drawing_state_machine import MotionTarget, MultiStrokeStateMachine, Phase, build_motion_sequence
 from metrics import nearest_path_errors, summarize_errors, write_csv, write_metrics
+from path_geometry import corner_flags, limit_joint_delta
+from project_config import load_config
 from trajectory_loader import load_trajectory
 
-# ── Config (mirrors config/xarm7_drawing.yaml) ───────────────
-ROBOT_PRIM_PATH = "/World/xarm7"
-END_EFFECTOR_FRAME = "pen_tip"
-ROBOT_DESCRIPTION_PATH = str(PROJECT_ROOT / "assets" / "xarm7" / "robot_description.yaml")
-URDF_PATH = str(PROJECT_ROOT / "assets" / "xarm7" / "xarm7_with_pen.urdf")
+# ── Config: single source of truth is config/xarm7_drawing.yaml. Values are
+# read once at module load (Kit re-imports this file on each reload_script /
+# Action Graph rebuild, so edits to the yaml take effect on the next rebuild).
+CONFIG = load_config(PROJECT_ROOT / "config" / "xarm7_drawing.yaml", PROJECT_ROOT)
+ROBOT = CONFIG["robot"]
+DRAWING = CONFIG["drawing"]
+SAFETY = CONFIG["safety"]
+
+ROBOT_PRIM_PATH = str(ROBOT["prim_path"])
+END_EFFECTOR_FRAME = str(ROBOT["end_effector_frame"])
+ROBOT_DESCRIPTION_PATH = str(ROBOT["robot_description_path"])
+URDF_PATH = str(ROBOT["urdf_path"])
 OUTPUT_DIR = PROJECT_ROOT / "outputs" / "mcp_sessions"
 JOB_FILE = OUTPUT_DIR / "job.json"
 DEFAULT_TRAJECTORY_PATH = str(PROJECT_ROOT / "inputs" / "trajectories" / "Cat" / "70bc30f8a5f918eb.json")
 DEFAULT_PREFIX = "cat"
 DRAWN_RESULT_PRIM = "/World/DrawnResult"
 
-SURFACE_CENTER_XY_M = [0.45, 0.0]
-SURFACE_SIZE_XY_M = [0.16, 0.12]
-FLIP_IMAGE_Y = True
-# Raised from 0.08 and step halved from 0.005: contour-extraction noise plus
-# large per-step direction changes at corners caused overshoot loops ("knots")
-# in a tolerance-gated per-waypoint IK controller. See config/xarm7_drawing.yaml
-# for the matching rationale.
-SMOOTHING_STRENGTH = 0.25
-CORNER_ANGLE_DEGREES = 35.0
-PEN_DOWN_Z_M = 0.201
-PEN_UP_Z_M = 0.235
-APPROACH_HEIGHT_M = 0.27
-MAX_CARTESIAN_STEP_M = 0.002
-TARGET_TOLERANCE_M = 0.003
-ORIENTATION_TOLERANCE_RAD = 0.04
-ORIENTATION_WXYZ = np.array([0.0, 1.0, 0.0, 0.0])
+SURFACE_CENTER_XY_M = list(DRAWING["surface_center_xy_m"])
+SURFACE_SIZE_XY_M = list(DRAWING["surface_size_xy_m"])
+FLIP_IMAGE_Y = bool(DRAWING["flip_image_y"])
+SMOOTHING_STRENGTH = float(DRAWING["smoothing_strength"])
+CORNER_ANGLE_DEGREES = float(DRAWING["corner_angle_degrees"])
+PEN_DOWN_Z_M = float(DRAWING["pen_down_z_m"])
+PEN_UP_Z_M = float(DRAWING["pen_up_z_m"])
+APPROACH_HEIGHT_M = float(DRAWING["approach_height_m"])
+MAX_CARTESIAN_STEP_M = float(DRAWING["max_cartesian_step_m"])
+# Straight-run vs. corner position-reach gates: corners settle to a tighter
+# tolerance before the waypoint is allowed to advance, since overshoot
+# ("knots") shows up right after a sharp direction change.
+TARGET_TOLERANCE_M = float(DRAWING["target_tolerance_m"])
+CORNER_TOLERANCE_M = float(DRAWING["corner_tolerance_m"])
+# Velocity gate: a waypoint only counts as reached once the tip has also
+# slowed below this speed, so a fast-moving tip cannot satisfy a tight
+# corner tolerance purely by passing through it. 0 disables the gate.
+MAX_TIP_SPEED_MM_S = float(DRAWING.get("max_tip_speed_mm_s", 0.0))
+CORNER_WINDOW_POINTS = int(DRAWING["corner_window_points"])
+CORNER_DENSIFY_FACTOR = int(DRAWING["corner_densify_factor"])
+# Adaptive IK convergence tolerance: tighter at corners than on straights.
+CORNER_IK_TOLERANCE_M = float(DRAWING.get("corner_ik_tolerance_m", DRAWING["ik_position_tolerance_m"]))
+NORMAL_IK_TOLERANCE_M = float(DRAWING["ik_position_tolerance_m"])
+ORIENTATION_TOLERANCE_RAD = float(DRAWING["orientation_tolerance_rad"])
+ORIENTATION_WXYZ = np.array(DRAWING["orientation_wxyz"], dtype=np.float64)
 
-HOME_JOINT_POSITIONS = np.array([0.0, -0.35, 0.0, 1.20, 0.0, 1.55, 0.0])
-HOME_JOINT_TOLERANCE_RAD = 0.02
+HOME_JOINT_POSITIONS = np.array(ROBOT["home_joint_positions_rad"], dtype=np.float64)
+HOME_JOINT_TOLERANCE_RAD = float(ROBOT["home_joint_tolerance_rad"])
 # The USD's URDF-imported drive gains are far weaker than these; without
 # reasserting them at runtime the arm creeps toward a target asymptotically
 # and misses the waypoint timeout well before closing the last few mm.
-DRIVE_STIFFNESS = 400.0
-DRIVE_DAMPING = 40.0
+DRIVE_STIFFNESS = float(ROBOT["drive_stiffness"])
+DRIVE_DAMPING = float(ROBOT["drive_damping"])
+# Per-step joint-target slew cap so a corner IK step cannot slam the drive
+# into an overshoot loop. None/0 disables clamping.
+MAX_JOINT_DELTA_RAD = float(ROBOT.get("max_joint_delta_rad", 0.0)) or None
 JOINT_LOWER = np.array(
     [-6.283185307179586, -2.058999960451334, -6.283185307179586, -0.1919799925803282,
      -6.283185307179586, -1.6929700402247723, -6.283185307179586]
@@ -80,10 +101,10 @@ JOINT_UPPER = np.array(
      6.283185307179586, 3.141592653589793, 6.283185307179586]
 )
 
-WAYPOINT_TIMEOUT_S = 4.0
-HOME_TIMEOUT_S = 12.0
-RUN_TIMEOUT_S = 300.0
-PHYSICS_DT_S = 1.0 / 60.0
+WAYPOINT_TIMEOUT_S = float(SAFETY["waypoint_timeout_s"])
+HOME_TIMEOUT_S = float(SAFETY["home_timeout_s"])
+RUN_TIMEOUT_S = float(SAFETY["run_timeout_s"])
+PHYSICS_DT_S = float(SAFETY["physics_dt_s"])
 WARMUP_FRAMES = 30
 
 WARMUP, INIT, HOME, DRAWING, FINISHED, FAILED = "WARMUP", "INIT", "HOME", "DRAWING", "FINISHED", "FAILED"
@@ -97,12 +118,14 @@ _robot = None
 _solver = None
 _machine = None
 _mapped = None
+_phase_corners = []
 _prefix = DEFAULT_PREFIX
 _home_action = None
 _tl_sub = None
 _executed_rows = []
 _reached_errors = []
 _report_written = False
+_previous_tip_xy = None
 
 
 def _log(msg):
@@ -119,6 +142,7 @@ def _go(new_state):
 def _reset(_event=None):
     global _state, _frame, _sim_time, _world, _robot, _solver, _machine, _mapped, _prefix
     global _home_action, _executed_rows, _reached_errors, _report_written
+    global _phase_corners, _previous_tip_xy
     _state = WARMUP
     _frame = 0
     _sim_time = 0.0
@@ -126,11 +150,13 @@ def _reset(_event=None):
     _solver = None
     _machine = None
     _mapped = None
+    _phase_corners = []
     _prefix = DEFAULT_PREFIX
     _home_action = None
     _executed_rows = []
     _reached_errors = []
     _report_written = False
+    _previous_tip_xy = None
     if _world is not None:
         _world.clear_instance()
         _world = None
@@ -158,6 +184,13 @@ def _load_job():
         return DEFAULT_TRAJECTORY_PATH, DEFAULT_PREFIX
 
 
+def _corner_flags_for(phases):
+    return [
+        corner_flags([t.position for t in phase.targets], CORNER_ANGLE_DEGREES, CORNER_WINDOW_POINTS)
+        for phase in phases
+    ]
+
+
 def _build_machine(trajectory_path):
     trajectory = load_trajectory(trajectory_path)
     mapped = map_trajectory_to_plane(
@@ -175,8 +208,11 @@ def _build_machine(trajectory_path):
         pen_up_z=PEN_UP_Z_M,
         approach_height=APPROACH_HEIGHT_M,
         max_cartesian_step=MAX_CARTESIAN_STEP_M,
+        corner_angle_degrees=CORNER_ANGLE_DEGREES,
+        corner_densify_window=CORNER_WINDOW_POINTS,
+        corner_densify_factor=CORNER_DENSIFY_FACTOR,
     )
-    return mapped, MultiStrokeStateMachine(phases, WAYPOINT_TIMEOUT_S)
+    return mapped, MultiStrokeStateMachine(phases, WAYPOINT_TIMEOUT_S), _corner_flags_for(phases)
 
 
 def _clear_drawn_result():
@@ -237,6 +273,7 @@ def _write_report():
     fields = [
         "simulation_time_s", "state", "stroke_id", "waypoint_index", "pen_down",
         "target_x_m", "target_y_m", "target_z_m", "tip_x_m", "tip_y_m", "tip_z_m", "tracking_error_m",
+        "is_corner", "tip_speed_mm_s",
     ]
     write_csv(OUTPUT_DIR / f"{_prefix}_executed_path.csv", _executed_rows, fields)
     try:
@@ -278,6 +315,7 @@ def _write_report():
 
 def compute(db=None):
     global _state, _frame, _sim_time, _world, _robot, _solver, _machine, _mapped, _prefix, _home_action
+    global _phase_corners, _previous_tip_xy
 
     if _state == WARMUP:
         _frame += 1
@@ -317,7 +355,7 @@ def compute(db=None):
             _solver = ArticulationKinematicsSolver(_robot, lula, END_EFFECTOR_FRAME)
 
             trajectory_path, _prefix = _load_job()
-            _mapped, _machine = _build_machine(trajectory_path)
+            _mapped, _machine, _phase_corners = _build_machine(trajectory_path)
             try:
                 _clear_drawn_result()
             except Exception as exc:
@@ -355,6 +393,7 @@ def compute(db=None):
                     for index, point in enumerate(approach_points)
                 ],
             )
+            _phase_corners[0] = corner_flags(list(approach_points), CORNER_ANGLE_DEGREES, CORNER_WINDOW_POINTS)
             _machine.mark_home_reached(_sim_time)
             _log(f"HOME reached (err={err:.4f}) -> {_machine.state} ({len(approach_points)} approach waypoints)")
             _go(DRAWING)
@@ -370,10 +409,12 @@ def compute(db=None):
         else:
             target = _machine.current_target
             if target is not None:
+                is_corner = bool(_phase_corners[_machine.phase_index][_machine.target_index])
+                active_ik_tolerance = CORNER_IK_TOLERANCE_M if is_corner else NORMAL_IK_TOLERANCE_M
                 action, success = _solver.compute_inverse_kinematics(
                     target.position,
                     ORIENTATION_WXYZ,
-                    position_tolerance=TARGET_TOLERANCE_M,
+                    position_tolerance=active_ik_tolerance,
                     orientation_tolerance=ORIENTATION_TOLERANCE_RAD,
                 )
                 if not success or action.joint_positions is None:
@@ -383,9 +424,28 @@ def compute(db=None):
                     if not np.isfinite(proposed).all() or np.any(proposed < JOINT_LOWER) or np.any(proposed > JOINT_UPPER):
                         _machine.fail(f"IK out-of-limits in {_machine.state}")
                     else:
+                        if MAX_JOINT_DELTA_RAD:
+                            measured_q = np.asarray(_robot.get_joint_positions(), dtype=np.float64)
+                            indices = getattr(action, "joint_indices", None)
+                            base_q = measured_q[np.asarray(indices, dtype=int)] if indices is not None else measured_q
+                            action.joint_positions = limit_joint_delta(base_q, proposed, MAX_JOINT_DELTA_RAD)
                         _robot.get_articulation_controller().apply_action(action)
                         tip_position, _tip_rot = _solver.compute_end_effector_pose(position_only=False)
                         error = float(np.linalg.norm(np.asarray(tip_position) - target.position))
+
+                        # Velocity gate: a waypoint only counts as reached once the tip
+                        # has also slowed below MAX_TIP_SPEED_MM_S, so a fast-moving tip
+                        # cannot satisfy a tight corner tolerance purely by passing through
+                        # it - this is what actually stops the corner-overshoot "knots".
+                        tip_xy = np.asarray(tip_position, dtype=np.float64)[:2]
+                        tip_speed_mm_s = 0.0
+                        if _previous_tip_xy is not None:
+                            tip_speed_mm_s = float(np.linalg.norm(tip_xy - _previous_tip_xy)) / PHYSICS_DT_S * 1000.0
+                        _previous_tip_xy = tip_xy
+                        velocity_settled = (MAX_TIP_SPEED_MM_S <= 0.0) or (tip_speed_mm_s <= MAX_TIP_SPEED_MM_S)
+                        active_position_tolerance = CORNER_TOLERANCE_M if is_corner else TARGET_TOLERANCE_M
+                        position_reached = error <= active_position_tolerance
+
                         _executed_rows.append(
                             {
                                 "simulation_time_s": _sim_time,
@@ -400,9 +460,11 @@ def compute(db=None):
                                 "tip_y_m": float(tip_position[1]),
                                 "tip_z_m": float(tip_position[2]),
                                 "tracking_error_m": error,
+                                "is_corner": int(is_corner),
+                                "tip_speed_mm_s": tip_speed_mm_s,
                             }
                         )
-                        reached = error <= TARGET_TOLERANCE_M
+                        reached = position_reached and velocity_settled
                         if reached:
                             _reached_errors.append(error)
                         previous_phase = _machine.state
