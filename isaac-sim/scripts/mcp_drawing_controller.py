@@ -18,6 +18,7 @@ over blank paper.
 setup() runs once; compute() runs every tick. State resets on timeline STOP
 so the next Play re-inits and re-homes.
 """
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -41,10 +42,66 @@ from trajectory_loader import load_trajectory
 # ── Config: single source of truth is config/xarm7_drawing.yaml. Values are
 # read once at module load (Kit re-imports this file on each reload_script /
 # Action Graph rebuild, so edits to the yaml take effect on the next rebuild).
-CONFIG = load_config(PROJECT_ROOT / "config" / "xarm7_drawing.yaml", PROJECT_ROOT)
+_CONFIG_PATH = PROJECT_ROOT / "config" / "xarm7_drawing.yaml"
+CONFIG = load_config(_CONFIG_PATH, PROJECT_ROOT)
 ROBOT = CONFIG["robot"]
 DRAWING = CONFIG["drawing"]
 SAFETY = CONFIG["safety"]
+
+# ── Run provenance: every run_metrics.json is stamped with the exact config
+# and code that produced it, so results are only ever compared apples-to-
+# apples (baseline-v1 and successors). Config hash covers the yaml actually
+# read above; git SHA covers the controller/src code driving the run. Both
+# degrade to a clear sentinel rather than raising, since a missing repo or
+# git binary on the Kit host must never block a drawing run.
+CONFIG_HASH = hashlib.sha256(_CONFIG_PATH.read_bytes()).hexdigest()[:12]
+
+
+def _resolve_git_sha(project_root):
+    # project_root is passed explicitly, not read via closure: the ScriptNode
+    # exec model runs this file with separate globals/locals dicts, so a
+    # nested function cannot see "module-level" names as locals the way a
+    # normal script would (only true module globals are visible to it).
+    import subprocess
+
+    # Two Windows-git config overrides, both needed, or every run reports
+    # "-dirty" regardless of the real working-tree state:
+    #   core.autocrlf=false — the ambient config has autocrlf=true, which
+    #     makes `git status` treat every LF-only file in this WSL-hosted
+    #     repo as modified (CRLF would be substituted on next touch).
+    #   core.filemode=false — the ambient config also has filemode=true,
+    #     and the exec-bit this Windows git process sees for every file
+    #     through the \\wsl.localhost UNC/9p mount does not reliably match
+    #     what is recorded in the index, so every file reads as a mode
+    #     change too. Verified against the WSL-side `git status`, which is
+    #     the actual source of truth and stays clean throughout.
+    git_env_args = ["git", "-c", "core.autocrlf=false", "-c", "core.filemode=false"]
+    try:
+        result = subprocess.run(
+            git_env_args + ["rev-parse", "--short", "HEAD"],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            sha = result.stdout.strip()
+            dirty = subprocess.run(
+                git_env_args + ["status", "--porcelain"],
+                cwd=str(project_root),
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if dirty.returncode == 0 and dirty.stdout.strip():
+                return f"{sha}-dirty"
+            return sha
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "unknown"
+
+
+GIT_SHA = _resolve_git_sha(PROJECT_ROOT)
 
 ROBOT_PRIM_PATH = str(ROBOT["prim_path"])
 END_EFFECTOR_FRAME = str(ROBOT["end_effector_frame"])
@@ -292,6 +349,9 @@ def _write_report():
     metrics = {
         "status": "finished" if _machine.complete else "failed",
         "failure_reason": _machine.failure_reason,
+        "git_sha": GIT_SHA,
+        "config_hash": CONFIG_HASH,
+        "config_path": str(_CONFIG_PATH),
         "drawing_id": _mapped["drawing_id"] if _mapped else None,
         "stroke_count": len(_mapped["strokes"]) if _mapped else 0,
         "visited_states": _machine.visited_states,
