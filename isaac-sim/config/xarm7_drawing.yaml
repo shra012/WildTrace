@@ -55,20 +55,28 @@ drawing:
   max_cartesian_step_m: 0.0015
   # Straights can be slightly looser than corners so the tip does not jitter
   # between noisy waypoints; corners stay much tighter.
-  target_tolerance_m: 0.00075
+  # Loosened from 0.00075: the tighter value drove real-robot draw time to
+  # ~12.4 min (simulation_duration_s) on a 6-stroke sample, well over the
+  # <10 min budget. This keeps ~4x tighter than the pre-fix flat 3mm gate.
+  target_tolerance_m: 0.0012
   # Sharp direction changes settle tighter before advancing so the drive has
-  # less residual error to carry into the turn.
-  corner_tolerance_m: 0.00035
-  # Even stricter velocity gate (was 5.0): force near-stop before corners.
-  max_tip_speed_mm_s: 3.5
+  # less residual error to carry into the turn. Loosened from 0.00035 for the
+  # same time-budget reason; still ~5x tighter than the pre-fix flat gate.
+  corner_tolerance_m: 0.0006
+  # Loosened from 3.5: still gates residual momentum at corners, just not to
+  # a near-full stop, trading a little accuracy back for real-robot time.
+  max_tip_speed_mm_s: 7.0
   # Waypoints within this many indices of a detected corner also use
   # corner_tolerance_m, because overshoot appears just after a vertex.
-  corner_window_points: 8
+  # Narrowed from 8 so fewer waypoints pay the stricter corner settle cost.
+  corner_window_points: 5
   # Subdivide only the segments touching a corner, adding gated stops through
-  # a turn without slowing the straight sections.
-  corner_densify_factor: 5
-  # Adaptive IK tolerance - tighter convergence at corners
-  corner_ik_tolerance_m: 0.00008
+  # a turn without slowing the straight sections. Reduced from 5: fewer
+  # subdivided stops per corner is the single biggest lever on total time.
+  corner_densify_factor: 3
+  # Adaptive IK tolerance - tighter convergence at corners. Loosened from
+  # 0.00008 alongside the other corner gates.
+  corner_ik_tolerance_m: 0.00015
   # 180 degrees about world X: pen local +Z points toward the paper (world -Z).
   orientation_wxyz: [0.0, 1.0, 0.0, 0.0]
   orientation_tolerance_rad: 0.04
