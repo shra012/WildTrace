@@ -87,7 +87,11 @@ def _resolve_git_sha(project_root):
         if result.returncode == 0:
             sha = result.stdout.strip()
             dirty = subprocess.run(
-                git_env_args + ["status", "--porcelain"],
+                # --untracked-files=no: dirty means "the tracked code/config
+                # differs from HEAD", not "some unrelated untracked file
+                # exists in the tree" (e.g. an editor settings file that is
+                # never read by this pipeline).
+                git_env_args + ["status", "--porcelain", "--untracked-files=no"],
                 cwd=str(project_root),
                 capture_output=True,
                 text=True,
