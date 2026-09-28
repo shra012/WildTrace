@@ -103,9 +103,13 @@ Then confirm with `mcp__isaac-sim__get_robot_info(prim_path="/World/xarm7")`.
 
 ## Known-good reference numbers
 
-Mean tracking error has consistently landed in the 2-3mm range across Cat,
-Dog, Bird, Fish, and Horse gold trajectories with the current
-`config/xarm7_drawing.yaml` tuning (`smoothing_strength: 0.25`,
-`max_cartesian_step_m: 0.002`). A result far outside that band on an
+With the frozen baseline-v1 config (`config_hash 15e6428dffca`),
+`desired_to_executed_nearest_path_error.rmse_m` lands at 0.27-0.39 mm (mean
+0.33 mm, max error ~1.0-1.2 mm) across all 6 gold categories; see
+`outputs/reports/baseline_v1_results.md`. A result far outside that band on an
 otherwise-normal run is worth flagging to the user rather than reporting
 silently as success.
+
+The `wildtrace-sim` MCP server's `draw(category)` tool automates this whole
+skill end to end (launch, scene build, provision, run, wait, plot); prefer it
+when registered. See `README.md` → "Live drawing via MCP".
