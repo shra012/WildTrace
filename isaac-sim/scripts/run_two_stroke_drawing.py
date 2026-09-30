@@ -26,6 +26,7 @@ def _parse_args():
     parser.add_argument("--max-steps", type=int, default=0, help="Diagnostic hard stop; 0 disables it")
     parser.add_argument("--trajectory", default=None, help="Override project.trajectory_path")
     parser.add_argument("--first-n-strokes", type=int, default=None, help="Only draw the first N strokes")
+    parser.add_argument("--output-dir", default=None, help="Override project.output_dir")
     return parser.parse_args()
 
 
@@ -254,7 +255,7 @@ def main() -> int:
 
     config = load_config(ARGS.config, PROJECT_ROOT)
     robot_config, drawing, safety = config["robot"], config["drawing"], config["safety"]
-    output_dir = Path(config["project"]["output_dir"])
+    output_dir = Path(ARGS.output_dir or config["project"]["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
 
     urdf_path, usd_path = Path(robot_config["urdf_path"]), Path(robot_config["usd_path"])
@@ -291,7 +292,14 @@ def main() -> int:
         rendering_dt=float(safety["physics_dt_s"]),
     )
     world.get_physics_context().set_gravity(float(safety["gravity_m_s2"]))
-    world.scene.add_default_ground_plane()
+    # Keep the deterministic runner offline like the PPO environments.
+    world.scene.add(FixedCuboid(
+        prim_path="/World/Ground",
+        name="ground",
+        position=np.asarray([0.0, 0.0, -0.01]),
+        scale=np.asarray([8.0, 8.0, 0.02]),
+        color=np.asarray([0.08, 0.16, 0.22]),
+    ))
     paper_size = np.asarray(drawing["surface_size_xy_m"], dtype=np.float64) + 0.04
     paper_thickness = 0.01
     world.scene.add(
@@ -309,6 +317,9 @@ def main() -> int:
     for _ in range(10):
         simulation_app.update()
     articulation_root = find_articulation_root(world.stage, reference_root)
+    from articulation_control import configure_position_drive, prepare_articulation_solver
+
+    prepare_articulation_solver(world.stage, articulation_root, robot_config)
     robot = world.scene.add(SingleArticulation(prim_path=articulation_root, name="xarm7"))
 
     _create_curve(
@@ -336,13 +347,9 @@ def main() -> int:
         raise RuntimeError(f"Expected arm joints {expected_names}, imported {actual_names}")
     home = np.asarray(robot_config["home_joint_positions_rad"], dtype=np.float64)
     articulation_controller = robot.get_articulation_controller()
-    articulation_controller.switch_control_mode("position")
-    articulation_controller.set_gains(
-        kps=np.full(len(expected_names), float(robot_config["drive_stiffness"]), dtype=np.float64),
-        kds=np.full(len(expected_names), float(robot_config["drive_damping"]), dtype=np.float64),
+    articulation_controller = configure_position_drive(
+        robot, robot_config, prefix="[DRAW CONTROL]"
     )
-    actual_kps, actual_kds = articulation_controller.get_gains()
-    print(f"[OK] Position-drive gains kp={actual_kps.tolist()}, kd={actual_kds.tolist()}")
     robot.set_joint_positions(home)
     home_action = ArticulationAction(joint_positions=home)
     for _ in range(10):
@@ -492,7 +499,7 @@ def main() -> int:
             break
 
         if machine.state == HOME:
-            articulation_controller.apply_action(home_action)
+            ik.apply(home_action)
             q = np.asarray(robot.get_joint_positions(), dtype=np.float64)
             last_home_error = float(np.max(np.abs(q - home)))
             if last_home_error <= float(robot_config["home_joint_tolerance_rad"]):
@@ -666,7 +673,7 @@ def main() -> int:
         "status": "finished" if machine.complete else "failed",
         "failure_reason": machine.failure_reason,
         "drawing_id": mapped["drawing_id"],
-        "requested_stroke_count": 2,
+        "requested_stroke_count": len(mapped["strokes"]),
         "visited_states": list(machine.visited_states),
         "simulation_steps": step_count,
         "simulation_duration_s": float(world.current_time) - start_time,
