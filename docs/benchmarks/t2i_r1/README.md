@@ -1,5 +1,5 @@
 # Text-to-image comparison `t2i-r1`: SANA vs FLUX-schnell
-git `adc0796-dirty`, config hash `84798a2c43e9`. Config: `configs/benchmark.yaml` `t2i_comparison`; script: `scripts/benchmark_t2i.py`.
+git `159d5f5-dirty`, config hash `84798a2c43e9`. Config: `configs/benchmark.yaml` `t2i_comparison`; script: `scripts/benchmark_t2i.py`.
 
 Both models run on FAL (`fal-ai/sana`, `fal-ai/flux/schnell`) at 1024×1024, one image per subject, prompted with the production line-drawing prompt for each of the 20 r2 evalset subjects (`benchmarks/evalset_v2.json`), same seed per subject, production binarization. Neither model sees the source photo, so shape and pose fidelity (r2 groups C, D) are not measured. Estimated draw time is not reported: its model calibrates from Isaac Sim run logs that were not available on the machine that ran this. Values are means or rates with bootstrap 95% CI. **Bold** = better and CIs don't overlap.
 
@@ -9,6 +9,7 @@ Both models run on FAL (`fal-ai/sana`, `fal-ai/flux/schnell`) at 1024×1024, one
 - **Both are equally recognizable, and neither produces blanks.** BioCLIP names the right animal for 80% of drawings from both models. Neither produced a blank page.
 - **SANA is cheaper and faster.** On FAL it costs $0.001 per 1024×1024 image against $0.006 for FLUX-schnell, and returns in 2.9 s against 4.5 s.
 - **Caveats.** This is text-to-image only: neither model saw the source photo, so these numbers aren't directly comparable to r2's FLUX row, which was image-to-image on the silhouette with a retry loop and a different judge. n = 20 with one seed per subject. A prompt asking for fewer interior lines might help SANA, but that wasn't tested.
+- **The cheaper judge goes easy on cluttered drawings.** qwen3-vl-8b, which r2 recommended as the production judge, passed 6 SANA drawings that the strong judge rejected for clutter, and never rejected one the strong judge passed (κ = 0.35 on SANA). If SANA or another detail-heavy generator is used, the production judge would let these through. On FLUX, κ shows 0.00 only because the 8b judge passed all 20, which leaves nothing to agree or disagree on; that's not real disagreement.
 
 ## Results
 | metric | better | sana | flux-schnell | winner |
@@ -35,9 +36,13 @@ Both models run on FAL (`fal-ai/sana`, `fal-ai/flux/schnell`) at 1024×1024, one
 | **H. Cost and speed** |  |  |  |  |
 | Generation time per attempt (s) | ↓ | 2.92 (2.49–3.45) | 4.49 (4.16–4.85) | **sana** |
 | Generation cost per image (USD) | ↓ | $0.0010 | $0.0060 | **sana** |
+| Generation time p50 / p95 (s) | ↓ | 2.49 / 4.98 | 4.28 / 6.01 |  |
 | **F. Judges (OpenRouter)** |  |  |  |  |
 | Judge pass: `qwen/qwen3-vl-8b-instruct` | ↑ | 85% (70%–100%) | 100% (100%–100%) | flux-schnell (CIs overlap) |
+| Judge latency p50 (s): `qwen3-vl-8b` | ↓ | 1.41 | 1.36 |  |
 | Judge pass: `qwen/qwen3-vl-235b-a22b-instruct` (strong) | ↑ | 55% (30%–75%) | 95% (85%–100%) | **flux-schnell** |
+| Judge latency p50 (s): `qwen3-vl-235b` | ↓ | 2.16 | 2.08 |  |
+| `qwen3-vl-8b` vs strong judge (Cohen's κ) | ↑ | 0.35 | 0.00 |  |
 
 Strong judge (qwen3-vl-235b) paired sign test: sana passes where flux-schnell fails on 0 subjects, the reverse on 8; p = 0.0078.
 

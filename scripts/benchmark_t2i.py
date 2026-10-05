@@ -291,6 +291,15 @@ def cmd_report(args: argparse.Namespace) -> None:
             rows.append({"metric": label, "better": arrow, **{n: _fmt(key, means[n], cis[n]) for n in names},
                          "winner": _better(key, means, cis)})
 
+    # Latency tail, as in the Molmo report (mean / p50 / p95).
+    tails = {}
+    for n in names:
+        latencies = [float(gen_by[(n, s)]["gen_latency_s"]) for s in paired]
+        tails[n] = (round(float(np.percentile(latencies, 50)), 2), round(float(np.percentile(latencies, 95)), 2))
+    summary["metrics"]["gen_latency_p50_p95_s"] = tails
+    rows.append({"metric": "Generation time p50 / p95 (s)", "better": "↓",
+                 **{n: f"{tails[n][0]:.2f} / {tails[n][1]:.2f}" for n in names}, "winner": ""})
+
     rows.append({"metric": "**F. Judges (OpenRouter)**"})
     judge_pass: dict[str, dict[str, dict[str, bool]]] = {}
     for entry in c["judges"]:
@@ -305,8 +314,25 @@ def cmd_report(args: argparse.Namespace) -> None:
         label = f"Judge pass: `{entry['openrouter_model_name']}`" + (" (strong)" if entry.get("strong") else "")
         rows.append({"metric": label, "better": "↑", **{n: _fmt("passed", means[n], cis[n]) for n in names},
                      "winner": _better("clip_top1", means, cis)})
+        latency = {n: [float(r["latency_s"]) for r in judges if r["judge"] == jn and r["generator"] == n
+                       and r["sample_id"] in paired and r.get("latency_s") is not None] for n in names}
+        rows.append({"metric": f"Judge latency p50 (s): `{jn}`", "better": "↓",
+                     **{n: f"{np.percentile(latency[n], 50):.2f}" if latency[n] else "n/a" for n in names},
+                     "winner": ""})
 
     strong = next(e["name"] for e in c["judges"] if e.get("strong"))
+    # Agreement of each cheaper judge with the strong one, as r2 reports for its own judge.
+    for entry in c["judges"]:
+        if entry.get("strong"):
+            continue
+        jn, kappas = entry["name"], {}
+        for n in names:
+            ids = [s for s in paired if s in judge_pass[jn][n] and s in judge_pass[strong][n]]
+            kappas[n] = em.cohen_kappa([judge_pass[jn][n][s] for s in ids], [judge_pass[strong][n][s] for s in ids])
+        summary["metrics"][f"kappa:{jn}_vs_{strong}"] = kappas
+        rows.append({"metric": f"`{jn}` vs strong judge (Cohen's κ)", "better": "↑",
+                     **{n: "n/a" if kappas[n] is None else f"{kappas[n]:.2f}" for n in names}, "winner": ""})
+
     a, b = names
     wins = sum(judge_pass[strong][a].get(s, False) and not judge_pass[strong][b].get(s, False) for s in paired)
     losses = sum(judge_pass[strong][b].get(s, False) and not judge_pass[strong][a].get(s, False) for s in paired)

@@ -1,6 +1,6 @@
 {
   "run_id": "t2i-r1",
-  "git_sha": "adc0796-dirty",
+  "git_sha": "159d5f5-dirty",
   "config_hash": "84798a2c43e9",
   "n_subjects": 20,
   "generation_errors": 0,
@@ -293,6 +293,16 @@
         ]
       }
     },
+    "gen_latency_p50_p95_s": {
+      "sana": [
+        2.49,
+        4.98
+      ],
+      "flux-schnell": [
+        4.28,
+        6.01
+      ]
+    },
     "judge_pass:qwen3-vl-8b": {
       "sana": {
         "mean": 0.85,
@@ -324,6 +334,10 @@
           1.0
         ]
       }
+    },
+    "kappa:qwen3-vl-8b_vs_qwen3-vl-235b": {
+      "sana": 0.3548,
+      "flux-schnell": 0.0
     }
   },
   "strong_judge_sign_test": {
