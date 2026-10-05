@@ -17,8 +17,13 @@ try:
     import torch
 
     from behavior_cloning import CartesianDeltaPolicy, load_checkpoint, save_checkpoint, split_by_drawing_id
-except ModuleNotFoundError as exc:
-    if exc.name != "torch":
+except (ModuleNotFoundError, ImportError) as exc:
+    # Isaac's launcher can expose a placeholder torch namespace before
+    # SimulationApp loads the extension that provides torch.nn. Unit tests run
+    # without SimulationApp, so treat that state like an unavailable PyTorch.
+    if isinstance(exc, ModuleNotFoundError) and exc.name != "torch":
+        raise
+    if isinstance(exc, ImportError) and "torch" not in str(exc):
         raise
     torch = None
 

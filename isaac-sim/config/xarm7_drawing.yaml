@@ -16,17 +16,25 @@ robot:
   expected_joint_names: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
   home_joint_positions_rad: [0.0, -0.35, 0.0, 1.20, 0.0, 1.55, 0.0]
   home_joint_tolerance_rad: 0.02
-  # Isaac/PhysX position-drive gains. Acceleration drives make gains independent
-  # of link mass while URDF effort limits remain available on the joints.
-  drive_type: acceleration
-  drive_stiffness: 400.0
-  # Raised from 40 → 55 → 70: the tolerance-gated controller re-commands a new IK
-  # solution every step, so the residual the drive carries into a direction
-  # change is what shows up as corner overshoot. More damping settles that
-  # residual without the instability that raising stiffness would invite.
-  # Raised again (70 → 85) to settle residual tip motion before corners;
-  # knots are mostly underdamped overshoot when the waypoint advances.
-  drive_damping: 95.0
+  # Force-mode PhysX position servo. This makes the relationship between
+  # position error and joint torque explicit under gravity.
+  drive_type: force
+  drive_stiffness: 75000.0
+  # Damping for the force-mode servo. Together with the stiffness above this
+  # holds the commanded IK pose against gravity without oscillating at corners.
+  drive_damping: 650.0
+  # PhysX drive-force ceilings for the simulated low-level joint servos. The
+  # imported URDF limits (20-50 N m) saturate while holding this pose at 1 g;
+  # the real arm's internal position controller includes its own gravity/load
+  # compensation. Keep these finite and validate them against hardware before
+  # interpreting them as physical motor-torque limits.
+  sim_position_drive_max_force: [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0]
+  # More constraint iterations reduce gravity-loaded joint and contact error.
+  solver_position_iterations: 16
+  solver_velocity_iterations: 4
+  # Allow the gravity-loaded articulation to settle after a state reset before
+  # issuing Cartesian IK targets.
+  gravity_home_settle_steps: 240
   # Per-step joint-target slew cap. Slightly below the URDF 3.14/60 limit so
   # corner IK steps cannot slam the drive into an overshoot loop.
   max_joint_delta_rad: 0.035
@@ -59,10 +67,11 @@ drawing:
   # ~12.4 min (simulation_duration_s) on a 6-stroke sample, well over the
   # <10 min budget. This keeps ~4x tighter than the pre-fix flat 3mm gate.
   target_tolerance_m: 0.0012
-  # Sharp direction changes settle tighter before advancing so the drive has
-  # less residual error to carry into the turn. Loosened from 0.00035 for the
-  # same time-budget reason; still ~5x tighter than the pre-fix flat gate.
-  corner_tolerance_m: 0.0006
+  # Sharp direction changes settle tighter before advancing. At Earth gravity
+  # the measured force-drive floor is about 0.8-1.1 mm across the workspace,
+  # so a 0.6 mm gate can never complete even though the pen is accurately
+  # tracking the paper. This remains tighter than the normal 1.2 mm gate.
+  corner_tolerance_m: 0.0011
   # Loosened from 3.5: still gates residual momentum at corners, just not to
   # a near-full stop, trading a little accuracy back for real-robot time.
   max_tip_speed_mm_s: 7.0
@@ -108,9 +117,8 @@ drawing:
   heading_lookback_targets: 40
 
 safety:
-  # Stage-1 kinematic baseline: isolate IK/state-machine tracking without
-  # exceeding the official URDF effort caps. Tune gravity compensation later.
-  gravity_m_s2: 0.0
+  # Earth gravity. Training remains gated on a reach/contact preflight.
+  gravity_m_s2: 9.81
   workspace_min_m: [0.25, -0.25, 0.18]
   workspace_max_m: [0.70, 0.25, 0.75]
   # Raised from 4.0/180.0: the tighter reach gate, corner densification and
@@ -125,6 +133,80 @@ safety:
   # much tighter ik_position_tolerance_m a single transient miss is not a
   # safety event; a persistent one still is.
   max_ik_failures: 3
+
+rl:
+  # PPO environment settings. The policy receives target/current raster masks
+  # plus proprioception and emits a bounded Cartesian delta and pen command.
+  target_width_px: 32
+  target_height_px: 24
+  max_episode_steps: 600
+  action_delta_m: 0.003
+  pen_down_threshold: 0.55
+  reward_outside_weight: 0.25
+  reward_action_weight: 0.01
+  reward_smoothness_weight: 0.02
+  dense_distance_weight: 0.10
+  visualization_stride: 5
+  control_substeps: 6
+  contact_z_tolerance_m: 0.002
+  contact_penalty_weight: 0.25
+  ppo_updates: 10
+  ppo_steps_per_update: 512
+  ppo_epochs: 4
+  ppo_minibatch_size: 128
+  ppo_learning_rate: 0.0003
+  ppo_gamma: 0.99
+  ppo_gae_lambda: 0.95
+  ppo_clip_ratio: 0.2
+  ppo_entropy_weight: 0.01
+  # Keep 1-g training separate from older zero-gravity experiments.
+  checkpoint_path: outputs/rl_drawing_policy_1g.pt
+
+v0_ppo:
+  # Trajectory-conditioned, residual joint-velocity PPO baseline. It is
+  # deliberately not trajectory-free: it establishes that the simulator,
+  # reference tracking reward, and PPO loop work before image-only control.
+  # Interactive viewer framing. These settings do not affect headless training.
+  gui_camera_eye_m: [1.35, 1.20, 1.15]
+  gui_camera_target_m: [0.28, 0.0, 0.42]
+  first_n_strokes: 1
+  lookahead_points: 5
+  # The current one-stroke sequence has 957 targets. An episode must allow
+  # more than one control attempt per target, so 800 made completion impossible.
+  max_episode_steps: 3000
+  # Train short prefixes first. -1 means all targets from the selected strokes.
+  curriculum_target_counts: [100, 250, 500, -1]
+  # Start with a 3 mm reach gate and recover the desired 2 mm precision on the
+  # full path. There must be one tolerance for each curriculum stage.
+  curriculum_tolerances_m: [0.003, 0.003, 0.0025, 0.002]
+  curriculum_eval_interval_updates: 10
+  curriculum_eval_episodes: 1
+  curriculum_success_rate: 1.0
+  control_substeps: 4
+  residual_joint_velocity_rad_s: 0.15
+  # Fallback used when no curriculum tolerance list is provided.
+  target_tolerance_m: 0.002
+  tracking_progress_weight: 10.0
+  tracking_distance_weight: 0.5
+  reached_bonus: 0.50
+  contact_penalty_weight: 0.25
+  action_l2_weight: 0.002
+  action_smoothness_weight: 0.01
+  # 300 is one training session. --resume adds another session while restoring
+  # the policy, optimizer, curriculum stage, and global update counter.
+  ppo_updates: 300
+  ppo_steps_per_update: 512
+  ppo_epochs: 4
+  ppo_minibatch_size: 128
+  ppo_learning_rate: 0.0003
+  ppo_gamma: 0.99
+  ppo_gae_lambda: 0.95
+  ppo_clip_ratio: 0.2
+  ppo_entropy_weight: 0.01
+  log_interval_updates: 10
+  # Never resume the older zero-gravity policy into a different dynamics task.
+  checkpoint_path: outputs/v0_trajectory_ppo_1g.pt
+  best_checkpoint_path: outputs/v0_trajectory_ppo_best_1g.pt
 
 recording:
   lookahead_points: 5
