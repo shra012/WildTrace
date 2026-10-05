@@ -11,15 +11,12 @@ import json
 import sys
 from pathlib import Path
 
-import yaml
 from PIL import Image, ImageDraw
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from dotenv import load_dotenv
-load_dotenv(REPO_ROOT / ".env")
-
+from wildtrace.config import load_runtime_config
 from wildtrace.diagram import build_outline_rectifier
 
 
@@ -42,8 +39,9 @@ def main() -> None:
     OUT = REPO_ROOT / "outputs" / "flux_sweep"
     OUT.mkdir(parents=True, exist_ok=True)
 
-    with open(REPO_ROOT / "configs" / "models.yaml") as f:
-        config = yaml.safe_load(f)
+    # load_runtime_config loads .env and expands ${VAR:-default}; a raw
+    # yaml.safe_load passes the placeholder string through as the backend name.
+    config = load_runtime_config(REPO_ROOT)["models"]
 
     print("Initializing OutlineRectifier pipeline...")
     rectifier = build_outline_rectifier(config["outline_rectifier"])

@@ -22,6 +22,8 @@ dependencies = [
   "accelerate>=1.4.0",
   "transformers>=4.51.0",
   "gguf>=0.18.0",
+  "onnxruntime>=1.20",
+  "einops>=0.8.2",
 ]
 
 [project.optional-dependencies]
@@ -35,3 +37,8 @@ include = ["wildtrace*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[dependency-groups]
+dev = [
+    "python-docx>=1.2.0",
+]

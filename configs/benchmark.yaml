@@ -1,0 +1,101 @@
+# Model benchmark (issue #14): local models only, sized for an RTX 3080 Ti
+# Laptop (16 GB VRAM) with 23 GB WSL RAM. Plan: docs/benchmarks/model_benchmark_plan.md
+run_id: r1
+seed: 14
+subjects_per_category: 5
+label_set:
+  accepted: 44   # pipeline-accepted diagrams, stratified by category
+  rejected: 16   # stored rejections are all OpenCV prescreen failures (easy negatives)
+
+# Round 1. Every validator gets the production prompt (OllamaSemanticValidator)
+# with force_semantic, so it judges every image, including prescreen failures.
+validators:
+  - name: qwen2.5vl-7b
+    ollama_model_name: qwen2.5vl:7b
+  - name: qwen3-vl-8b
+    ollama_model_name: qwen3-vl:8b
+    think: false
+  - name: qwen3.5-9b
+    ollama_model_name: qwen3.5:9b
+    think: false
+validator_defaults:
+  backend: ollama_semantic_validator
+  force_semantic: true
+  keep_alive: 10m
+  temperature: 0.0
+  max_tokens: 300
+  timeout_seconds: 180
+  min_score: 0.55
+
+# Every generative rectifier gets the same silhouette contour + prompt;
+# informative_drawings is photo->sketch and reads the masked subject crop.
+rectifiers:
+  - name: flux-schnell
+    backend: flux_silhouette_rectifier
+    conditioning_mode: isolated_only
+    strength: 0.85
+  - name: flux-kontext
+    backend: flux_kontext_rectifier
+    num_inference_steps: 20
+    guidance_scale: 2.5
+  - name: sd15-coloringbook-lineart
+    backend: sd_controlnet_lineart_rectifier
+    num_inference_steps: 20
+  - name: informative-drawings
+    backend: informative_drawings_rectifier
+  - name: omnigen2   # unified VLM + diffusion edit; reads the masked subject photo
+    backend: omnigen2_rectifier
+    conditioning_input: subject
+    offload: model
+    size: 768
+    num_inference_steps: 30
+  - name: opencv-silhouette   # no-model floor, not one of the 4
+    backend: silhouette_outline_rectifier
+    reference: true
+
+# Setup comparison (scripts/benchmark_setups.py, run r2): full generator +
+# judge setups through the production retry loop, same subjects, same metrics
+# (wildtrace/eval_metrics.py; spec docs/benchmarks/eval_suite_r2.docx).
+comparison:
+  run_id: r2
+  evalset:
+    path: benchmarks/evalset_v2.json
+    seed: 14
+    per_category: 3
+    extra: {Cat: 1, Dog: 1}   # 20 subjects; Butterfly has no OpenImages masks
+  max_attempts: 3
+  setups:
+    - name: omnigen2-openrouter
+      rectifier: omnigen2
+      rectifier_overrides:
+        image_guidance_scale: 2.2   # smoke run at 1.6 drifted from the source pose
+        num_inference_steps: 20
+        cfg_range: [0.0, 0.6]
+      validator:
+        backend: openrouter_semantic_validator
+        openrouter_model_name: qwen/qwen3-vl-8b-instruct
+    - name: flux-ollama
+      rectifier: flux-schnell
+      # Smoke run with FLUX resident was OOM-killed when Ollama loaded the
+      # judge (24.4GB RAM + 6.3GB swap). Unload FLUX after each generation;
+      # adds a reload to every attempt's latency, not to quality.
+      unload_rectifier_after_run: true
+      validator:
+        backend: ollama_semantic_validator
+        ollama_model_name: qwen2.5vl:7b
+        ollama_model_id: qwen2.5vl:7b
+        keep_alive: 0s   # production: unload after each call (FLUX + Ollama OOM history)
+  # Re-judge every final drawing of every setup with the same judges.
+  referees:
+    - name: qwen3-vl-8b
+      backend: openrouter_semantic_validator
+      openrouter_model_name: qwen/qwen3-vl-8b-instruct
+    - name: qwen2.5vl-7b
+      backend: ollama_semantic_validator
+      ollama_model_name: qwen2.5vl:7b
+      ollama_model_id: qwen2.5vl:7b
+      keep_alive: 10m
+    - name: qwen3-vl-235b
+      strong: true
+      backend: openrouter_semantic_validator
+      openrouter_model_name: qwen/qwen3-vl-235b-a22b-instruct

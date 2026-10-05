@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(python3 -c ' *)",
-      "Bash(nvidia-smi --query-gpu=name,memory.total --format=csv)"
+      "Bash(nvidia-smi --query-gpu=name,memory.total --format=csv)",
+      "Bash(gh auth *)",
+      "Bash(gh repo *)",
+      "Bash(gh issue *)",
+      "mcp__github__list_issues",
+      "mcp__github__list_issue_types",
+      "mcp__github__issue_read"
     ]
   }
 }

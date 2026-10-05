@@ -1,0 +1,425 @@
+{
+  "seed": 14,
+  "items": [
+    {
+      "item_id": "bird_47400103",
+      "category": "Bird",
+      "sample_id": "474001032930036a",
+      "diagram_path": "outputs/silver/line_diagrams/Bird/474001032930036a_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "cat_fc8d33a0",
+      "category": "Cat",
+      "sample_id": "fc8d33a00859d5fa",
+      "diagram_path": "outputs/silver/line_diagrams/Cat/fc8d33a00859d5fa_attempt04.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "dog_7fa6c202",
+      "category": "Dog",
+      "sample_id": "7fa6c20285e98ce6",
+      "diagram_path": "outputs/silver/line_diagrams/Dog/7fa6c20285e98ce6_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "fish_dd305a28",
+      "category": "Fish",
+      "sample_id": "dd305a2886cbf23c",
+      "diagram_path": "outputs/silver/line_diagrams/Fish/dd305a2886cbf23c_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "frog_8c6fb6a8",
+      "category": "Frog",
+      "sample_id": "8c6fb6a84a246934",
+      "diagram_path": "outputs/silver/line_diagrams/Frog/8c6fb6a84a246934_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "horse_990ca7b2",
+      "category": "Horse",
+      "sample_id": "990ca7b2ec149262",
+      "diagram_path": "outputs/silver/line_diagrams/Horse/990ca7b2ec149262_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "bird_f1198d28",
+      "category": "Bird",
+      "sample_id": "f1198d280e63d587",
+      "diagram_path": "outputs/silver/line_diagrams/Bird/f1198d280e63d587_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "cat_eab3f671",
+      "category": "Cat",
+      "sample_id": "eab3f671cf5ea880",
+      "diagram_path": "outputs/silver/line_diagrams/Cat/eab3f671cf5ea880_attempt02.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "dog_4529cea0",
+      "category": "Dog",
+      "sample_id": "4529cea0ad1ff0f1",
+      "diagram_path": "outputs/silver/line_diagrams/Dog/4529cea0ad1ff0f1_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "fish_ce7b60c8",
+      "category": "Fish",
+      "sample_id": "ce7b60c8b362b074",
+      "diagram_path": "outputs/silver/line_diagrams/Fish/ce7b60c8b362b074_attempt05.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "frog_5d0b6dd9",
+      "category": "Frog",
+      "sample_id": "5d0b6dd9b15e2c0e",
+      "diagram_path": "outputs/silver/line_diagrams/Frog/5d0b6dd9b15e2c0e_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "horse_ef4e083f",
+      "category": "Horse",
+      "sample_id": "ef4e083fafd6d56f",
+      "diagram_path": "outputs/silver/line_diagrams/Horse/ef4e083fafd6d56f_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "bird_35d8032b",
+      "category": "Bird",
+      "sample_id": "35d8032b6ae21c32",
+      "diagram_path": "outputs/silver/line_diagrams/Bird/35d8032b6ae21c32_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "cat_69fff852",
+      "category": "Cat",
+      "sample_id": "69fff8521d33da91",
+      "diagram_path": "outputs/silver/line_diagrams/Cat/69fff8521d33da91_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "dog_01c47db1",
+      "category": "Dog",
+      "sample_id": "01c47db1a8ca36db",
+      "diagram_path": "outputs/silver/line_diagrams/Dog/01c47db1a8ca36db_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "fish_ddcc960f",
+      "category": "Fish",
+      "sample_id": "ddcc960fa1ea6990",
+      "diagram_path": "outputs/silver/line_diagrams/Fish/ddcc960fa1ea6990_attempt04.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "frog_2c1db1a1",
+      "category": "Frog",
+      "sample_id": "2c1db1a1438791fb",
+      "diagram_path": "outputs/silver/line_diagrams/Frog/2c1db1a1438791fb_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "horse_954e99ab",
+      "category": "Horse",
+      "sample_id": "954e99ab29690f35",
+      "diagram_path": "outputs/silver/line_diagrams/Horse/954e99ab29690f35_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "bird_66262b87",
+      "category": "Bird",
+      "sample_id": "66262b87f796ebeb",
+      "diagram_path": "outputs/silver/line_diagrams/Bird/66262b87f796ebeb_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "cat_efa93c03",
+      "category": "Cat",
+      "sample_id": "efa93c03483769d5",
+      "diagram_path": "outputs/silver/line_diagrams/Cat/efa93c03483769d5_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "dog_14ab42e1",
+      "category": "Dog",
+      "sample_id": "14ab42e1e62789e2",
+      "diagram_path": "outputs/silver/line_diagrams/Dog/14ab42e1e62789e2_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "fish_d52de28c",
+      "category": "Fish",
+      "sample_id": "d52de28c83e7d7e3",
+      "diagram_path": "outputs/silver/line_diagrams/Fish/d52de28c83e7d7e3_attempt03.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "frog_1c80622e",
+      "category": "Frog",
+      "sample_id": "1c80622e18d830e4",
+      "diagram_path": "outputs/silver/line_diagrams/Frog/1c80622e18d830e4_attempt02.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "horse_16186f6f",
+      "category": "Horse",
+      "sample_id": "16186f6f9da1ab9a",
+      "diagram_path": "outputs/silver/line_diagrams/Horse/16186f6f9da1ab9a_attempt02.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "bird_48f51b30",
+      "category": "Bird",
+      "sample_id": "48f51b30016f8eb1",
+      "diagram_path": "outputs/silver/line_diagrams/Bird/48f51b30016f8eb1_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "cat_ab7beb03",
+      "category": "Cat",
+      "sample_id": "ab7beb0372c96b9c",
+      "diagram_path": "outputs/silver/line_diagrams/Cat/ab7beb0372c96b9c_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "dog_31081531",
+      "category": "Dog",
+      "sample_id": "31081531ba093049",
+      "diagram_path": "outputs/silver/line_diagrams/Dog/31081531ba093049_attempt02.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "fish_ba3e1657",
+      "category": "Fish",
+      "sample_id": "ba3e1657db195fe4",
+      "diagram_path": "outputs/silver/line_diagrams/Fish/ba3e1657db195fe4_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "frog_3f221bad",
+      "category": "Frog",
+      "sample_id": "3f221bad695edcf8",
+      "diagram_path": "outputs/silver/line_diagrams/Frog/3f221bad695edcf8_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "horse_a8488257",
+      "category": "Horse",
+      "sample_id": "a84882576126b982",
+      "diagram_path": "outputs/silver/line_diagrams/Horse/a84882576126b982_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "bird_1a5733d2",
+      "category": "Bird",
+      "sample_id": "1a5733d2b6fb8c11",
+      "diagram_path": "outputs/silver/line_diagrams/Bird/1a5733d2b6fb8c11_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "cat_dd830eb2",
+      "category": "Cat",
+      "sample_id": "dd830eb25db9fd9f",
+      "diagram_path": "outputs/silver/line_diagrams/Cat/dd830eb25db9fd9f_attempt02.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "dog_96ab6db6",
+      "category": "Dog",
+      "sample_id": "96ab6db6d9116afe",
+      "diagram_path": "outputs/silver/line_diagrams/Dog/96ab6db6d9116afe_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "fish_a7cbe5e2",
+      "category": "Fish",
+      "sample_id": "a7cbe5e2b0f491bb",
+      "diagram_path": "outputs/silver/line_diagrams/Fish/a7cbe5e2b0f491bb_attempt02.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "frog_583d785a",
+      "category": "Frog",
+      "sample_id": "583d785ab68525ea",
+      "diagram_path": "outputs/silver/line_diagrams/Frog/583d785ab68525ea_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "horse_95f84610",
+      "category": "Horse",
+      "sample_id": "95f846109606199a",
+      "diagram_path": "outputs/silver/line_diagrams/Horse/95f846109606199a_attempt03.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "bird_09a695af",
+      "category": "Bird",
+      "sample_id": "09a695af2190815b",
+      "diagram_path": "outputs/silver/line_diagrams/Bird/09a695af2190815b_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "cat_1e178834",
+      "category": "Cat",
+      "sample_id": "1e178834a919a6ab",
+      "diagram_path": "outputs/silver/line_diagrams/Cat/1e178834a919a6ab_attempt04.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "dog_053f21d0",
+      "category": "Dog",
+      "sample_id": "053f21d0244601a8",
+      "diagram_path": "outputs/silver/line_diagrams/Dog/053f21d0244601a8_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "frog_a9263f39",
+      "category": "Frog",
+      "sample_id": "a9263f399b2c5dd0",
+      "diagram_path": "outputs/silver/line_diagrams/Frog/a9263f399b2c5dd0_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "horse_95958016",
+      "category": "Horse",
+      "sample_id": "95958016deb1b1d8",
+      "diagram_path": "outputs/silver/line_diagrams/Horse/95958016deb1b1d8_attempt05.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "bird_c3b05340",
+      "category": "Bird",
+      "sample_id": "c3b05340ef29131f",
+      "diagram_path": "outputs/silver/line_diagrams/Bird/c3b05340ef29131f_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "cat_4651e893",
+      "category": "Cat",
+      "sample_id": "4651e893ac2a26d4",
+      "diagram_path": "outputs/silver/line_diagrams/Cat/4651e893ac2a26d4_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "dog_1f5a5317",
+      "category": "Dog",
+      "sample_id": "1f5a5317fe363395",
+      "diagram_path": "outputs/silver/line_diagrams/Dog/1f5a5317fe363395_attempt01.png",
+      "pipeline_status": "accepted"
+    },
+    {
+      "item_id": "bird_32d49ade",
+      "category": "Bird",
+      "sample_id": "32d49ade6a77d3e6",
+      "diagram_path": "outputs/silver/line_diagrams/Bird/32d49ade6a77d3e6_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "cat_01a6f490",
+      "category": "Cat",
+      "sample_id": "01a6f4902a05f148",
+      "diagram_path": "outputs/silver/line_diagrams/Cat/01a6f4902a05f148_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "dog_c65e1609",
+      "category": "Dog",
+      "sample_id": "c65e1609ff0317fa",
+      "diagram_path": "outputs/silver/line_diagrams/Dog/c65e1609ff0317fa_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "fish_59e7af09",
+      "category": "Fish",
+      "sample_id": "59e7af09eff44290",
+      "diagram_path": "outputs/silver/line_diagrams/Fish/59e7af09eff44290_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "frog_e7ef0241",
+      "category": "Frog",
+      "sample_id": "e7ef0241ae33935f",
+      "diagram_path": "outputs/silver/line_diagrams/Frog/e7ef0241ae33935f_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "horse_ba87b4d5",
+      "category": "Horse",
+      "sample_id": "ba87b4d5154d9099",
+      "diagram_path": "outputs/silver/line_diagrams/Horse/ba87b4d5154d9099_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "bird_e99588f9",
+      "category": "Bird",
+      "sample_id": "e99588f921026ecf",
+      "diagram_path": "outputs/silver/line_diagrams/Bird/e99588f921026ecf_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "cat_b4586fbb",
+      "category": "Cat",
+      "sample_id": "b4586fbb47e41911",
+      "diagram_path": "outputs/silver/line_diagrams/Cat/b4586fbb47e41911_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "dog_9de1628b",
+      "category": "Dog",
+      "sample_id": "9de1628b0062bfd0",
+      "diagram_path": "outputs/silver/line_diagrams/Dog/9de1628b0062bfd0_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "fish_9fe56a09",
+      "category": "Fish",
+      "sample_id": "9fe56a09c51b7316",
+      "diagram_path": "outputs/silver/line_diagrams/Fish/9fe56a09c51b7316_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "horse_d4a66a85",
+      "category": "Horse",
+      "sample_id": "d4a66a850db3d3a2",
+      "diagram_path": "outputs/silver/line_diagrams/Horse/d4a66a850db3d3a2_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "bird_5a9b0554",
+      "category": "Bird",
+      "sample_id": "5a9b055463bead77",
+      "diagram_path": "outputs/silver/line_diagrams/Bird/5a9b055463bead77_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "cat_d313bea1",
+      "category": "Cat",
+      "sample_id": "d313bea107e6a53d",
+      "diagram_path": "outputs/silver/line_diagrams/Cat/d313bea107e6a53d_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "dog_d1c3bc6c",
+      "category": "Dog",
+      "sample_id": "d1c3bc6cc5a595f8",
+      "diagram_path": "outputs/silver/line_diagrams/Dog/d1c3bc6cc5a595f8_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "fish_88afbb05",
+      "category": "Fish",
+      "sample_id": "88afbb0526642b17",
+      "diagram_path": "outputs/silver/line_diagrams/Fish/88afbb0526642b17_attempt05.png",
+      "pipeline_status": "rejected"
+    },
+    {
+      "item_id": "horse_06cee733",
+      "category": "Horse",
+      "sample_id": "06cee7335ce6d181",
+      "diagram_path": "outputs/silver/line_diagrams/Horse/06cee7335ce6d181_attempt05.png",
+      "pipeline_status": "rejected"
+    }
+  ]
+}
