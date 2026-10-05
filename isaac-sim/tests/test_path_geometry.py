@@ -4,6 +4,7 @@ import math
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -11,6 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from drawing_state_machine import build_motion_sequence
+from ik_controller import SafeLulaIKController
 from path_geometry import (
     corner_flags,
     densify_near_corners,
@@ -206,6 +208,55 @@ class JointSlewTests(unittest.TestCase):
     def test_shape_mismatch_rejected(self):
         with self.assertRaises(ValueError):
             limit_joint_delta(np.zeros(3), np.zeros(2), 0.1)
+
+
+class SafeIKCommandTests(unittest.TestCase):
+    class _FakeArticulation:
+        def get_joint_positions(self):
+            # Simulate a measured pose that remains displaced while the drive
+            # setpoint ramps toward its target under load.
+            return np.zeros(2)
+
+    class _FakeController:
+        def __init__(self):
+            self.actions = []
+
+        def apply_action(self, action):
+            self.actions.append(action)
+
+    def _controller(self):
+        controller = SafeLulaIKController.__new__(SafeLulaIKController)
+        controller.articulation = self._FakeArticulation()
+        controller.articulation_controller = self._FakeController()
+        controller.joint_names = ["joint1", "joint2"]
+        controller.max_joint_delta_rad = 0.1
+        controller.last_commanded_delta_rad = np.zeros(2)
+        controller.last_command_was_clamped = False
+        controller._last_commanded_positions = None
+        controller.reset_command_state(np.zeros(2))
+        return controller
+
+    def test_apply_does_not_mutate_reusable_action(self):
+        controller = self._controller()
+        action = SimpleNamespace(joint_positions=np.asarray([0.2, -0.2]), joint_indices=None)
+        controller.apply(action)
+
+        np.testing.assert_allclose(action.joint_positions, [0.2, -0.2])
+        np.testing.assert_allclose(
+            controller.articulation_controller.actions[-1].joint_positions, [0.1, -0.1]
+        )
+
+    def test_slew_progresses_from_previous_command_under_load(self):
+        controller = self._controller()
+        action = SimpleNamespace(joint_positions=np.asarray([0.2, -0.2]), joint_indices=None)
+        controller.apply(action)
+        controller.apply(action)
+
+        # A limiter centered on the unchanged measured zeros would remain at
+        # +/-0.1 forever. The command-centered limiter reaches the true goal.
+        np.testing.assert_allclose(
+            controller.articulation_controller.actions[-1].joint_positions, [0.2, -0.2]
+        )
 
 
 class MotionSequenceDensificationTests(unittest.TestCase):
