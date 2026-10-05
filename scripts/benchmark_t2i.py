@@ -291,7 +291,7 @@ def cmd_report(args: argparse.Namespace) -> None:
             rows.append({"metric": label, "better": arrow, **{n: _fmt(key, means[n], cis[n]) for n in names},
                          "winner": _better(key, means, cis)})
 
-    # Latency tail, as in the Molmo report (mean / p50 / p95).
+    # Latency tail (p50 / p95) alongside the mean.
     tails = {}
     for n in names:
         latencies = [float(gen_by[(n, s)]["gen_latency_s"]) for s in paired]
