@@ -16,8 +16,11 @@ from wildtrace.agentic_pipeline import select_final_by_angle
 from wildtrace.config import load_runtime_config
 from wildtrace.diagram import (
     FluxSilhouetteRectifier,
+    InformativeDrawingsRectifier,
     OllamaSemanticValidator,
+    OmniGen2Rectifier,
     OpenCVValidationResult,
+    OpenRouterSemanticValidator,
     OutlineRectifier,
     SemanticValidationResult,
     SilhouetteOutlineRectifier,
@@ -270,8 +273,12 @@ def run_script(project_root: Path, repo_root: Path, script_name: str) -> None:
     )
 
 
-def test_default_flux_config_matches_repo_defaults() -> None:
+def test_default_flux_config_matches_repo_defaults(monkeypatch) -> None:
     project_root = Path(__file__).resolve().parents[1]
+    # Repo defaults only: a local .env may swap backends.
+    monkeypatch.setattr("wildtrace.config.load_dotenv", lambda *_args, **_kwargs: None)
+    for name in ("OUTLINE_RECTIFIER_BACKEND", "OUTLINE_RECTIFIER_CONDITIONING_MODE"):
+        monkeypatch.delenv(name, raising=False)
     runtime = load_runtime_config(project_root, project_root / "configs")
     cfg = runtime["models"]["outline_rectifier"]
     assert cfg["backend"] == "flux_silhouette_rectifier"
@@ -651,6 +658,103 @@ def test_flux_rectifier_output_is_black_on_white(monkeypatch, tmp_path: Path) ->
     arr = np.asarray(Image.open(result.diagram_path).convert("L"))
     assert arr.max() == 255, "background must be white"
     assert arr.min() == 0, "lines must be pure black"
+
+
+def test_omnigen2_rectifier_masks_subject_and_maps_strength(monkeypatch, tmp_path: Path) -> None:
+    subject_image = Image.new("RGB", (100, 60), (200, 50, 50))
+    mask = Image.new("L", (100, 60), 0)
+    ImageDraw.Draw(mask).ellipse((20, 10, 80, 50), fill=255)
+    destination = tmp_path / "diagram.png"
+    rectifier = OmniGen2Rectifier({"size": 256, "cfg_range": [0.0, 0.6]})
+    calls = []
+
+    class FakeOmniGen2Pipeline:
+        def __call__(self, **kwargs):
+            calls.append(kwargs)
+            out = Image.new("RGB", (kwargs["width"], kwargs["height"]), "white")
+            ImageDraw.Draw(out).ellipse((40, 20, 200, 130), outline=(90, 90, 90), width=5)
+            return type("FakeResult", (), {"images": [out]})()
+
+    monkeypatch.setattr(rectifier, "_load_pipeline", lambda: FakeOmniGen2Pipeline())
+    result = rectifier.run({"category": "Dog"}, subject_image, mask, None, destination, {"strength": 0.9})
+
+    source = calls[0]["input_images"][0]
+    assert (calls[0]["width"], calls[0]["height"]) == source.size == (256, 256), "letterboxed to a square"
+    assert source.getpixel((0, 0)) == (255, 255, 255), "letterbox and background outside the mask are white"
+    assert source.getpixel((5, 128)) == (255, 255, 255), "masked-out subject pixels are white"
+    assert source.getpixel((128, 128)) == (200, 50, 50), "masked subject survives, centred"
+    assert calls[0]["image_guidance_scale"] == 1.4, "strength 0.9 nudges the 1.6 base down by 4 x 0.05"
+    assert calls[0]["cfg_range"] == (0.0, 0.6)
+    assert "dog" in calls[0]["prompt"]
+    arr = np.asarray(Image.open(result.diagram_path).convert("L"))
+    assert arr.shape == (60, 100)
+    assert set(np.unique(arr)) == {0, 255}
+    assert result.metadata["backend"] == "omnigen2_rectifier"
+
+
+def test_photo_rectifiers_condition_on_the_crop_not_the_full_frame_isolated_image() -> None:
+    # isolated_path is the full normalized frame; the mask is cropped to
+    # crop_bbox and sized to the conditioning image, so only the crop aligns.
+    crop = Image.new("RGB", (40, 30), "red")
+    isolated_full_frame = Image.new("RGB", (100, 80), "blue")
+    for rectifier in (OmniGen2Rectifier({}), InformativeDrawingsRectifier({})):
+        conditioning = rectifier.prepare_conditioning_image(crop, isolated_full_frame)
+        assert conditioning.size == crop.size
+        assert conditioning.getpixel((0, 0)) == (255, 0, 0)
+
+
+def test_omnigen2_keeps_edit_instruction_when_judge_suggests_a_prompt() -> None:
+    rectifier = OmniGen2Rectifier({})
+    base = rectifier._build_instruction({"category": "Horse"})  # noqa: SLF001
+    styled = rectifier._build_instruction({"category": "Horse"}, "simple cartoon doodle")  # noqa: SLF001
+    assert base.startswith("Convert this photo into a black and white line drawing of the horse")
+    assert styled.startswith(base)
+    assert styled.endswith("Style: simple cartoon doodle")
+
+
+def test_build_outline_rectifier_supports_omnigen2(monkeypatch) -> None:
+    monkeypatch.setattr(OmniGen2Rectifier, "validate_ready", lambda self: None)
+    assert isinstance(build_outline_rectifier({"backend": "omnigen2_rectifier"}), OmniGen2Rectifier)
+
+
+def test_openrouter_validator_parses_chat_completion(monkeypatch, tmp_path: Path) -> None:
+    diagram_path = tmp_path / "diagram.png"
+    Image.new("L", (16, 16), 255).save(diagram_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    validator = build_outline_validator(
+        {"backend": "openrouter_semantic_validator", "openrouter_model_name": "qwen/qwen3-vl-8b-instruct", "min_score": 0.55}
+    )
+    assert isinstance(validator, OpenRouterSemanticValidator)
+    sent = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "choices": [{"message": {"content": '```json\n{"passed": true, "score": 0.8, "reason": "clear dog"}\n```'}}],
+                "usage": {"prompt_tokens": 500, "completion_tokens": 40},
+            }).encode()
+
+    def fake_urlopen(req, timeout):
+        sent.update(json.loads(req.data), auth=req.get_header("Authorization"))
+        return FakeResponse()
+
+    monkeypatch.setattr("wildtrace.diagram.request.urlopen", fake_urlopen)
+    result = validator.validate(
+        {"category": "Dog"}, diagram_path, OpenCVValidationResult(passed=True, score=0.8, flags=[], metrics={})
+    )
+    assert result.passed is True
+    assert result.score == 0.8
+    assert result.metadata["model_backend"] == "openrouter"
+    assert result.metadata["prompt_tokens"] == 500
+    assert sent["model"] == "qwen/qwen3-vl-8b-instruct"
+    assert sent["auth"] == "Bearer test-key"
+    assert sent["messages"][0]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
 
 
 def test_ollama_validator_skips_failed_opencv(tmp_path: Path) -> None:

@@ -17,6 +17,11 @@ outline_rectifier:
   gguf_repo: city96/FLUX.1-schnell-gguf
   gguf_file: flux1-schnell-Q4_K_S.gguf
   base_model: black-forest-labs/FLUX.1-schnell
+  # omnigen2_rectifier (OUTLINE_RECTIFIER_BACKEND=omnigen2_rectifier); code via scripts/install_omnigen2.sh
+  omnigen2_repo: OmniGen2/OmniGen2
+  omnigen2_revision: df5dca8a981d74e6c3af214c145f5c735fe72367
+  omnigen2_code_dir: ${OMNIGEN2_CODE_DIR:-~/.cache/wildtrace/OmniGen2}
+  omnigen2_bf16_dir: ${OMNIGEN2_BF16_DIR:-~/.cache/wildtrace/OmniGen2-bf16}
 outline_validator:
   backend: ${SEMANTIC_VALIDATOR_BACKEND:-auto}
   model_backend: auto
@@ -27,6 +32,10 @@ outline_validator:
   anthropic_timeout_seconds: 30
   anthropic_max_tokens: 200
   anthropic_temperature: 0.0
+  # OpenRouter has no qwen2.5-vl-7b; qwen3-vl-8b is the closest hosted size.
+  openrouter_model_name: ${OPENROUTER_VALIDATOR_MODEL:-qwen/qwen3-vl-8b-instruct}
+  openrouter_api_base: ${OPENROUTER_API_BASE:-https://openrouter.ai/api/v1}
+  openrouter_timeout_seconds: 60
   min_score: 0.55
 opencv_prescreen:
   min_foreground_ratio: 0.01
