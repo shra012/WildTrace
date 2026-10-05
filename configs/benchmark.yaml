@@ -99,3 +99,30 @@ comparison:
       strong: true
       backend: openrouter_semantic_validator
       openrouter_model_name: qwen/qwen3-vl-235b-a22b-instruct
+
+# Text-to-image comparison (scripts/benchmark_t2i.py, FA2-31): SANA vs
+# FLUX-schnell, both served by FAL, prompted from the r2 evalset's subject
+# metadata (build_line_drawing_prompt) with the same seed per subject. No
+# source image is given to either model, so shape/pose fidelity (r2 groups C
+# and D) does not apply; every other r2 metric is computed the same way.
+t2i_comparison:
+  run_id: t2i-r1
+  evalset: benchmarks/evalset_v2.json
+  size: 1024
+  seed: 14
+  generators:
+    - name: sana
+      endpoint: fal-ai/sana
+      usd_per_mp: 0.001   # fal.ai/models/fal-ai/sana, 2026-10-04
+      params: {num_inference_steps: 18, guidance_scale: 5.0}   # FAL defaults
+    - name: flux-schnell
+      endpoint: fal-ai/flux/schnell
+      usd_per_mp: 0.003   # fal.ai/models/fal-ai/flux/schnell, rounded up to whole MP
+      round_up_mp: true
+      params: {num_inference_steps: 4}   # FAL default
+  judges:
+    - name: qwen3-vl-8b
+      openrouter_model_name: qwen/qwen3-vl-8b-instruct
+    - name: qwen3-vl-235b
+      strong: true
+      openrouter_model_name: qwen/qwen3-vl-235b-a22b-instruct

@@ -1,0 +1,343 @@
+{
+  "run_id": "t2i-r1",
+  "git_sha": "adc0796-dirty",
+  "config_hash": "84798a2c43e9",
+  "n_subjects": 20,
+  "generation_errors": 0,
+  "metrics": {
+    "opencv_passed": {
+      "sana": {
+        "mean": 0.1,
+        "ci95": [
+          0.0,
+          0.25
+        ]
+      },
+      "flux-schnell": {
+        "mean": 0.45,
+        "ci95": [
+          0.25,
+          0.7
+        ]
+      }
+    },
+    "opencv_score": {
+      "sana": {
+        "mean": 0.0838,
+        "ci95": [
+          0.0193,
+          0.164
+        ]
+      },
+      "flux-schnell": {
+        "mean": 0.3296,
+        "ci95": [
+          0.2112,
+          0.4523
+        ]
+      }
+    },
+    "foreground_ratio": {
+      "sana": {
+        "mean": 0.0427,
+        "ci95": [
+          0.0362,
+          0.0494
+        ]
+      },
+      "flux-schnell": {
+        "mean": 0.0244,
+        "ci95": [
+          0.0219,
+          0.0267
+        ]
+      }
+    },
+    "component_count": {
+      "sana": {
+        "mean": 106.75,
+        "ci95": [
+          74.4463,
+          139.1037
+        ]
+      },
+      "flux-schnell": {
+        "mean": 16.5,
+        "ci95": [
+          12.65,
+          20.25
+        ]
+      }
+    },
+    "small_contour_ratio": {
+      "sana": {
+        "mean": 0.6015,
+        "ci95": [
+          0.49,
+          0.7021
+        ]
+      },
+      "flux-schnell": {
+        "mean": 0.2439,
+        "ci95": [
+          0.1708,
+          0.3163
+        ]
+      }
+    },
+    "body_bottom_reach": {
+      "sana": {
+        "mean": 0.852,
+        "ci95": [
+          0.823,
+          0.8806
+        ]
+      },
+      "flux-schnell": {
+        "mean": 0.8246,
+        "ci95": [
+          0.7955,
+          0.8543
+        ]
+      }
+    },
+    "fill_ratio": {
+      "sana": {
+        "mean": 0.2611,
+        "ci95": [
+          0.1767,
+          0.3551
+        ]
+      },
+      "flux-schnell": {
+        "mean": 0.1573,
+        "ci95": [
+          0.102,
+          0.2265
+        ]
+      }
+    },
+    "stroke_width_px": {
+      "sana": {
+        "mean": 3.7445,
+        "ci95": [
+          3.387,
+          4.1115
+        ]
+      },
+      "flux-schnell": {
+        "mean": 4.0825,
+        "ci95": [
+          3.7865,
+          4.419
+        ]
+      }
+    },
+    "blank": {
+      "sana": {
+        "mean": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "flux-schnell": {
+        "mean": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "clip_top1": {
+      "sana": {
+        "mean": 0.8,
+        "ci95": [
+          0.6,
+          0.95
+        ]
+      },
+      "flux-schnell": {
+        "mean": 0.8,
+        "ci95": [
+          0.6,
+          0.95
+        ]
+      }
+    },
+    "clip_p_true": {
+      "sana": {
+        "mean": 0.779,
+        "ci95": [
+          0.597,
+          0.9247
+        ]
+      },
+      "flux-schnell": {
+        "mean": 0.7655,
+        "ci95": [
+          0.6035,
+          0.9019
+        ]
+      }
+    },
+    "stroke_count": {
+      "sana": {
+        "mean": 5.85,
+        "ci95": [
+          5.65,
+          6.0
+        ]
+      },
+      "flux-schnell": {
+        "mean": 5.6,
+        "ci95": [
+          5.1,
+          6.0
+        ]
+      }
+    },
+    "trajectory_ok": {
+      "sana": {
+        "mean": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ]
+      },
+      "flux-schnell": {
+        "mean": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ]
+      }
+    },
+    "coverage": {
+      "sana": {
+        "mean": 0.3652,
+        "ci95": [
+          0.3166,
+          0.416
+        ]
+      },
+      "flux-schnell": {
+        "mean": 0.5125,
+        "ci95": [
+          0.473,
+          0.5522
+        ]
+      }
+    },
+    "path_mm": {
+      "sana": {
+        "mean": 1053.445,
+        "ci95": [
+          882.7346,
+          1259.6646
+        ]
+      },
+      "flux-schnell": {
+        "mean": 753.425,
+        "ci95": [
+          666.1063,
+          856.5676
+        ]
+      }
+    },
+    "pen_up_mm": {
+      "sana": {
+        "mean": 236.475,
+        "ci95": [
+          202.6731,
+          272.2724
+        ]
+      },
+      "flux-schnell": {
+        "mean": 171.985,
+        "ci95": [
+          130.9587,
+          214.7352
+        ]
+      }
+    },
+    "gen_latency_s": {
+      "sana": {
+        "mean": 2.925,
+        "ci95": [
+          2.4875,
+          3.4495
+        ]
+      },
+      "flux-schnell": {
+        "mean": 4.494,
+        "ci95": [
+          4.1635,
+          4.8517
+        ]
+      }
+    },
+    "gen_cost_usd": {
+      "sana": {
+        "mean": 0.001,
+        "ci95": [
+          0.001,
+          0.001
+        ]
+      },
+      "flux-schnell": {
+        "mean": 0.006,
+        "ci95": [
+          0.006,
+          0.006
+        ]
+      }
+    },
+    "judge_pass:qwen3-vl-8b": {
+      "sana": {
+        "mean": 0.85,
+        "ci95": [
+          0.7,
+          1.0
+        ]
+      },
+      "flux-schnell": {
+        "mean": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ]
+      }
+    },
+    "judge_pass:qwen3-vl-235b": {
+      "sana": {
+        "mean": 0.55,
+        "ci95": [
+          0.3,
+          0.75
+        ]
+      },
+      "flux-schnell": {
+        "mean": 0.95,
+        "ci95": [
+          0.85,
+          1.0
+        ]
+      }
+    }
+  },
+  "strong_judge_sign_test": {
+    "wins": {
+      "sana": 0,
+      "flux-schnell": 8
+    },
+    "p": 0.0078
+  },
+  "total_cost_usd": {
+    "generation": {
+      "sana": 0.021,
+      "flux-schnell": 0.12
+    },
+    "judges": 0.0235
+  }
+}
