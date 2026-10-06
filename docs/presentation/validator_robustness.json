@@ -1,0 +1,396 @@
+{
+  "experiment": "opencv_prescreen_robustness",
+  "device": "cpu",
+  "drawings": "isaac-sim/inputs/diagrams",
+  "perturbations": [
+    "original",
+    "blur_radius_2",
+    "resize_half_and_back",
+    "salt_pepper_2pct"
+  ],
+  "summary": {
+    "original": {
+      "n": 10,
+      "pass_rate": 1.0,
+      "mean_score": 0.57107
+    },
+    "blur_radius_2": {
+      "n": 10,
+      "pass_rate": 0.0,
+      "mean_score": 0.0
+    },
+    "resize_half_and_back": {
+      "n": 10,
+      "pass_rate": 0.3,
+      "mean_score": 0.19099
+    },
+    "salt_pepper_2pct": {
+      "n": 10,
+      "pass_rate": 0.0,
+      "mean_score": 0.0
+    }
+  },
+  "rows": [
+    {
+      "drawing": "isaac-sim/inputs/diagrams/Bird/c3a528aafbfd7b55.png",
+      "category": "Bird",
+      "variants": {
+        "original": {
+          "passed": true,
+          "score": 0.5822,
+          "flags": []
+        },
+        "blur_radius_2": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "low_foreground_ratio",
+            "too_many_components",
+            "too_many_lower_fragments"
+          ]
+        },
+        "resize_half_and_back": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        },
+        "salt_pepper_2pct": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        }
+      }
+    },
+    {
+      "drawing": "isaac-sim/inputs/diagrams/Cat/70bc30f8a5f918eb.png",
+      "category": "Cat",
+      "variants": {
+        "original": {
+          "passed": true,
+          "score": 0.7773,
+          "flags": []
+        },
+        "blur_radius_2": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "low_foreground_ratio",
+            "too_many_components",
+            "too_many_lower_fragments"
+          ]
+        },
+        "resize_half_and_back": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_lower_fragments"
+          ]
+        },
+        "salt_pepper_2pct": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        }
+      }
+    },
+    {
+      "drawing": "isaac-sim/inputs/diagrams/Cat/ab7beb0372c96b9c.png",
+      "category": "Cat",
+      "variants": {
+        "original": {
+          "passed": true,
+          "score": 0.7344,
+          "flags": []
+        },
+        "blur_radius_2": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_lower_fragments"
+          ]
+        },
+        "resize_half_and_back": {
+          "passed": true,
+          "score": 0.764,
+          "flags": []
+        },
+        "salt_pepper_2pct": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        }
+      }
+    },
+    {
+      "drawing": "isaac-sim/inputs/diagrams/Dog/96ab6db6d9116afe.png",
+      "category": "Dog",
+      "variants": {
+        "original": {
+          "passed": true,
+          "score": 0.6443,
+          "flags": []
+        },
+        "blur_radius_2": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "low_foreground_ratio",
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        },
+        "resize_half_and_back": {
+          "passed": true,
+          "score": 0.3419,
+          "flags": []
+        },
+        "salt_pepper_2pct": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        }
+      }
+    },
+    {
+      "drawing": "isaac-sim/inputs/diagrams/Dog/ea59d6637578c29d.png",
+      "category": "Dog",
+      "variants": {
+        "original": {
+          "passed": true,
+          "score": 0.2478,
+          "flags": []
+        },
+        "blur_radius_2": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "low_foreground_ratio",
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        },
+        "resize_half_and_back": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_lower_fragments"
+          ]
+        },
+        "salt_pepper_2pct": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        }
+      }
+    },
+    {
+      "drawing": "isaac-sim/inputs/diagrams/Fish/ba3e1657db195fe4.png",
+      "category": "Fish",
+      "variants": {
+        "original": {
+          "passed": true,
+          "score": 0.8057,
+          "flags": []
+        },
+        "blur_radius_2": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components"
+          ]
+        },
+        "resize_half_and_back": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours"
+          ]
+        },
+        "salt_pepper_2pct": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        }
+      }
+    },
+    {
+      "drawing": "isaac-sim/inputs/diagrams/Frog/3f221bad695edcf8.png",
+      "category": "Frog",
+      "variants": {
+        "original": {
+          "passed": true,
+          "score": 0.884,
+          "flags": []
+        },
+        "blur_radius_2": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "low_foreground_ratio",
+            "too_many_components",
+            "too_many_lower_fragments"
+          ]
+        },
+        "resize_half_and_back": {
+          "passed": true,
+          "score": 0.804,
+          "flags": []
+        },
+        "salt_pepper_2pct": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        }
+      }
+    },
+    {
+      "drawing": "isaac-sim/inputs/diagrams/Frog/6bbd7fa65eede66e.png",
+      "category": "Frog",
+      "variants": {
+        "original": {
+          "passed": true,
+          "score": 0.4661,
+          "flags": []
+        },
+        "blur_radius_2": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "low_foreground_ratio",
+            "too_many_components",
+            "too_many_lower_fragments"
+          ]
+        },
+        "resize_half_and_back": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_lower_fragments"
+          ]
+        },
+        "salt_pepper_2pct": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        }
+      }
+    },
+    {
+      "drawing": "isaac-sim/inputs/diagrams/Horse/7c54b4c75832b3b9.png",
+      "category": "Horse",
+      "variants": {
+        "original": {
+          "passed": true,
+          "score": 0.2129,
+          "flags": []
+        },
+        "blur_radius_2": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "low_foreground_ratio",
+            "too_many_components",
+            "too_many_lower_fragments"
+          ]
+        },
+        "resize_half_and_back": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        },
+        "salt_pepper_2pct": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        }
+      }
+    },
+    {
+      "drawing": "isaac-sim/inputs/diagrams/Horse/e659138f70574103.png",
+      "category": "Horse",
+      "variants": {
+        "original": {
+          "passed": true,
+          "score": 0.356,
+          "flags": []
+        },
+        "blur_radius_2": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_lower_fragments"
+          ]
+        },
+        "resize_half_and_back": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_lower_fragments"
+          ]
+        },
+        "salt_pepper_2pct": {
+          "passed": false,
+          "score": 0.0,
+          "flags": [
+            "too_many_components",
+            "too_many_small_contours",
+            "too_many_lower_fragments"
+          ]
+        }
+      }
+    }
+  ]
+}

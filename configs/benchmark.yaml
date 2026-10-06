@@ -41,6 +41,8 @@ rectifiers:
   - name: sd15-coloringbook-lineart
     backend: sd_controlnet_lineart_rectifier
     num_inference_steps: 20
+  - name: sdxl-controlnet
+    backend: sdxl_controlnet_rectifier
   - name: informative-drawings
     backend: informative_drawings_rectifier
   - name: omnigen2   # unified VLM + diffusion edit; reads the masked subject photo

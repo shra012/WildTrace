@@ -24,7 +24,6 @@ import json
 import os
 import random
 import re
-import resource
 import subprocess
 import sys
 import threading
@@ -33,6 +32,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 from urllib import error, request
+
+try:
+    import resource
+except ImportError:  # Windows has no resource module.
+    resource = None
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -259,7 +263,8 @@ def cmd_pipeline_one(args: argparse.Namespace) -> None:
         row["subject_latency_s"] = round(time.perf_counter() - started, 3)
         if torch.cuda.is_available():
             row["peak_vram_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
-        row["peak_rss_gb"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2)
+        if resource is not None:
+            row["peak_rss_gb"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2)
         append_ndjson(out_dir() / "pipeline.ndjson", row)
         print(json.dumps({k: row.get(k) for k in ("sample_id", "category", "accepted", "attempts", "combined_score",
                                                    "subject_latency_s", "peak_vram_gb", "error")}), flush=True)
@@ -296,14 +301,22 @@ def ensure_ollama(validator_cfg: dict[str, Any]) -> None:
         raise SystemExit(f"Ollama model {model!r} is not pulled (have {available}). Pull it first: ollama pull {model}")
 
 
+def pipeline_worker_command(setup_name: str, limit: int | None, resume: bool) -> list[str]:
+    """Argv for the per-setup worker. ``--resume`` is forwarded when requested."""
+    command = [sys.executable, __file__, "_pipeline-one", "--setup", setup_name]
+    if limit:
+        command += ["--limit", str(limit)]
+    if resume:
+        command.append("--resume")
+    return command
+
+
 def cmd_pipeline(args: argparse.Namespace) -> None:
     setup = setup_by_name(args.setup)
     _, validator_cfg = setup_settings(setup, load_runtime_config(REPO_ROOT)["models"])
     if validator_cfg["backend"] == "ollama_semantic_validator":
         ensure_ollama(validator_cfg)
-    command = [sys.executable, __file__, "_pipeline-one", "--setup", setup["name"]]
-    if args.limit:
-        command += ["--limit", str(args.limit)]
+    command = pipeline_worker_command(setup["name"], args.limit, args.resume)
     peaks = {"sys_ram_gb": 0.0, "swap_gb": 0.0, "gpu_gb": 0.0}
     baseline_ram, baseline_swap = _system_memory_gb()
     done = threading.Event()
@@ -325,7 +338,9 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
     while code == -9 and oom_kills < 3:
         oom_kills += 1
         print(f"!! OOM-killed ({oom_kills}); resuming", flush=True)
-        code = subprocess.run(command + ["--resume"], cwd=REPO_ROOT).returncode
+        code = subprocess.run(
+            pipeline_worker_command(setup["name"], args.limit, resume=True), cwd=REPO_ROOT
+        ).returncode
     done.set()
     watcher.join()
     summary = {

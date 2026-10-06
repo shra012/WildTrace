@@ -657,6 +657,7 @@ def build_outline_rectifier(config: dict[str, Any]) -> OutlineRectifier:
         "flux_silhouette_rectifier": FluxSilhouetteRectifier,
         "flux_kontext_rectifier": FluxKontextRectifier,
         "sd_controlnet_lineart_rectifier": SDControlNetLineartRectifier,
+        "sdxl_controlnet_rectifier": SDXLControlNetRectifier,
         "informative_drawings_rectifier": InformativeDrawingsRectifier,
         "omnigen2_rectifier": OmniGen2Rectifier,
     }
@@ -1038,7 +1039,10 @@ def _silhouette_contour_image(
         Image.fromarray(mask_arr, mode="L").resize((size, size), Image.NEAREST),
         dtype=np.uint8,
     )
-    mask_bin = (mask_resized > 128).astype(np.uint8) * 255
+    # Masks that reach this helper are 0/1 after component filtering. A
+    # threshold of 128 treated every pixel as background and erased the contour
+    # for FLUX, SD1.5, and SDXL alike.
+    mask_bin = (mask_resized > 0).astype(np.uint8) * 255
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     mask_closed = cv2.morphologyEx(mask_bin, cv2.MORPH_CLOSE, kernel, iterations=3)
@@ -1453,6 +1457,184 @@ class SDControlNetLineartRectifier(OutlineRectifier):
         return OutlineRectifierResult(
             diagram_path=destination,
             metadata={"backend": "sd_controlnet_lineart_rectifier", "prompt": prompt, "num_inference_steps": steps},
+        )
+
+
+class SDXLControlNetRectifier(OutlineRectifier):
+    """SDXL base plus scribble ControlNet, conditioned on the shared silhouette.
+
+    Checkpoints are read from ``sdxl_`` settings so FLUX GGUF keys in the same
+    config block are not reused. The production default stays FLUX.
+    """
+
+    DEFAULT_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
+    DEFAULT_CONTROLNET = "xinsir/controlnet-scribble-sdxl-1.0"
+    DEFAULT_VAE = "madebyollin/sdxl-vae-fp16-fix"
+
+    def __init__(self, settings: dict[str, Any]) -> None:
+        super().__init__(settings)
+        self._pipeline: Any | None = None
+
+    def prepare_conditioning_image(
+        self,
+        crop_image: Image.Image,
+        isolated_image: Image.Image | None = None,
+    ) -> Image.Image:
+        mode = str(self.settings.get("conditioning_mode", "isolated_only")).strip().lower()
+        if mode == "crop_only":
+            return crop_image.copy()
+        if isolated_image is None:
+            raise ValueError("SDXL conditioning requires an isolated subject image.")
+        crop = crop_image.convert("RGB")
+        isolated = isolated_image.convert("RGB")
+        if isolated.size != crop.size:
+            isolated = isolated.resize(crop.size, Image.Resampling.LANCZOS)
+        if mode == "isolated_only":
+            return isolated
+        if mode == "blended":
+            return Image.blend(crop, isolated, alpha=0.5)
+        raise ValueError(
+            f"Unknown SDXL conditioning mode: {mode}. Expected `crop_only`, `isolated_only`, or `blended`."
+        )
+
+    def validate_ready(self) -> None:
+        try:
+            import torch  # noqa: F401
+            from diffusers import AutoencoderKL, ControlNetModel, StableDiffusionXLControlNetPipeline  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError("SDXLControlNetRectifier requires `torch` and `diffusers`.") from exc
+
+    def _setting(self, name: str, default: Any) -> Any:
+        prefixed = f"sdxl_{name}"
+        if prefixed in self.settings:
+            return self.settings[prefixed]
+        return default
+
+    def _seed_base(self) -> int:
+        if "sdxl_seed" in self.settings:
+            return int(self.settings["sdxl_seed"])
+        return int(self.settings.get("seed", 0))
+
+    def _conditioning_scale(self, params: dict[str, Any]) -> float:
+        """Translate the shared retry ``strength`` knob into ControlNet scale.
+
+        Higher strength means freer of the contour. ControlNet scale is the
+        inverse, so nominal strength 0.85 keeps the configured scale and each
+        retry step of 0.05 moves the scale by 0.20.
+        """
+        base = float(
+            params.get(
+                "controlnet_conditioning_scale",
+                self._setting("controlnet_conditioning_scale", 1.0),
+            )
+        )
+        if "strength" not in params:
+            return base
+        adjusted = base - 4.0 * (float(params["strength"]) - 0.85)
+        return round(min(max(adjusted, 0.35), 1.5), 2)
+
+    def _execution_device(self, torch: Any) -> str:
+        if torch.cuda.is_available():
+            return "cuda"
+        mps = getattr(torch.backends, "mps", None)
+        if mps is not None and mps.is_available():
+            return "mps"
+        return "cpu"
+
+    def _load_pipeline(self) -> Any:
+        if self._pipeline is not None:
+            return self._pipeline
+        import torch
+        from diffusers import AutoencoderKL, ControlNetModel, StableDiffusionXLControlNetPipeline
+
+        device = self._execution_device(torch)
+        dtype = torch.float16 if device in {"cuda", "mps"} else torch.float32
+        model_id = str(self._setting("model", self.DEFAULT_MODEL))
+        controlnet_id = str(self._setting("controlnet", self.DEFAULT_CONTROLNET))
+        vae_id = str(self._setting("vae", self.DEFAULT_VAE))
+        try:
+            controlnet = ControlNetModel.from_pretrained(controlnet_id, torch_dtype=dtype)
+            vae = AutoencoderKL.from_pretrained(vae_id, torch_dtype=dtype)
+            pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+                model_id,
+                controlnet=controlnet,
+                vae=vae,
+                torch_dtype=dtype,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Failed to load SDXL ControlNet pipeline: {exc}") from exc
+        if device == "cuda":
+            pipe.enable_model_cpu_offload()
+        else:
+            pipe.to(device)
+        self._pipeline = pipe
+        return self._pipeline
+
+    def unload(self) -> None:
+        _release_pipeline(self)
+
+    def run(
+        self,
+        sample: dict[str, Any],
+        subject_image: Image.Image,
+        subject_mask: Image.Image | None,
+        generated_path: Path | None,
+        destination: Path,
+        params: dict[str, Any],
+    ) -> OutlineRectifierResult:
+        import torch
+        import zlib
+
+        contour_size = int(self._setting("contour_size", 512))
+        size = int(params.get("size", self._setting("size", 1024)))
+        silhouette = _silhouette_contour_image(
+            subject_image, subject_mask, params, self.settings, size=contour_size
+        )
+        if silhouette.size != (size, size):
+            silhouette = silhouette.resize((size, size), Image.Resampling.NEAREST)
+        # Scribble ControlNet is trained on white strokes over black.
+        control = ImageOps.invert(silhouette).convert("RGB")
+        pipe = self._load_pipeline()
+        prompt = str(params.get("prompt") or build_line_drawing_prompt(sample))
+        negative_prompt = str(
+            params.get("negative_prompt", self._setting("negative_prompt", "color, shading, gray, texture, background, text"))
+        )
+        steps = int(params.get("num_inference_steps", self._setting("num_inference_steps", 30)))
+        guidance = float(params.get("guidance_scale", self._setting("guidance_scale", 7.0)))
+        conditioning_scale = self._conditioning_scale(params)
+        seed = self._seed_base() + zlib.crc32(f"{sample.get('sample_id')}:{destination.name}".encode())
+        generator = torch.Generator(device="cpu").manual_seed(seed)
+        with torch.inference_mode():
+            result = pipe(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                image=control,
+                num_inference_steps=steps,
+                guidance_scale=guidance,
+                controlnet_conditioning_scale=conditioning_scale,
+                height=size,
+                width=size,
+                generator=generator,
+            ).images[0]
+        _release_cuda_cache(torch)
+        _binarize_to_size(result, subject_image.size).save(_prepared(destination))
+        return OutlineRectifierResult(
+            diagram_path=destination,
+            metadata={
+                "backend": "sdxl_controlnet_rectifier",
+                "model": str(self._setting("model", self.DEFAULT_MODEL)),
+                "controlnet": str(self._setting("controlnet", self.DEFAULT_CONTROLNET)),
+                "vae": str(self._setting("vae", self.DEFAULT_VAE)),
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "seed": seed,
+                "num_inference_steps": steps,
+                "guidance_scale": guidance,
+                "controlnet_conditioning_scale": conditioning_scale,
+                "size": size,
+                "contour_size": contour_size,
+                "strength": params.get("strength"),
+            },
         )
 
 

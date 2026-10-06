@@ -22,6 +22,17 @@ outline_rectifier:
   omnigen2_revision: df5dca8a981d74e6c3af214c145f5c735fe72367
   omnigen2_code_dir: ${OMNIGEN2_CODE_DIR:-~/.cache/wildtrace/OmniGen2}
   omnigen2_bf16_dir: ${OMNIGEN2_BF16_DIR:-~/.cache/wildtrace/OmniGen2-bf16}
+  # sdxl_controlnet_rectifier. Prefixed so FLUX GGUF keys are not reused as
+  # SDXL checkpoints. The production backend above stays FLUX.
+  sdxl_model: stabilityai/stable-diffusion-xl-base-1.0
+  sdxl_controlnet: xinsir/controlnet-scribble-sdxl-1.0
+  sdxl_vae: madebyollin/sdxl-vae-fp16-fix
+  sdxl_size: 1024
+  sdxl_contour_size: 512
+  sdxl_num_inference_steps: 30
+  sdxl_guidance_scale: 7.0
+  sdxl_controlnet_conditioning_scale: 1.0
+  sdxl_negative_prompt: "color, shading, gray, texture, background, text, watermark"
 outline_validator:
   backend: ${SEMANTIC_VALIDATOR_BACKEND:-auto}
   model_backend: auto

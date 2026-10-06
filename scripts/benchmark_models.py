@@ -24,7 +24,6 @@ import hashlib
 import json
 import os
 import random
-import resource
 import statistics
 import subprocess
 import sys
@@ -33,6 +32,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 from urllib import request
+
+try:
+    import resource
+except ImportError:  # Windows has no resource module.
+    resource = None
 
 import yaml
 from PIL import Image, ImageDraw
@@ -57,8 +61,21 @@ SHARED_SILHOUETTE_KEYS = ("min_component_area", "subject_threshold", "silhouette
 
 # ── config / provenance ────────────────────────────────────────────────────
 
+def bench_config_path() -> Path:
+    """Benchmark file selected by ``WILDTRACE_BENCHMARK_CONFIG``.
+
+    Relative paths are resolved from the repository root. The default remains
+    ``configs/benchmark.yaml``.
+    """
+    raw = os.environ.get("WILDTRACE_BENCHMARK_CONFIG", "configs/benchmark.yaml")
+    path = Path(raw)
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    return path
+
+
 def load_bench() -> dict[str, Any]:
-    return yaml.safe_load((REPO_ROOT / "configs" / "benchmark.yaml").read_text())
+    return yaml.safe_load(bench_config_path().read_text())
 
 
 def run_dir(bench: dict[str, Any]) -> Path:
@@ -69,7 +86,10 @@ def run_dir(bench: dict[str, Any]) -> Path:
 
 def provenance() -> dict[str, str]:
     digest = hashlib.sha256()
-    for name in ("benchmark.yaml", "models.yaml", "export.yaml"):
+    # The selected benchmark file, not a hard-coded name, so an alternate
+    # comparison such as configs/benchmark_sdxl.yaml changes the hash.
+    digest.update(bench_config_path().read_bytes())
+    for name in ("models.yaml", "export.yaml"):
         digest.update((REPO_ROOT / "configs" / name).read_bytes())
     sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(
@@ -96,7 +116,13 @@ def rectifier_settings(entry: dict[str, Any], models: dict[str, Any]) -> dict[st
     else:
         # Don't leak FLUX-specific keys (gguf_repo, ...) into other backends.
         base = {key: production[key] for key in SHARED_SILHOUETTE_KEYS if key in production}
-        base.update({key: value for key, value in production.items() if key.startswith("omnigen2_")})
+        base.update(
+            {
+                key: value
+                for key, value in production.items()
+                if key.startswith(("omnigen2_", "sdxl_"))
+            }
+        )
     return {**base, **{k: v for k, v in entry.items() if k not in ("name", "reference")}}
 
 
@@ -108,7 +134,7 @@ def entry_by_name(entries: list[dict[str, Any]], name: str) -> dict[str, Any]:
     for entry in entries:
         if entry["name"] == name:
             return entry
-    raise SystemExit(f"No model named {name!r} in configs/benchmark.yaml")
+    raise SystemExit(f"No model named {name!r} in {bench_config_path()}")
 
 
 # ── eval set ───────────────────────────────────────────────────────────────
@@ -217,7 +243,8 @@ def cmd_rectify_one(args: argparse.Namespace) -> None:
             row.update({"error": f"{type(exc).__name__}: {exc}"[:500], "latency_s": round(time.perf_counter() - started, 3)})
         if torch.cuda.is_available():
             row["peak_vram_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
-        row["peak_rss_gb"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2)
+        if resource is not None:
+            row["peak_rss_gb"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2)
         append_ndjson(results_path, row)
         print(json.dumps({k: row.get(k) for k in ("model", "sample_id", "latency_s", "opencv_passed", "stroke_count", "peak_vram_gb", "error")}), flush=True)
     rectifier.unload()

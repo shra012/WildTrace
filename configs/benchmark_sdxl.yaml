@@ -1,0 +1,79 @@
+# Controlled SDXL comparison (sdxl-r1). Separate from historical r2.
+# Select it with WILDTRACE_BENCHMARK_CONFIG=configs/benchmark_sdxl.yaml.
+# The contour-threshold fix changes FLUX and SD1.5 conditioning, so this run
+# reruns those baselines instead of reusing r2 measurements.
+run_id: sdxl-r1
+seed: 14
+subjects_per_category: 5
+label_set:
+  accepted: 44
+  rejected: 16
+
+validators:
+  - name: qwen3-vl-8b
+    backend: openrouter_semantic_validator
+    openrouter_model_name: qwen/qwen3-vl-8b-instruct
+validator_defaults:
+  backend: openrouter_semantic_validator
+  force_semantic: true
+  temperature: 0.0
+  max_tokens: 300
+  timeout_seconds: 180
+  min_score: 0.55
+
+rectifiers:
+  - name: flux-schnell
+    backend: flux_silhouette_rectifier
+    conditioning_mode: isolated_only
+    strength: 0.85
+  - name: omnigen2
+    backend: omnigen2_rectifier
+    conditioning_input: subject
+    offload: model
+    size: 768
+    num_inference_steps: 30
+  - name: sdxl-controlnet
+    backend: sdxl_controlnet_rectifier
+    sdxl_seed: 14
+    sdxl_size: 1024
+    sdxl_contour_size: 512
+    sdxl_num_inference_steps: 30
+    sdxl_guidance_scale: 7.0
+    sdxl_controlnet_conditioning_scale: 1.0
+
+comparison:
+  run_id: sdxl-r1
+  evalset:
+    path: benchmarks/evalset_v2.json
+    seed: 14
+    per_category: 3
+    extra: {Cat: 1, Dog: 1}
+  max_attempts: 3
+  setups:
+    - name: flux-qwen3
+      rectifier: flux-schnell
+      validator:
+        backend: openrouter_semantic_validator
+        openrouter_model_name: qwen/qwen3-vl-8b-instruct
+    - name: omnigen2-qwen3
+      rectifier: omnigen2
+      rectifier_overrides:
+        image_guidance_scale: 2.2
+        num_inference_steps: 20
+        cfg_range: [0.0, 0.6]
+      validator:
+        backend: openrouter_semantic_validator
+        openrouter_model_name: qwen/qwen3-vl-8b-instruct
+    - name: sdxl-qwen3
+      rectifier: sdxl-controlnet
+      validator:
+        backend: openrouter_semantic_validator
+        openrouter_model_name: qwen/qwen3-vl-8b-instruct
+  referees:
+    - name: qwen3-vl-8b
+      backend: openrouter_semantic_validator
+      openrouter_model_name: qwen/qwen3-vl-8b-instruct
+    - name: qwen3-vl-235b
+      strong: true
+      backend: openrouter_semantic_validator
+      openrouter_model_name: qwen/qwen3-vl-235b-a22b-instruct

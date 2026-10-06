@@ -1,0 +1,47 @@
+{
+  "experiment": "sdxl-r1",
+  "config": "configs/benchmark_sdxl.yaml",
+  "executed": false,
+  "ready_to_run": false,
+  "recorded_at": "2026-10-06T00:52:12.106639+00:00",
+  "requirements": {
+    "cuda_gpu": true,
+    "benchmark_crops": {
+      "available": 0,
+      "expected": 20
+    },
+    "benchmark_masks": {
+      "available": 0,
+      "expected": 20
+    },
+    "isolated_subject_images": {
+      "available": 0,
+      "expected": 20
+    },
+    "packages": {
+      "diffusers": false,
+      "accelerate": false,
+      "gguf": false,
+      "open_clip": false
+    },
+    "openrouter_judge_key": false
+  },
+  "metrics": {
+    "acceptance_rate": null,
+    "first_attempt_pass_rate": null,
+    "attempts": null,
+    "combined_validation_score": null,
+    "strong_referee_pass_rate": null,
+    "bioclip_recognizability": null,
+    "silhouette_iou": null,
+    "drawing_structure": null,
+    "blank_output_rate": null,
+    "exportable_trajectory_rate": null,
+    "ink_coverage": null,
+    "estimated_drawing_time_s": null,
+    "generation_latency_s": null,
+    "peak_memory": null,
+    "robot_tracking_rmse": null
+  },
+  "note": "SDXL quality and performance are unmeasured. Historical r2 figures describe the original experiment and are not measurements of the corrected contour helper."
+}
