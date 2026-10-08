@@ -1,13 +1,13 @@
-# WildTrace — project index
+# WildTrace - project index
 
 WildTrace turns Open Images animal photos into robot-drawable line diagrams and stroke
 trajectories, then draws them with a simulated UFACTORY xArm 7 in NVIDIA Isaac Sim.
 
 Two largely independent halves:
 
-1. **ETL pipeline** (`wildtrace/`, `scripts/`, `configs/`) — local-first bronze → silver → gold
+1. **ETL pipeline** (`wildtrace/`, `scripts/`, `configs/`) - local-first bronze → silver → gold
    medallion pipeline. Each stage is a standalone script so it can become an Airflow DAG task.
-2. **Robot simulation** (`isaac-sim/`) — IK / behaviour-cloning / RL drawing on xArm 7, fed by
+2. **Robot simulation** (`isaac-sim/`) - IK / behaviour-cloning / RL drawing on xArm 7, fed by
    gold trajectories. Has its own README, config, tests and Claude skill.
 
 ## Setup and commands
@@ -28,7 +28,7 @@ drops other categories' rows from existing manifests.
 | # | Script | Function | Layer |
 |---|---|---|---|
 | 1 | `scripts/fetch_openimages.py` | `pipeline.fetch_openimages` | bronze: download images/masks/metadata, versioned |
-| – | `scripts/reconcile_bronze_fetch_storage.py` | `pipeline.reconcile_fetch_storage` | bronze: repair/clean fetch storage |
+| - | `scripts/reconcile_bronze_fetch_storage.py` | `pipeline.reconcile_fetch_storage` | bronze: repair/clean fetch storage |
 | 2 | `scripts/curate_bronze.py` | `bronze_stage.curate_bronze` | bronze: dedupe, quality, angle feasibility, BioCLIP enrichment |
 | 3 | `scripts/normalize_to_silver.py` | `silver_stage.normalize_to_silver` | silver: resize/normalize images + masks |
 | 4 | `scripts/enrich_and_crop_subjects.py` | `silver_stage.enrich_and_crop_subjects` | silver: isolate + crop subject |
@@ -49,19 +49,19 @@ Outputs live under `outputs/` (`configs/storage.yaml`, gitignored); manifest pat
 
 ## Package map (`wildtrace/`)
 
-- `config.py` — loads `configs/*.yaml`, resolves `${ENV:-default}` placeholders.
-- `pipeline.py` — CLI args, runtime loading, Open Images discovery/fetch, versioned bronze paths.
-- `bronze_stage.py`, `silver_stage.py`, `gold_stage.py` — stage implementations.
-- `stage_io.py` — manifest/checkpoint path helpers and `run_stage_main`.
-- `io_utils.py` — NDJSON / file helpers. `images.py` — PIL/OpenCV image + mask utils, outline stroke sampling, SVG writing.
-- `enrichment.py` — `BioCLIPHuggingFaceBackend` and heuristic fallback (subcategory + tags).
-- `viewpoint.py` — mask-feature viewpoint/angle classifier (`LocalScoreViewpointBackend`).
-- `diagram.py` (~2k lines) — outline rectifiers (`FluxSilhouetteRectifier`, `FluxKontextRectifier`,
+- `config.py` - loads `configs/*.yaml`, resolves `${ENV:-default}` placeholders.
+- `pipeline.py` - CLI args, runtime loading, Open Images discovery/fetch, versioned bronze paths.
+- `bronze_stage.py`, `silver_stage.py`, `gold_stage.py` - stage implementations.
+- `stage_io.py` - manifest/checkpoint path helpers and `run_stage_main`.
+- `io_utils.py` - NDJSON / file helpers. `images.py` - PIL/OpenCV image + mask utils, outline stroke sampling, SVG writing.
+- `enrichment.py` - `BioCLIPHuggingFaceBackend` and heuristic fallback (subcategory + tags).
+- `viewpoint.py` - mask-feature viewpoint/angle classifier (`LocalScoreViewpointBackend`).
+- `diagram.py` (~2k lines) - outline rectifiers (`FluxSilhouetteRectifier`, `FluxKontextRectifier`,
   `SDControlNetLineartRectifier`, `SDXLControlNetRectifier`, `InformativeDrawingsRectifier`,
   `OmniGen2Rectifier`, `SilhouetteOutlineRectifier`), semantic validators (Ollama, OpenRouter,
   Anthropic, Mock), OpenCV validation, and the LangGraph validation/retry graph.
-- `eval_metrics.py` — benchmark metrics for generated line diagrams.
-- `trajectory_candidates.py` — compile sparse VLM stroke plans into trajectories; raster-distance scoring.
+- `eval_metrics.py` - benchmark metrics for generated line diagrams.
+- `trajectory_candidates.py` - compile sparse VLM stroke plans into trajectories; raster-distance scoring.
 
 ## Configs (`configs/`)
 
@@ -80,16 +80,16 @@ Outputs live under `outputs/` (`configs/storage.yaml`, gitignored); manifest pat
 
 ## Isaac Sim (`isaac-sim/`)
 
-- `src/` — `xarm7_loader`, `ik_controller` (Lula IK), `articulation_control`, `drawing_state_machine`
+- `src/` - `xarm7_loader`, `ik_controller` (Lula IK), `articulation_control`, `drawing_state_machine`
   (approach/lower/draw/lift), `coordinate_mapper` (normalized canvas → world), `trajectory_loader`,
   `path_geometry`, `metrics`, `demonstration`, `behavior_cloning`, `rl_policy`, `project_config`.
-- `scripts/` — scene setup, two-stroke drawing, demo recording, BC/PPO training, evaluation, plotting,
+- `scripts/` - scene setup, two-stroke drawing, demo recording, BC/PPO training, evaluation, plotting,
   `mcp_drawing_controller.py` (Action Graph controller), `provision_and_draw.py`.
-- `mcp_server/wildtrace_sim_server.py` — `wildtrace-sim` MCP server (`sim_status`, `sim_start`,
+- `mcp_server/wildtrace_sim_server.py` - `wildtrace-sim` MCP server (`sim_status`, `sim_start`,
   `setup_scene`, `draw(category)`, `draw_result`, `sim_shutdown`).
-- `.claude/skills/draw-animal/` — skill for "draw a <animal>"; only serves existing gold trajectories.
-- `config/xarm7_drawing.yaml` — robot/drive/drawing tuning (Earth gravity, force-mode servo).
-- `inputs/` — sample gold diagrams, SVGs and trajectories per category; `data/` — two-stroke samples.
+- `.claude/skills/draw-animal/` - skill for "draw a <animal>"; only serves existing gold trajectories.
+- `config/xarm7_drawing.yaml` - robot/drive/drawing tuning (Earth gravity, force-mode servo).
+- `inputs/` - sample gold diagrams, SVGs and trajectories per category; `data/` - two-stroke samples.
 - Simulation only: no physical xArm client or network path.
 
 ## Docs
@@ -101,5 +101,11 @@ Outputs live under `outputs/` (`configs/storage.yaml`, gitignored); manifest pat
 
 ## Tests
 
-`tests/` — `test_pipeline.py`, `test_eval_metrics.py`, `test_sdxl_rectifier.py`,
-`test_trajectory_candidates.py`. `isaac-sim/tests/` — path geometry, trajectory, metrics/robot, BC.
+`tests/` - `test_pipeline.py`, `test_eval_metrics.py`, `test_sdxl_rectifier.py`,
+`test_trajectory_candidates.py`. `isaac-sim/tests/` - path geometry, trajectory, metrics/robot, BC.
+
+## Conventions for Claude
+
+- Do not add Claude as a co-author in git commits: no `Co-Authored-By` trailer or any other Claude/AI attribution lines in commit messages.
+- Do not take credit for the code: no "Generated with Claude Code" or similar attribution in commits, PR descriptions, code comments, or docs.
+- Do not use em dashes or en dashes; use a plain hyphen `-` instead.
