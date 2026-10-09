@@ -240,12 +240,16 @@ the drawing finishes it at 0.84 mm (IK: 0.68-0.78 mm).
 | Lula IK | 39/48 | 0.698 mm | 0.883 mm | 0.813 mm | 806 rad/s^3 | 94 s |
 | ACT, 30 Hz step held 2 physics steps | 48/48 | 0.366 mm | 0.567 mm | 0.307 mm | 1018 rad/s^3 | 67 s |
 | ACT, queried at 60 Hz, half step (default) | 48/48 | 0.325 mm | 0.483 mm | 0.292 mm | 272 rad/s^3 | 68 s |
+| ACT v2, hairpin fix (`models/act_kinematic_v2`) | 48/48 | 0.239 mm | 0.413 mm | 0.289 mm | 255 rad/s^3 | 66 s |
 
 IK fails all 4 Fish drawings and 5 others with a first-stroke waypoint timeout. ACT (kinematic stage A
 checkpoint, `outputs/act/kinematic`) has lower path RMSE than IK on 38 of the 39 drawings both finish.
-Known gaps: ACT's worst-point error is higher (max 2.4 mm mean, up to 8.5 mm) because the
-projection-based progress can jump across narrow hairpins (e.g. a 162 deg toe on Frog `8ae3adc42375beba`,
-2.4% of its points) and cut them; heading RMSE is 12.2 deg vs IK's 10.0. Fine-tuning on Isaac IK demos
+v1 had a hairpin problem: the projection-based progress could jump across narrow hairpins (8.1 mm on a
+162 deg toe in Frog `8ae3adc42375beba`). v2 caps the projection at 5 mm of path ahead: that drawing's
+worst point drops to 0.72 mm (IK 1.01), worst-point error averages 1.47 mm (v1 2.36, IK 0.99), heading
+RMSE improves to 9.2 deg (IK 10.0) and ACT beats IK on path RMSE on 39/39 drawings. Remaining gap: at
+near-180 deg reversals (needle-sharp spike tips) the constant-speed policy rounds the tip by up to 2.6 mm
+on 10 of 48 drawings (under 3% of their points); IK reaches them by stopping at every waypoint. Fine-tuning on Isaac IK demos
 (`physics_finetune`) made tracking worse (0.74-0.91 mm on a 4-drawing check): those labels carry IK's own
 ~0.7 mm sag error, so the kinematic checkpoint is the one to use.
 

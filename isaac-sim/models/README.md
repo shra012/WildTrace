@@ -6,12 +6,12 @@ Run `git lfs pull` after cloning to fetch the weights.
 | Folder | Training data | Use |
 |---|---|---|
 | `act_kinematic/` | `kinematic_v3` labels (8,488 episodes), 40k steps | Results in #39: 48/48 gold drawings at 1 g, 0.325 mm path RMSE |
-| `act_kinematic_v2/` | `kinematic_v4` labels with the 5 mm projection cap (hairpin fix), 40k steps | Evaluation in progress (#39) |
+| `act_kinematic_v2/` | `kinematic_v4` labels with the 5 mm projection cap (hairpin fix), 40k steps | **Recommended.** 48/48 gold drawings at 1 g, 0.239 mm path RMSE, lower than IK on 39/39 |
 
 Serve one to the Isaac runner (see the ACT section of `isaac-sim/README.md`):
 
 ```bash
-isaac-sim/.venv-act/bin/python isaac-sim/scripts/act_policy_server.py --checkpoint isaac-sim/models/act_kinematic
+isaac-sim/.venv-act/bin/python isaac-sim/scripts/act_policy_server.py --checkpoint isaac-sim/models/act_kinematic_v2
 python3 isaac-sim/scripts/isaac_batch.py eval --controller act --tag act_kin
 ```
 
