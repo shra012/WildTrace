@@ -11,6 +11,12 @@ from typing import Mapping, Sequence
 import numpy as np
 
 PATH_WINDOW_POINTS = 10
+# How far along the path (from the current target) the tip may be projected.
+# The pen moves under 1 mm per 30 fps tick, so 5 mm is ample; a waypoint-count
+# window (40 targets, 20+ mm where corners are densified) let the projection
+# hop across narrow hairpins whose return leg is close in space but far in arc
+# length, cutting e.g. a 162 deg toe by 8.5 mm.
+PROJECTION_AHEAD_M = 0.005
 PATH_WINDOW_SPACING_M = 0.002
 # Enough raw targets to cover the window even after corner densification.
 _MAX_TARGETS_SCANNED = 256
@@ -155,18 +161,25 @@ def path_arc_length(targets: np.ndarray) -> np.ndarray:
 
 
 def project_on_path(
-    targets: np.ndarray, arc: np.ndarray, index: int, tip: Sequence[float], search: int = 40
+    targets: np.ndarray,
+    arc: np.ndarray,
+    index: int,
+    tip: Sequence[float],
+    max_ahead_m: float = PROJECTION_AHEAD_M,
 ) -> tuple[float, int]:
     """Arc position of the tip's projection near `index`, and the first waypoint ahead of it.
 
-    Only segments from index-1 to index+search are considered, so a closed
-    outline cannot match its far side. The returned waypoint never moves
+    Only segments from index-1 up to `max_ahead_m` of path beyond waypoint
+    `index` are considered, so neither a closed outline's far side nor a
+    hairpin's return leg can be matched. The returned waypoint never moves
     backwards past `index`.
     """
     positions = np.asarray(targets, dtype=np.float64)
     point = np.asarray(tip, dtype=np.float64)
     start = max(int(index) - 1, 0)
-    stop = min(int(index) + search, len(positions) - 1)
+    limit = float(arc[min(int(index), len(arc) - 1)]) + float(max_ahead_m)
+    # At least one segment beyond the current target, even if it is long.
+    stop = min(max(int(np.searchsorted(arc, limit, side="right")), int(index) + 1), len(positions) - 1)
     if stop <= start:
         return float(arc[min(int(index), len(arc) - 1)]), int(index)
     a = positions[start:stop]
@@ -180,11 +193,13 @@ def project_on_path(
     return s, int(min(max(ahead, int(index)), len(positions) - 1))
 
 
-def chased_index(targets: np.ndarray, arc: np.ndarray, index: int, tip: Sequence[float], search: int = 40) -> int:
+def chased_index(
+    targets: np.ndarray, arc: np.ndarray, index: int, tip: Sequence[float], max_ahead_m: float = PROJECTION_AHEAD_M
+) -> int:
     """First waypoint strictly ahead of the pen, never moving backwards.
 
     This is the same "chased waypoint" the kinematic labeller records, so a
     policy trained on those labels sees the same target semantics in closed
     loop, without the IK runner's stop-and-settle reach gate.
     """
-    return project_on_path(targets, arc, index, tip, search)[1]
+    return project_on_path(targets, arc, index, tip, max_ahead_m)[1]

@@ -47,7 +47,13 @@ stages:
     dataset: wildtrace_kin_v1_train
     # ~10M samples, ~0.4 pass over 26M highly redundant 30 fps frames.
     steps: 40000
-  # Stage B: fine-tune the stage A checkpoint on Isaac 1 g rollouts.
+  # Stage A after the hairpin fix: progress projection capped at 5 mm of path
+  # ahead (act_features.PROJECTION_AHEAD_M), relabelled as kinematic_v4.
+  kinematic_v2:
+    dataset: wildtrace_kin_v2_train
+    steps: 40000
+  # Stage B: fine-tune the stage A checkpoint on Isaac 1 g rollouts. Made
+  # tracking worse in practice: the IK demos carry IK's own ~0.7 mm sag error.
   physics_finetune:
     dataset: wildtrace_phys_v1_train
     steps: 10000

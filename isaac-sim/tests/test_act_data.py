@@ -84,10 +84,12 @@ class ChasedIndexTests(unittest.TestCase):
     def test_clamps_to_last_waypoint(self):
         self.assertEqual(chased_index(self.targets, self.arc, 9, [0.02, 0.0, 0.0]), 10)
 
-    def test_closed_loop_does_not_jump_to_far_side(self):
-        # A loop returning near its start must not be matched outside the search window.
-        loop = np.r_[self.targets, self.targets[::-1][1:] + [0.0, 0.0005, 0.0]]
-        self.assertEqual(chased_index(loop, path_arc_length(loop), 2, [0.0025, 0.0004, 0.0], search=5), 3)
+    def test_hairpin_does_not_jump_to_return_side(self):
+        # Outward leg along x, return leg 0.6 mm away. A tip that drifted toward
+        # the return side near the base is still on the outward leg: the return
+        # side is ~17 mm further along the path, beyond the arc search window.
+        hairpin = np.r_[self.targets, self.targets[::-1][1:] + [0.0, 0.0006, 0.0]]
+        self.assertEqual(chased_index(hairpin, path_arc_length(hairpin), 2, [0.0025, 0.0004, 0.0]), 3)
 
 
 class AugmentationTests(unittest.TestCase):
