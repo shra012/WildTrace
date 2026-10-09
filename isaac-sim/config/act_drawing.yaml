@@ -1,0 +1,70 @@
+# ACT (LeRobot) training for the path-conditioned joint-space drawing policy.
+# Observation: observation.state [q(7), qd(7), previous command(7)] + observation.environment_state
+# [tip(3), target-tip(3), 10-point path window relative to tip (30), pen_down(1)].
+# Action: 7 joint steps from the previous command, 10-step chunks at 30 fps.
+# Datasets are built by scripts/build_lerobot_dataset.py under outputs/lerobot/.
+
+datasets_root: ../outputs/lerobot
+output_root: ../outputs/act
+
+policy:
+  type: act
+  device: cuda
+  push_to_hub: false
+  # 10 steps (1/3 s at 30 fps). On the overfit gate a 30-step chunk gave
+  # 0.15-0.18 relative first-action error and ~2.5x the p95 joint error of a
+  # 10-step chunk: far-future noise corrections are unpredictable and pull on
+  # the near-term action. The server re-plans every tick either way.
+  chunk_size: 10
+  n_action_steps: 10
+  dim_model: 256
+  n_encoder_layers: 4
+  n_decoder_layers: 1
+  # Tuned on the single-drawing overfit gate: the ACT defaults (VAE, dropout
+  # 0.1, lr 1e-4) left 33-45% relative first-action error on training frames;
+  # this recipe reaches ~11% and drew the gate drawing at 1 g after a short
+  # physics fine-tune (0.84 mm path RMSE vs 0.68-0.78 mm for IK).
+  use_vae: false
+  dropout: 0.0
+  optimizer_lr: 3.0e-4
+  use_amp: true
+  # ACT's default mapping has no ENV entry, which would feed the millimetre-scale
+  # path window to the model unnormalized.
+  normalization_mapping: {VISUAL: MEAN_STD, STATE: MEAN_STD, ENV: MEAN_STD, ACTION: MEAN_STD}
+
+train:
+  # Batch 256 runs ~1450 samples/s on the RTX 3080 Ti laptop GPU and is
+  # data-loading bound (0.11 s load vs 0.06 s update per step), hence 8 workers.
+  batch_size: 256
+  num_workers: 8
+  log_freq: 200
+  save_freq: 10000
+  seed: 17
+
+stages:
+  # Stage A: pretrain on physics-free Lula IK labels over all non-gold trajectories.
+  kinematic:
+    dataset: wildtrace_kin_v1_train
+    # ~10M samples, ~0.4 pass over 26M highly redundant 30 fps frames.
+    steps: 40000
+  # Stage B: fine-tune the stage A checkpoint on Isaac 1 g rollouts.
+  physics_finetune:
+    dataset: wildtrace_phys_v1_train
+    steps: 10000
+    optimizer_lr: 1.0e-4
+    init_from: kinematic
+  # Control: physics data only, to measure what kinematic pretraining adds.
+  physics_only:
+    dataset: wildtrace_phys_v1_train
+    steps: 50000
+  # Gate before full training: overfit one drawing, then run it closed loop.
+  overfit_one:
+    dataset: wildtrace_overfit_one
+    steps: 5000
+  # Gate at 1 g: fine-tune the overfit model on kinematic + Isaac 1 g demos of
+  # the same drawing (Stage B in miniature).
+  overfit_phys:
+    dataset: wildtrace_overfit_phys
+    steps: 5000
+    optimizer_lr: 1.0e-4
+    init_from: ov_novae_d0

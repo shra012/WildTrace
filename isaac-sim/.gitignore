@@ -4,6 +4,7 @@ outputs/**/*
 
 # Local Python environments and dependency installs
 .venv/
+.venv-*/
 venv/
 .vendor/
 

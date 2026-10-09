@@ -27,6 +27,41 @@ def _parse_args():
     parser.add_argument("--trajectory", default=None, help="Override project.trajectory_path")
     parser.add_argument("--first-n-strokes", type=int, default=None, help="Only draw the first N strokes")
     parser.add_argument("--output-dir", default=None, help="Override project.output_dir")
+    parser.add_argument("--demo-path", default=None, help="Override recording.demo_path (one NPZ per drawing)")
+    parser.add_argument("--controller", choices=["ik", "act"], default="ik")
+    parser.add_argument("--gravity", type=float, default=None, help="Override safety.gravity_m_s2 (diagnostics)")
+    parser.add_argument("--policy-address", default="127.0.0.1:8790", help="act_policy_server.py host:port")
+    # Defaults run the 30 fps policy at 60 Hz with half-size steps. Holding each
+    # 30 Hz step for two physics steps tracked well but its command staircase
+    # gave ~25% more joint jerk than IK; ramping the held step instead made the
+    # arm lag its command at query time, which the policy misread as sag and
+    # overshot. Querying every physics step at half scale keeps lag below the
+    # labels' one-tick lag and was ~3x smoother than IK on the gold set.
+    parser.add_argument("--act-hold-steps", type=int, default=1, help="Physics steps per ACT query")
+    parser.add_argument(
+        "--act-action-scale",
+        type=float,
+        default=0.5,
+        help="Scale each predicted step; 0.5 with --act-hold-steps 1 runs a 30 fps policy at 60 Hz",
+    )
+    parser.add_argument(
+        "--act-step-mode",
+        choices=["ramp", "hold"],
+        default="ramp",
+        help="ramp: spread each ACT step evenly over the held physics steps; hold: apply it at once",
+    )
+    parser.add_argument(
+        "--act-max-error-m",
+        type=float,
+        default=0.005,
+        help="Pen-down tip error that stops an ACT run as unsafe",
+    )
+    parser.add_argument(
+        "--augment-seed",
+        type=int,
+        default=None,
+        help="Randomize paper placement, drawing scale and stroke direction (act_features.sample_augmentation)",
+    )
     return parser.parse_args()
 
 
@@ -231,6 +266,15 @@ def main() -> int:
     from isaacsim.core.utils.types import ArticulationAction
 
     from coordinate_mapper import interpolate_segment, map_trajectory_to_plane
+    from act_features import (
+        chased_index,
+        environment_state,
+        observation_state,
+        path_arc_length,
+        path_window,
+        reverse_strokes,
+        sample_augmentation,
+    )
     from demonstration import DemonstrationRecorder
     from drawing_state_machine import (
         HOME,
@@ -254,6 +298,8 @@ def main() -> int:
     from xarm7_loader import add_robot_reference, find_articulation_root, inspect_urdf
 
     config = load_config(ARGS.config, PROJECT_ROOT)
+    if ARGS.gravity is not None:
+        config["safety"]["gravity_m_s2"] = float(ARGS.gravity)
     robot_config, drawing, safety = config["robot"], config["drawing"], config["safety"]
     output_dir = Path(ARGS.output_dir or config["project"]["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -269,6 +315,23 @@ def main() -> int:
 
     trajectory_path = ARGS.trajectory or config["project"]["trajectory_path"]
     trajectory = load_trajectory(trajectory_path, first_n_strokes=ARGS.first_n_strokes)
+    augmentation = None
+    if ARGS.augment_seed is not None:
+        augmentation = sample_augmentation(
+            np.random.default_rng(ARGS.augment_seed),
+            drawing["surface_center_xy_m"],
+            drawing["surface_size_xy_m"],
+            len(trajectory["strokes"]),
+        )
+        augmentation["seed"] = int(ARGS.augment_seed)
+        # The paper prim below is built from these values, so it moves with the drawing.
+        drawing = {
+            **drawing,
+            "surface_center_xy_m": augmentation["surface_center_xy_m"],
+            "surface_size_xy_m": augmentation["surface_size_xy_m"],
+        }
+        trajectory = reverse_strokes(trajectory, augmentation["reversed_strokes"])
+        print(f"[OK] Augmentation: {augmentation}")
     mapped = map_trajectory_to_plane(
         trajectory,
         center_xy=drawing["surface_center_xy_m"],
@@ -395,6 +458,20 @@ def main() -> int:
     machine = MultiStrokeStateMachine(phases, float(safety["waypoint_timeout_s"]))
     desired_targets = flatten_desired_targets(phases)
     _workspace_check(desired_targets, safety["workspace_min_m"], safety["workspace_max_m"])
+    # Global index of each phase's first target, for the ACT path window.
+    desired_positions = np.asarray([t.position for t in desired_targets], dtype=np.float64)
+    phase_offsets = np.r_[0, np.cumsum([len(phase.targets) for phase in phases])].astype(int)
+    desired_arc = path_arc_length(desired_positions)
+    policy = None
+    act_command = None
+    act_from = None
+    act_query_step = 0
+    if ARGS.controller == "act":
+        from act_client import ActPolicyClient
+
+        policy = ActPolicyClient(ARGS.policy_address)
+        policy.reset()
+        print(f"[OK] ACT controller via {ARGS.policy_address}")
 
     # Desired path tangent and corner classification are properties of the
     # commanded waypoint sequence, so they are computed once per phase. The
@@ -453,6 +530,8 @@ def main() -> int:
         for stroke in mapped["strokes"]
     }
     actual_by_stroke = {int(stroke["stroke_id"]): [] for stroke in mapped["strokes"]}
+    # Measured joints per pen-down stroke, for the joint-jerk smoothness metric.
+    joints_by_stroke = {int(stroke["stroke_id"]): [] for stroke in mapped["strokes"]}
     executed_rows = []
     reached_target_errors = []
     step_count = 0
@@ -484,6 +563,16 @@ def main() -> int:
             mapped["drawing_id"],
             int(config["recording"]["lookahead_points"]),
             float(config["training"]["max_action_delta_m"]),
+            metadata={
+                "source": "isaac_physics",
+                "controller": "lula_ik",
+                "trajectory_path": str(trajectory_path),
+                "gravity_m_s2": float(safety["gravity_m_s2"]),
+                "physics_dt_s": float(safety["physics_dt_s"]),
+                "surface_center_xy_m": list(map(float, drawing["surface_center_xy_m"])),
+                "surface_size_xy_m": list(map(float, drawing["surface_size_xy_m"])),
+                "augmentation": augmentation,
+            },
         )
 
     print(f"[OK] Drawing {mapped['drawing_id']} with exactly two strokes")
@@ -508,6 +597,16 @@ def main() -> int:
             elif sim_time - home_start > float(safety["home_timeout_s"]):
                 machine.fail(f"Home joint-position timeout (max error {last_home_error:.6f} rad, q={q.tolist()})")
         else:
+            if policy is not None:
+                # ACT chases the first waypoint ahead of the pen (the labelled
+                # semantics) instead of stopping to settle on every waypoint.
+                tip_now, _ = ik.end_effector_pose()
+                current = int(phase_offsets[machine.phase_index]) + machine.target_index
+                ahead = chased_index(desired_positions, desired_arc, current, tip_now)
+                for _ in range(ahead - current):
+                    machine.update(sim_time, True)
+                if machine.complete or machine.failed:
+                    break
             target = machine.current_target
             phase_index, target_index = machine.phase_index, machine.target_index
             is_corner = bool(phase_corners[phase_index][target_index])
@@ -526,7 +625,43 @@ def main() -> int:
             if active_ik_tolerance != ik.position_tolerance_m:
                 ik.position_tolerance_m = active_ik_tolerance
             
-            action, success = ik.solve(target.position, orientation)
+            if policy is not None:
+                if act_command is None or step_count % max(ARGS.act_hold_steps, 1) == 0:
+                    q_obs = np.asarray(robot.get_joint_positions(), dtype=np.float64)
+                    qd_obs = np.asarray(robot.get_joint_velocities(), dtype=np.float64)
+                    # The policy steps from the command it issued last tick (the
+                    # first tick starts from the measured pose, as in the labels).
+                    previous_target = q_obs if act_command is None else act_command.joint_positions
+                    window = path_window(desired_positions, int(phase_offsets[phase_index]) + target_index)
+                    predicted = policy.act(
+                        observation_state(q_obs, qd_obs, previous_target)[0],
+                        environment_state(tip_position, target.position, window[None], [[float(target.pen_down)]])[0],
+                    )
+                    if not np.isfinite(predicted).all():
+                        machine.fail("ACT produced a non-finite joint step")
+                        print(f"[SAFE STOP] {machine.failure_reason}")
+                        break
+                    act_from = previous_target
+                    act_query_step = step_count
+                    act_command = ArticulationAction(
+                        joint_positions=np.clip(previous_target + ARGS.act_action_scale * predicted, ik.lower, ik.upper)
+                    )
+                if target.pen_down and error > ARGS.act_max_error_m:
+                    machine.fail(f"ACT tip error {error * 1e3:.2f} mm in {machine.state} exceeds the safety limit")
+                    print(f"[SAFE STOP] {machine.failure_reason}")
+                    break
+                action = act_command
+                if ARGS.act_step_mode == "ramp" and ARGS.act_hold_steps > 1:
+                    # A whole 30 Hz step landing on one physics step and none on
+                    # the next is a staircase the jerk metric punishes; IK sends
+                    # a fresh target every physics step.
+                    fraction = min((step_count - act_query_step + 1) / ARGS.act_hold_steps, 1.0)
+                    action = ArticulationAction(
+                        joint_positions=act_from + (act_command.joint_positions - act_from) * fraction
+                    )
+                success = True
+            else:
+                action, success = ik.solve(target.position, orientation)
             if not success:
                 consecutive_ik_failures += 1
                 if consecutive_ik_failures >= max_ik_failures:
@@ -605,6 +740,7 @@ def main() -> int:
             )
             if target.pen_down:
                 actual_by_stroke[target.stroke_id].append(np.asarray(tip_position).tolist())
+                joints_by_stroke[target.stroke_id].append(q)
             if recorder is not None:
                 recorder.append(
                     stroke_id=target.stroke_id,
@@ -618,6 +754,8 @@ def main() -> int:
                     upcoming_targets_m=_lookahead(machine, recorder.lookahead_points),
                     pen_down=target.pen_down,
                     state=machine.state,
+                    commanded_joint_positions_rad=np.asarray(ik._last_commanded_positions, dtype=np.float64).copy(),
+                    path_window_m=path_window(desired_positions, int(phase_offsets[phase_index]) + target_index),
                 )
             previous_state = machine.state
             position_reached = error <= (corner_tolerance if is_corner else target_tolerance)
@@ -671,6 +809,7 @@ def main() -> int:
     desired_down = [point for points in desired_down_by_stroke.values() for point in points]
     metrics = {
         "status": "finished" if machine.complete else "failed",
+        "controller": ARGS.controller,
         "failure_reason": machine.failure_reason,
         "drawing_id": mapped["drawing_id"],
         "requested_stroke_count": len(mapped["strokes"]),
@@ -752,6 +891,21 @@ def main() -> int:
         metrics["pen_down_tracking_error"] = summarize_errors(
             [row["tracking_error_m"] for row in pen_down_rows]
         )
+        corner_rows = [row["tracking_error_m"] for row in pen_down_rows if row["is_corner"]]
+        if corner_rows:
+            metrics["corner_tracking_error"] = summarize_errors(corner_rows)
+        # Third difference within each stroke only; pen lifts would add spikes.
+        jerks = [
+            np.diff(np.asarray(samples), n=3, axis=0) / physics_dt**3
+            for samples in joints_by_stroke.values()
+            if len(samples) > 3
+        ]
+        if jerks:
+            stacked = np.vstack(jerks)
+            metrics["pen_down_joint_jerk_rad_s3"] = {
+                "rms": float(np.sqrt(np.mean(np.sum(stacked**2, axis=1)))),
+                "p95": float(np.percentile(np.linalg.norm(stacked, axis=1), 95)),
+            }
     if reached_target_errors:
         metrics["waypoint_reach_error"] = summarize_errors(reached_target_errors)
     if executed_down:
@@ -761,10 +915,22 @@ def main() -> int:
         metrics["desired_to_executed_nearest_path_error"] = summarize_errors(
             nearest_path_errors(executed_down, desired_down)
         )
+    if policy is not None:
+        latencies = np.asarray(policy.latencies_ms or [0.0])
+        metrics["act_policy"] = {
+            "address": ARGS.policy_address,
+            "hold_steps": ARGS.act_hold_steps,
+            "step_mode": ARGS.act_step_mode,
+            "action_scale": ARGS.act_action_scale,
+            "queries": len(policy.latencies_ms),
+            "server_latency_ms_p50": float(np.median(latencies)),
+            "server_latency_ms_p95": float(np.percentile(latencies, 95)),
+        }
+        policy.close()
     write_metrics(output_dir / "run_metrics.json", metrics)
     # A failed or partial run is never a behavioral-cloning demonstration.
     if recorder is not None and recorder.rows and machine.complete:
-        saved_demo = recorder.save(config["recording"]["demo_path"])
+        saved_demo = recorder.save(ARGS.demo_path or config["recording"]["demo_path"])
         print(f"[OK] Demonstration: {saved_demo}")
     elif recorder is not None and recorder.rows:
         print("[WARN] Partial run was not saved as a demonstration")
