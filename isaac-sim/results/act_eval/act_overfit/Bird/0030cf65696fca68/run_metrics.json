@@ -1,0 +1,111 @@
+{
+  "act_policy": {
+    "address": "127.0.0.1:8790",
+    "hold_steps": 2,
+    "queries": 390,
+    "server_latency_ms_p50": 8.564609000131895,
+    "server_latency_ms_p95": 13.271865499518748
+  },
+  "clamped_command_fraction": 0.0,
+  "control_parameters": {
+    "corner_densify_factor": 3,
+    "corner_window_points": 5,
+    "drive_damping": 650.0,
+    "drive_stiffness": 75000.0,
+    "smoothing_strength": 0.4
+  },
+  "controller": "act",
+  "corner_gated_targets": 345,
+  "desired_pen_down_points": 491,
+  "desired_to_executed_nearest_path_error": {
+    "max_error_m": 0.1205382449825349,
+    "mean_error_m": 0.06305057223646297,
+    "p95_error_m": 0.1144714553498122,
+    "rmse_m": 0.07334486133882216,
+    "sample_count": 491
+  },
+  "drawing_id": "0030cf65696fca68",
+  "executed_pen_down_samples": 61,
+  "executed_to_desired_nearest_path_error": {
+    "max_error_m": 0.0048181713280063855,
+    "mean_error_m": 0.002973886375869796,
+    "p95_error_m": 0.004576403387886177,
+    "rmse_m": 0.0031181577116321493,
+    "sample_count": 61
+  },
+  "failure_reason": "ACT tip error 5.01 mm in DRAW_STROKE_0 exceeds the safety limit",
+  "heading_chord_m": 0.004,
+  "heading_error": {
+    "max_abs_error_deg": 39.59244727624116,
+    "max_abs_error_rad": 0.6910185638926691,
+    "mean_abs_error_deg": 28.900481895615965,
+    "mean_abs_error_rad": 0.5044085644915107,
+    "median_abs_error_deg": 28.166200828732393,
+    "median_abs_error_rad": 0.4915929422393357,
+    "p95_abs_error_deg": 38.954970503679064,
+    "p95_abs_error_rad": 0.6798924953064736,
+    "rmse_deg": 29.381246483388132,
+    "rmse_rad": 0.5127994894751283,
+    "sample_count": 43
+  },
+  "heading_valid_fraction": 0.7049180327868853,
+  "pen_down_joint_jerk_rad_s3": {
+    "p95": 2291.72564145024,
+    "rms": 1509.8810964742313
+  },
+  "pen_down_tracking_error": {
+    "max_error_m": 0.004834835108643305,
+    "mean_error_m": 0.0030488546056088753,
+    "p95_error_m": 0.004652472664678356,
+    "rmse_m": 0.0031831666834295806,
+    "sample_count": 61
+  },
+  "per_stroke_tracking": {
+    "0": {
+      "RMSE_heading_deg": 29.381246483388132,
+      "RMSE_heading_rad": 0.5127994894751283,
+      "RMSE_position_m": 0.0031831666834295806,
+      "heading_sample_count": 43,
+      "max_heading_error_deg": 39.59244727624116,
+      "max_heading_error_rad": 0.6910185638926691,
+      "max_position_error_m": 0.004834835108643305,
+      "mean_position_error_m": 0.0030488546056088753,
+      "median_heading_error_deg": 28.166200828732393,
+      "p95_heading_error_deg": 38.954970503679064,
+      "sample_count": 61
+    }
+  },
+  "requested_stroke_count": 4,
+  "simulation_duration_s": 13.186440702527761,
+  "simulation_steps": 778,
+  "status": "failed",
+  "tip_speed_mm_s_stats": {
+    "max": 49.283736232162184,
+    "mean": 16.974355576844676,
+    "median": 16.369066226648638,
+    "p95": 27.39026882670975
+  },
+  "tolerances": {
+    "corner_ik_tolerance_m": 0.00015,
+    "corner_tolerance_m": 0.0011,
+    "ik_position_tolerance_m": 0.0002,
+    "max_joint_delta_rad": 0.035,
+    "max_tip_speed_mm_s": 7.0,
+    "target_tolerance_m": 0.0012
+  },
+  "velocity_settled_fraction": 0.06557377049180328,
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "LOWER_PEN_STROKE_0",
+    "DRAW_STROKE_0",
+    "FAILED"
+  ],
+  "waypoint_reach_error": {
+    "max_error_m": 0.0011796200382753232,
+    "mean_error_m": 0.0010993316505748924,
+    "p95_error_m": 0.0011773848054891457,
+    "rmse_m": 0.0011026829114131555,
+    "sample_count": 10
+  }
+}

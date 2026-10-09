@@ -1,0 +1,129 @@
+{
+  "act_policy": {
+    "address": "127.0.0.1:8790",
+    "hold_steps": 2,
+    "queries": 1021,
+    "server_latency_ms_p50": 15.79542600302375,
+    "server_latency_ms_p95": 22.17530200141482
+  },
+  "clamped_command_fraction": 0.0,
+  "control_parameters": {
+    "corner_densify_factor": 3,
+    "corner_window_points": 5,
+    "drive_damping": 650.0,
+    "drive_stiffness": 75000.0,
+    "smoothing_strength": 0.4
+  },
+  "controller": "act",
+  "corner_gated_targets": 245,
+  "corner_tracking_error": {
+    "max_error_m": 0.0008113378075054042,
+    "mean_error_m": 0.00031448093973210437,
+    "p95_error_m": 0.0005763156227935541,
+    "rmse_m": 0.0003470674000617375,
+    "sample_count": 301
+  },
+  "desired_pen_down_points": 327,
+  "desired_to_executed_nearest_path_error": {
+    "max_error_m": 0.0007663774512853203,
+    "mean_error_m": 0.0002338823723656716,
+    "p95_error_m": 0.0005162033679750906,
+    "rmse_m": 0.000272632330776127,
+    "sample_count": 327
+  },
+  "drawing_id": "bbf4a726747089d9",
+  "executed_pen_down_samples": 1196,
+  "executed_to_desired_nearest_path_error": {
+    "max_error_m": 0.000916639256087171,
+    "mean_error_m": 0.0003874684933870081,
+    "p95_error_m": 0.0006903752120891796,
+    "rmse_m": 0.0004291449422349559,
+    "sample_count": 1196
+  },
+  "failure_reason": "",
+  "heading_chord_m": 0.004,
+  "heading_error": {
+    "max_abs_error_deg": 96.76844468769558,
+    "max_abs_error_rad": 1.6889279718343038,
+    "mean_abs_error_deg": 2.8872051109565775,
+    "mean_abs_error_rad": 0.050391235366600486,
+    "median_abs_error_deg": 1.4930745190408519,
+    "median_abs_error_rad": 0.026059066334893632,
+    "p95_abs_error_deg": 9.261838387513926,
+    "p95_abs_error_rad": 0.16164957464972046,
+    "rmse_deg": 6.997366988547787,
+    "rmse_rad": 0.12212709292051924,
+    "sample_count": 1140
+  },
+  "heading_valid_fraction": 0.9531772575250836,
+  "pen_down_joint_jerk_rad_s3": {
+    "p95": 2082.9108102870746,
+    "rms": 1138.0021171849673
+  },
+  "pen_down_tracking_error": {
+    "max_error_m": 0.0023792387990459116,
+    "mean_error_m": 0.0005684219090941093,
+    "p95_error_m": 0.001319031124385248,
+    "rmse_m": 0.0007055400729229956,
+    "sample_count": 1196
+  },
+  "per_stroke_tracking": {
+    "0": {
+      "RMSE_heading_deg": 6.997366988547787,
+      "RMSE_heading_rad": 0.12212709292051924,
+      "RMSE_position_m": 0.0007166707667507687,
+      "heading_sample_count": 1140,
+      "max_heading_error_deg": 96.76844468769558,
+      "max_heading_error_rad": 1.6889279718343038,
+      "max_position_error_m": 0.0023792387990459116,
+      "mean_position_error_m": 0.0005798686705733542,
+      "median_heading_error_deg": 1.4930745190408519,
+      "p95_heading_error_deg": 9.261838387513926,
+      "sample_count": 1150
+    },
+    "1": {
+      "RMSE_position_m": 0.00031942441848811293,
+      "max_position_error_m": 0.0006518759259592454,
+      "mean_position_error_m": 0.00028225287211298603,
+      "sample_count": 46
+    }
+  },
+  "requested_stroke_count": 2,
+  "simulation_duration_s": 34.61016955599189,
+  "simulation_steps": 2042,
+  "status": "finished",
+  "tip_speed_mm_s_stats": {
+    "max": 85.32156570091205,
+    "mean": 20.490243060890087,
+    "median": 17.84627339064361,
+    "p95": 45.99542752673851
+  },
+  "tolerances": {
+    "corner_ik_tolerance_m": 0.00015,
+    "corner_tolerance_m": 0.0011,
+    "ik_position_tolerance_m": 0.0002,
+    "max_joint_delta_rad": 0.035,
+    "max_tip_speed_mm_s": 7.0,
+    "target_tolerance_m": 0.0012
+  },
+  "velocity_settled_fraction": 0.1262541806020067,
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "LOWER_PEN_STROKE_0",
+    "DRAW_STROKE_0",
+    "LIFT_PEN_STROKE_0",
+    "MOVE_TO_STROKE_1",
+    "LOWER_PEN_STROKE_1",
+    "DRAW_STROKE_1",
+    "LIFT_PEN_STROKE_1",
+    "FINISHED"
+  ],
+  "waypoint_reach_error": {
+    "max_error_m": 0.0011847206654294427,
+    "mean_error_m": 0.0005398305625491969,
+    "p95_error_m": 0.0011212516341542044,
+    "rmse_m": 0.0006263897531282927,
+    "sample_count": 242
+  }
+}

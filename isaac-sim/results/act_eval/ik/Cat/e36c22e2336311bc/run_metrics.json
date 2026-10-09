@@ -1,0 +1,183 @@
+{
+  "clamped_command_fraction": 0.0,
+  "control_parameters": {
+    "corner_densify_factor": 3,
+    "corner_window_points": 5,
+    "drive_damping": 650.0,
+    "drive_stiffness": 75000.0,
+    "smoothing_strength": 0.4
+  },
+  "controller": "ik",
+  "corner_gated_targets": 1236,
+  "corner_tracking_error": {
+    "max_error_m": 0.001280377898188605,
+    "mean_error_m": 0.0007798258855471875,
+    "p95_error_m": 0.000986604065600434,
+    "rmse_m": 0.0007871328462031138,
+    "sample_count": 2003
+  },
+  "desired_pen_down_points": 673,
+  "desired_to_executed_nearest_path_error": {
+    "max_error_m": 0.000942459746394678,
+    "mean_error_m": 0.0006816759275603731,
+    "p95_error_m": 0.0008280300976499983,
+    "rmse_m": 0.0006861909692485437,
+    "sample_count": 673
+  },
+  "drawing_id": "e36c22e2336311bc",
+  "executed_pen_down_samples": 3370,
+  "executed_to_desired_nearest_path_error": {
+    "max_error_m": 0.001166114416267019,
+    "mean_error_m": 0.0007687301236988534,
+    "p95_error_m": 0.0009778851673412393,
+    "rmse_m": 0.0007771863454535861,
+    "sample_count": 3370
+  },
+  "failure_reason": "",
+  "heading_chord_m": 0.004,
+  "heading_error": {
+    "max_abs_error_deg": 163.03871378990277,
+    "max_abs_error_rad": 2.845562363850486,
+    "mean_abs_error_deg": 3.0509537815904766,
+    "mean_abs_error_rad": 0.053249188814925776,
+    "median_abs_error_deg": 1.486449697051879,
+    "median_abs_error_rad": 0.025943441378827536,
+    "p95_abs_error_deg": 7.495806052778565,
+    "p95_abs_error_rad": 0.1308264957119058,
+    "rmse_deg": 10.441350897697609,
+    "rmse_rad": 0.18223595152088887,
+    "sample_count": 3031
+  },
+  "heading_valid_fraction": 0.899406528189911,
+  "pen_down_joint_jerk_rad_s3": {
+    "p95": 1473.6025012273744,
+    "rms": 723.774056176524
+  },
+  "pen_down_tracking_error": {
+    "max_error_m": 0.0021112632291991175,
+    "mean_error_m": 0.0008300093162194965,
+    "p95_error_m": 0.0011594128200375128,
+    "rmse_m": 0.0008520836787904509,
+    "sample_count": 3370
+  },
+  "per_stroke_tracking": {
+    "0": {
+      "RMSE_heading_deg": 8.490724939607576,
+      "RMSE_heading_rad": 0.1481911060773489,
+      "RMSE_position_m": 0.0009186298531937431,
+      "heading_sample_count": 1932,
+      "max_heading_error_deg": 135.313583211472,
+      "max_heading_error_rad": 2.361667549711509,
+      "max_position_error_m": 0.0021112632291991175,
+      "mean_position_error_m": 0.0008890139091492936,
+      "median_heading_error_deg": 1.281555741500666,
+      "p95_heading_error_deg": 7.3109729035328,
+      "sample_count": 1948
+    },
+    "1": {
+      "RMSE_heading_deg": 18.39435115765346,
+      "RMSE_heading_rad": 0.3210419914690834,
+      "RMSE_position_m": 0.000784766178897116,
+      "heading_sample_count": 493,
+      "max_heading_error_deg": 163.03871378990277,
+      "max_heading_error_rad": 2.845562363850486,
+      "max_position_error_m": 0.0009565496496589956,
+      "mean_position_error_m": 0.0007832015436248374,
+      "median_heading_error_deg": 1.8015318305013373,
+      "p95_heading_error_deg": 8.704687856712921,
+      "sample_count": 546
+    },
+    "2": {
+      "RMSE_heading_deg": 7.973173947902437,
+      "RMSE_heading_rad": 0.13915813722513234,
+      "RMSE_position_m": 0.0007103444227139207,
+      "heading_sample_count": 310,
+      "max_heading_error_deg": 46.264342889590445,
+      "max_heading_error_rad": 0.8074651096949806,
+      "max_position_error_m": 0.0008617093004212676,
+      "mean_position_error_m": 0.0007086394338356631,
+      "median_heading_error_deg": 1.8013584219908427,
+      "p95_heading_error_deg": 7.266367087588844,
+      "sample_count": 365
+    },
+    "3": {
+      "RMSE_heading_deg": 3.9625730486058006,
+      "RMSE_heading_rad": 0.06915994654896052,
+      "RMSE_position_m": 0.0007493608725813045,
+      "heading_sample_count": 296,
+      "max_heading_error_deg": 25.60064103340576,
+      "max_heading_error_rad": 0.44681547665409416,
+      "max_position_error_m": 0.0009154224202837255,
+      "mean_position_error_m": 0.000747793959833884,
+      "median_heading_error_deg": 1.6153862244549444,
+      "p95_heading_error_deg": 7.707078985659471,
+      "sample_count": 352
+    },
+    "4": {
+      "RMSE_position_m": 0.0007562065711404773,
+      "max_position_error_m": 0.0008600647038080988,
+      "mean_position_error_m": 0.0007554360367216474,
+      "sample_count": 82
+    },
+    "5": {
+      "RMSE_position_m": 0.0007016627945827574,
+      "max_position_error_m": 0.0008256177571291974,
+      "mean_position_error_m": 0.0006997615012337537,
+      "sample_count": 77
+    }
+  },
+  "requested_stroke_count": 6,
+  "simulation_duration_s": 95.01694932952523,
+  "simulation_steps": 5606,
+  "status": "finished",
+  "tip_speed_mm_s_stats": {
+    "max": 69.84475078741596,
+    "mean": 10.102344171981732,
+    "median": 6.574504557400008,
+    "p95": 29.3416329269051
+  },
+  "tolerances": {
+    "corner_ik_tolerance_m": 0.00015,
+    "corner_tolerance_m": 0.0011,
+    "ik_position_tolerance_m": 0.0002,
+    "max_joint_delta_rad": 0.035,
+    "max_tip_speed_mm_s": 7.0,
+    "target_tolerance_m": 0.0012
+  },
+  "velocity_settled_fraction": 0.543026706231454,
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "LOWER_PEN_STROKE_0",
+    "DRAW_STROKE_0",
+    "LIFT_PEN_STROKE_0",
+    "MOVE_TO_STROKE_1",
+    "LOWER_PEN_STROKE_1",
+    "DRAW_STROKE_1",
+    "LIFT_PEN_STROKE_1",
+    "MOVE_TO_STROKE_2",
+    "LOWER_PEN_STROKE_2",
+    "DRAW_STROKE_2",
+    "LIFT_PEN_STROKE_2",
+    "MOVE_TO_STROKE_3",
+    "LOWER_PEN_STROKE_3",
+    "DRAW_STROKE_3",
+    "LIFT_PEN_STROKE_3",
+    "MOVE_TO_STROKE_4",
+    "LOWER_PEN_STROKE_4",
+    "DRAW_STROKE_4",
+    "LIFT_PEN_STROKE_4",
+    "MOVE_TO_STROKE_5",
+    "LOWER_PEN_STROKE_5",
+    "DRAW_STROKE_5",
+    "LIFT_PEN_STROKE_5",
+    "FINISHED"
+  ],
+  "waypoint_reach_error": {
+    "max_error_m": 0.001198720020951254,
+    "mean_error_m": 0.0008063635567705767,
+    "p95_error_m": 0.0010649451637107172,
+    "rmse_m": 0.0008159426753084647,
+    "sample_count": 2460
+  }
+}
