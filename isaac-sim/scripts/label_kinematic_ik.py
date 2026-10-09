@@ -44,7 +44,7 @@ def _parse_args():
     parser.add_argument("--config", default="config/xarm7_drawing.yaml")
     parser.add_argument("--trajectories", default=str(REPO_ROOT / "outputs" / "trajectories"))
     parser.add_argument("--exclude-dir", default=str(REPO_ROOT / "outputs" / "gold" / "trajectories"))
-    parser.add_argument("--out", default=str(REPO_ROOT / "outputs" / "act_demos" / "kinematic_v2"))
+    parser.add_argument("--out", default=str(REPO_ROOT / "outputs" / "act_demos" / "kinematic_v5"))
     parser.add_argument("--augmentations", type=int, default=3, help="Episodes per trajectory (a0 = canonical)")
     parser.add_argument("--fps", type=float, default=30.0)
     parser.add_argument("--workers", type=int, default=16)
@@ -63,6 +63,12 @@ def _parse_args():
         help="Measured-vs-commanded servo offset on augmented episodes (Isaac 1 g sag is up to ~0.0014 rad)",
     )
     parser.add_argument("--offset-correlation-s", type=float, default=2.0)
+    parser.add_argument(
+        "--turn-slowdown-deg",
+        type=float,
+        default=120.0,
+        help="Slow pen-down labels into turns sharper than this (kinematic_labeller.turn_slowdown_speeds); 0 disables",
+    )
     return parser.parse_args()
 
 
@@ -71,7 +77,13 @@ def _seed(sample_id: str, augmentation: int) -> int:
 
 
 def _init_worker(
-    config_path: str, fps: float, noise_sigma: float, noise_correlation: float, offset_sigma: float, offset_correlation: float
+    config_path: str,
+    fps: float,
+    noise_sigma: float,
+    noise_correlation: float,
+    offset_sigma: float,
+    offset_correlation: float,
+    turn_slowdown_deg: float,
 ) -> None:
     import lula
 
@@ -116,6 +128,7 @@ def _init_worker(
         noise_correlation=float(noise_correlation),
         offset_sigma=float(offset_sigma),
         offset_correlation=float(offset_correlation),
+        turn_slowdown_deg=float(turn_slowdown_deg),
     )
 
 
@@ -182,6 +195,7 @@ def _label_one(job):
                 "noise_sigma_rad": _WORKER["noise_sigma"] if augmentation > 0 else 0.0,
                 "noise_correlation_s": _WORKER["noise_correlation"],
                 "offset_sigma_rad": _WORKER["offset_sigma"] if augmentation > 0 else 0.0,
+                "turn_slowdown_deg": _WORKER["turn_slowdown_deg"],
             },
         )
         noise = None
@@ -202,6 +216,7 @@ def _label_one(job):
             dt_s=_WORKER["dt"],
             max_joint_delta_rad=_WORKER["max_joint_delta"],
             noise=noise,
+            turn_slowdown={"angle_deg": _WORKER["turn_slowdown_deg"]} if _WORKER["turn_slowdown_deg"] > 0 else None,
         )
         recorder.save(destination)
         record.update(status="ok", sample_id=mapped["drawing_id"], **stats)
@@ -238,6 +253,7 @@ def main() -> int:
             args.noise_correlation_s,
             args.offset_sigma_rad,
             args.offset_correlation_s,
+            args.turn_slowdown_deg,
         )) as pool, manifest.open(
         "a", encoding="utf-8"
     ) as log:

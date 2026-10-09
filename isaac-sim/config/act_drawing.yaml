@@ -52,6 +52,11 @@ stages:
   kinematic_v2:
     dataset: wildtrace_kin_v2_train
     steps: 40000
+  # Stage A with labels that slow into turns sharper than 120 deg
+  # (kinematic_labeller.turn_slowdown_speeds), relabelled as kinematic_v5.
+  kinematic_v3:
+    dataset: wildtrace_kin_v3_train
+    steps: 40000
   # Stage B: fine-tune the stage A checkpoint on Isaac 1 g rollouts. Made
   # tracking worse in practice: the IK demos carry IK's own ~0.7 mm sag error.
   physics_finetune:
