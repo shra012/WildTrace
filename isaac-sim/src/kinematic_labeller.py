@@ -56,54 +56,6 @@ def phase_speed(state: str, speeds: Dict[str, float]) -> float:
     raise KeyError(f"No speed configured for state {state}")
 
 
-def turn_slowdown_speeds(
-    targets: Sequence[MotionTarget],
-    arc: np.ndarray,
-    speeds: np.ndarray,
-    *,
-    angle_deg: float = 120.0,
-    radius_m: float = 0.004,
-    min_factor: float = 0.25,
-    chord_m: float = 0.002,
-) -> np.ndarray:
-    """Slow pen-down labels into sharp turns so the policy learns to brake.
-
-    At a constant 14 mm/s the policy rounded needle-sharp spike tips (175-180
-    deg reversals) by up to 2.6 mm, where IK reaches them by stopping at every
-    waypoint. The turn angle at each pen-down waypoint is measured over a
-    `chord_m` chord on each side (robust to contour noise); within `radius_m`
-    of arc length of any turn sharper than `angle_deg`, speed ramps linearly
-    down to `min_factor` of its value at the apex.
-    """
-    positions = np.asarray([t.position for t in targets], dtype=np.float64)
-    pen_down = np.asarray([t.pen_down for t in targets], dtype=bool)
-    phase_key = [(t.state, t.stroke_id) for t in targets]
-    result = np.asarray(speeds, dtype=np.float64).copy()
-    apexes = []
-    for i in np.flatnonzero(pen_down):
-        same = [j for j in (i - 1, i + 1) if 0 <= j < len(targets) and phase_key[j] == phase_key[i]]
-        if len(same) < 2:
-            continue
-        lo = i
-        while lo > 0 and phase_key[lo - 1] == phase_key[i] and arc[i] - arc[lo] < chord_m:
-            lo -= 1
-        hi = i
-        while hi < len(targets) - 1 and phase_key[hi + 1] == phase_key[i] and arc[hi] - arc[i] < chord_m:
-            hi += 1
-        back, ahead = positions[i] - positions[lo], positions[hi] - positions[i]
-        norm = np.linalg.norm(back) * np.linalg.norm(ahead)
-        if norm < 1e-12:
-            continue
-        turn = np.degrees(np.arccos(np.clip(float(back @ ahead) / norm, -1.0, 1.0)))
-        if turn > angle_deg:
-            apexes.append(float(arc[i]))
-    for apex in apexes:
-        near = pen_down & (np.abs(arc - apex) < radius_m)
-        factor = min_factor + (1.0 - min_factor) * np.abs(arc[near] - apex) / radius_m
-        result[near] = np.minimum(result[near], speeds[near] * factor)
-    return result
-
-
 def with_approach_from(phases: List[Phase], home_tip: np.ndarray, max_step: float) -> List[Phase]:
     """Replace the first phase with a straight leg from the home tip, as the runner does."""
     approach = phases[0]
@@ -131,7 +83,6 @@ def label_phases(
     max_tip_error_m: float = 0.001,
     final_hold_s: float = 0.5,
     noise: Dict | None = None,
-    turn_slowdown: Dict | None = None,
     reached_tolerance_m: float = 0.0015,
     max_duration_factor: float = 3.0,
 ) -> Dict[str, float]:
@@ -147,9 +98,6 @@ def label_phases(
     stall forever on a hairpin, where the point just ahead projects back onto
     the earlier side of the turn.
 
-    `turn_slowdown` (keyword arguments for turn_slowdown_speeds, {} for the
-    defaults) lowers the label speed into sharp pen-down turns.
-
     `noise` = {"rng": np.random.Generator, "sigma_rad": float, "correlation_s": float,
     optional "offset_sigma_rad": float, "offset_correlation_s": float} adds
     Ornstein-Uhlenbeck perturbations to every executed command and, if given,
@@ -160,8 +108,6 @@ def label_phases(
     positions = np.asarray([t.position for t in targets], dtype=np.float64)
     arc = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(positions, axis=0), axis=1))]
     target_speed = np.asarray([phase_speed(t.state, speeds) for t in targets], dtype=np.float64)
-    if turn_slowdown is not None:
-        target_speed = turn_slowdown_speeds(targets, arc, target_speed, **turn_slowdown)
     lookahead = int(recorder.lookahead_points)
 
     def point_at(s: float) -> np.ndarray:

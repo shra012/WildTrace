@@ -52,11 +52,6 @@ stages:
   kinematic_v2:
     dataset: wildtrace_kin_v2_train
     steps: 40000
-  # Stage A with labels that slow into turns sharper than 120 deg
-  # (kinematic_labeller.turn_slowdown_speeds), relabelled as kinematic_v5.
-  kinematic_v3:
-    dataset: wildtrace_kin_v3_train
-    steps: 40000
   # Stage A for the physical lab arm: Lula labels on xarm7_real.urdf (calibrated
   # kinematics, xArm Gripper, pen at the 172 mm TCP) at the measured paper
   # placement, from config/xarm7_drawing_real.yaml.

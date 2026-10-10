@@ -24,8 +24,7 @@ from act_features import (  # noqa: E402
 )
 from demonstration import DemonstrationRecorder  # noqa: E402
 from drawing_state_machine import build_motion_sequence  # noqa: E402
-from drawing_state_machine import MotionTarget  # noqa: E402
-from kinematic_labeller import LabelError, label_phases, turn_slowdown_speeds, with_approach_from  # noqa: E402
+from kinematic_labeller import LabelError, label_phases, with_approach_from  # noqa: E402
 
 
 def _row(recorder, **overrides):
@@ -171,27 +170,6 @@ def _phases():
     return build_motion_sequence(
         strokes, pen_down_z=0.201, pen_up_z=0.235, approach_height=0.27, max_cartesian_step=0.0015
     )
-
-
-class TurnSlowdownTests(unittest.TestCase):
-    @staticmethod
-    def _draw(points):
-        targets = [MotionTarget("DRAW_STROKE_0", np.asarray([x, y, 0.201]), 0, i, True) for i, (x, y) in enumerate(points)]
-        return targets, path_arc_length([t.position for t in targets])
-
-    def test_reversal_apex_slows_and_far_points_do_not(self):
-        out = [(0.001 * i, 0.0) for i in range(11)]
-        back = [(0.010 - 0.001 * i, 0.0003) for i in range(1, 11)]
-        targets, arc = self._draw(out + back)
-        speeds = turn_slowdown_speeds(targets, arc, np.full(len(targets), 0.014))
-        apex = len(out) - 1
-        self.assertLess(speeds[apex], 0.014 * 0.35)
-        self.assertEqual(speeds[0], 0.014)
-        self.assertEqual(speeds[-1], 0.014)
-
-    def test_straight_line_keeps_speed(self):
-        targets, arc = self._draw([(0.001 * i, 0.0) for i in range(20)])
-        np.testing.assert_array_equal(turn_slowdown_speeds(targets, arc, np.full(20, 0.014)), np.full(20, 0.014))
 
 
 class KinematicLabellerTests(unittest.TestCase):
