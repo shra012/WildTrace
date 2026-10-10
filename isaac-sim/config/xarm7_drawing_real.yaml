@@ -22,10 +22,14 @@ robot:
   # Force-mode PhysX position servo. This makes the relationship between
   # position error and joint torque explicit under gravity.
   drive_type: force
-  drive_stiffness: 75000.0
+  # 10x the default-sim servo. The real xArm controller holds position with its
+  # own gravity compensation; at 75000 the heavier gripper and the low reach to
+  # the paper sagged the twin's joints ~2 mrad (1.25 mm at the pen), so IK could
+  # never meet its 1.2 mm reach gate (0/48). At 750000 IK draws at ~0.26 mm.
+  drive_stiffness: 750000.0
   # Damping for the force-mode servo. Together with the stiffness above this
   # holds the commanded IK pose against gravity without oscillating at corners.
-  drive_damping: 650.0
+  drive_damping: 2050.0
   # PhysX drive-force ceilings for the simulated low-level joint servos. The
   # imported URDF limits (20-50 N m) saturate while holding this pose at 1 g;
   # the real arm's internal position controller includes its own gravity/load

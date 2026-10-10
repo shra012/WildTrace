@@ -748,6 +748,21 @@ def main() -> int:
                     "max_joint_speed_rad_s": float(np.max(np.abs(qd))),
                     "max_commanded_joint_delta_rad": float(np.max(np.abs(ik.last_commanded_delta_rad))),
                     "joint_delta_clamped": int(ik.last_command_was_clamped),
+                    # Diagnostics: does the servo reach the command, and does the
+                    # command (IK solution) itself put the tip on the target?
+                    "max_joint_tracking_error_rad": float(
+                        np.max(np.abs(np.asarray(ik._last_commanded_positions) - q))
+                    ),
+                    "command_tip_error_m": float(
+                        np.linalg.norm(
+                            np.asarray(
+                                ik.lula.compute_forward_kinematics(
+                                    robot_config["end_effector_frame"], np.asarray(ik._last_commanded_positions)
+                                )[0]
+                            )
+                            - target.position
+                        )
+                    ),
                 }
             )
             if target.pen_down:
@@ -809,6 +824,8 @@ def main() -> int:
         "max_joint_speed_rad_s",
         "max_commanded_joint_delta_rad",
         "joint_delta_clamped",
+        "max_joint_tracking_error_rad",
+        "command_tip_error_m",
     ]
     write_csv(output_dir / "executed_path.csv", executed_rows, fields)
     _write_comparison(
