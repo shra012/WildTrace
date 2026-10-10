@@ -56,9 +56,13 @@ def build_command(
     train = dict(config["train"])
     if batch_size:
         train["batch_size"] = batch_size
-    executable = str(Path(sys.executable).with_name("lerobot-train"))
+    if sys.platform == "win32":
+        # Same trainer, with checkpoints/last as a junction instead of a symlink.
+        launcher = [sys.executable, str(Path(__file__).with_name("lerobot_train_windows.py"))]
+    else:
+        launcher = [str(Path(sys.executable).with_name("lerobot-train"))]
     command = [
-        executable,
+        *launcher,
         _flag("dataset.repo_id", f"wildtrace/{stage['dataset']}"),
         _flag("dataset.root", datasets_root / stage["dataset"]),
         _flag("output_dir", output_dir),

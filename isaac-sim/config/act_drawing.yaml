@@ -57,6 +57,12 @@ stages:
   kinematic_v3:
     dataset: wildtrace_kin_v3_train
     steps: 40000
+  # Stage A for the physical lab arm: Lula labels on xarm7_real.urdf (calibrated
+  # kinematics, xArm Gripper, pen at the 172 mm TCP) at the measured paper
+  # placement, from config/xarm7_drawing_real.yaml.
+  real_kinematic:
+    dataset: wildtrace_real_kin_v1_train
+    steps: 40000
   # Stage B: fine-tune the stage A checkpoint on Isaac 1 g rollouts. Made
   # tracking worse in practice: the IK demos carry IK's own ~0.7 mm sag error.
   physics_finetune:
