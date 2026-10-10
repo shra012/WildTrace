@@ -58,6 +58,11 @@ stages:
   real_kinematic:
     dataset: wildtrace_real_kin_v1_train
     steps: 40000
+  # Stage A with the projection window cut to 1.5 mm so the tracker cannot
+  # hop between the legs of a needle-sharp spike (kinematic_v6 labels).
+  kinematic_v4:
+    dataset: wildtrace_kin_v4_train
+    steps: 40000
   # Stage B: fine-tune the stage A checkpoint on Isaac 1 g rollouts. Made
   # tracking worse in practice: the IK demos carry IK's own ~0.7 mm sag error.
   physics_finetune:

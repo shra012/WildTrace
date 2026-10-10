@@ -12,11 +12,13 @@ import numpy as np
 
 PATH_WINDOW_POINTS = 10
 # How far along the path (from the current target) the tip may be projected.
-# The pen moves under 1 mm per 30 fps tick, so 5 mm is ample; a waypoint-count
-# window (40 targets, 20+ mm where corners are densified) let the projection
-# hop across narrow hairpins whose return leg is close in space but far in arc
-# length, cutting e.g. a 162 deg toe by 8.5 mm.
-PROJECTION_AHEAD_M = 0.005
+# A waypoint-count window (40 targets, 20+ mm where corners are densified) let
+# the projection hop across narrow hairpins and cut e.g. a 162 deg toe by
+# 8.5 mm. A 5 mm window still let it hop from one leg of a needle-sharp spike
+# to the other once the pen was within ~2.5 mm of the tip, rounding tips by
+# 2.0-2.6 mm. 1.5 mm caps that at ~0.75 mm and is still three times the pen's
+# travel per 30 fps tick.
+PROJECTION_AHEAD_M = 0.0015
 PATH_WINDOW_SPACING_M = 0.002
 # Enough raw targets to cover the window even after corner densification.
 _MAX_TARGETS_SCANNED = 256

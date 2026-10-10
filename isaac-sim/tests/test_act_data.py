@@ -76,7 +76,7 @@ class ChasedIndexTests(unittest.TestCase):
         self.arc = path_arc_length(self.targets)
 
     def test_matches_first_waypoint_ahead_of_projected_tip(self):
-        self.assertEqual(chased_index(self.targets, self.arc, 0, [0.0045, 0.0003, 0.0]), 5)
+        self.assertEqual(chased_index(self.targets, self.arc, 4, [0.0045, 0.0003, 0.0]), 5)
 
     def test_never_moves_backwards(self):
         self.assertEqual(chased_index(self.targets, self.arc, 7, [0.0015, 0.0, 0.0]), 7)
@@ -90,6 +90,19 @@ class ChasedIndexTests(unittest.TestCase):
         # side is ~17 mm further along the path, beyond the arc search window.
         hairpin = np.r_[self.targets, self.targets[::-1][1:] + [0.0, 0.0006, 0.0]]
         self.assertEqual(chased_index(hairpin, path_arc_length(hairpin), 2, [0.0025, 0.0004, 0.0]), 3)
+
+
+class SpikeTipTests(unittest.TestCase):
+    def test_spike_tip_is_not_cut_short(self):
+        # Needle tip: out 10 mm along x, back 0.3 mm away. A pen 1 mm before the
+        # apex, drifted toward the return leg, is still short of the tip; the
+        # return leg is only ~2 mm further along the path from there.
+        out = np.c_[np.arange(0.0, 0.0101, 0.0005), np.zeros(21), np.zeros(21)]
+        back = out[::-1][1:] + [0.0, 0.0003, 0.0]
+        spike = np.r_[out, back]
+        arc = path_arc_length(spike)
+        index = chased_index(spike, arc, 18, [0.009, 0.00025, 0.0])
+        self.assertLessEqual(index, 20, "progress jumped past the apex onto the return leg")
 
 
 class AugmentationTests(unittest.TestCase):
