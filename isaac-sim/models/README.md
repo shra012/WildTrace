@@ -8,7 +8,7 @@ Run `git lfs pull` after cloning to fetch the weights.
 | `act_kinematic/` | `kinematic_v3` labels (8,488 episodes), 40k steps | Results in #39: 48/48 gold drawings at 1 g, 0.325 mm path RMSE |
 | `act_kinematic_v2/` | `kinematic_v4` labels with the 5 mm projection cap (hairpin fix), 40k steps | 48/48 gold drawings at 1 g, 0.239 mm path RMSE, but rounds spike tips by up to 2.6 mm |
 | `act_kinematic_v4/` | `kinematic_v6` labels with the 1.5 mm projection cap (spike-tip fix), 40k steps | **Recommended (sim geometry).** 48/48, 0.256 mm path RMSE, worst point 0.89 mm mean (IK 0.99), none over 1.5 mm |
-| `act_real_kinematic_v2/` | Lab-arm twin (`config/xarm7_drawing_real.yaml`), latest labeller, paper height jitter +-15 mm, gold excluded, 40k steps | **Recommended for the lab arm.** Twin, 48 gold drawings: 48/48, 0.221 mm path RMSE (IK 0/48 in the twin) |
+| `act_real_kinematic_v2/` | Lab-arm twin (`config/xarm7_drawing_real.yaml`), latest labeller, paper height jitter +-15 mm, gold excluded, 40k steps | **Recommended for the lab arm.** Stiffened twin (`9ba7336`), 48 gold drawings: 48/48, 0.195 mm path RMSE, jerk 390 (IK 44/48, 0.283 mm, jerk 752) |
 
 Serve one to the Isaac runner (see the ACT section of `isaac-sim/README.md`):
 
