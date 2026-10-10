@@ -43,7 +43,7 @@ def _parse_args():
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--val-fraction", type=float, default=0.1)
     parser.add_argument("--no-split", action="store_true", help="Write a single <name> dataset (test sets)")
-    parser.add_argument("--exclude-dir", default=str(REPO_ROOT / "outputs" / "gold" / "trajectories"))
+    parser.add_argument("--exclude-dir", default=str(PROJECT_ROOT / "data" / "act_test"))
     parser.add_argument("--limit", type=int, default=0, help="Only the first N episodes (smoke tests)")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()

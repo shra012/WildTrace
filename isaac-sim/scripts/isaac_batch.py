@@ -44,14 +44,14 @@ def _parse_args():
     record = sub.add_parser("record", parents=[common])
     record.add_argument("--trajectories", default=str(REPO_ROOT / "outputs" / "trajectories"),
                         help="Directory of trajectory JSONs, or a single file")
-    record.add_argument("--exclude-dir", default=str(REPO_ROOT / "outputs" / "gold" / "trajectories"))
+    record.add_argument("--exclude-dir", default=str(PROJECT_ROOT / "data" / "act_test"))
     record.add_argument("--sample", type=int, default=300, help="Drawings to record, stratified by category")
     record.add_argument("--augmentations", type=int, default=1)
     record.add_argument("--seed", type=int, default=17)
     record.add_argument("--out", default=str(REPO_ROOT / "outputs" / "act_demos" / "physics"))
 
     evaluate = sub.add_parser("eval", parents=[common])
-    evaluate.add_argument("--trajectories", default=str(REPO_ROOT / "outputs" / "gold" / "trajectories"),
+    evaluate.add_argument("--trajectories", default=str(PROJECT_ROOT / "data" / "act_test"),
                           help="Directory of trajectory JSONs, or a single file")
     evaluate.add_argument("--controller", choices=["ik", "act"], required=True)
     evaluate.add_argument("--tag", required=True, help="Result folder name, e.g. ik, act_kin, act_kin_phys")
@@ -91,7 +91,7 @@ def _jobs(args) -> list[dict]:
             chosen = [source]
         else:
             excluded = {p.stem for p in Path(args.exclude_dir).rglob("*.json")}
-            sources = sorted(p for p in source.rglob("*.json") if p.stem not in excluded)
+            sources = sorted(p for p in source.glob("*/*.json") if p.stem not in excluded)
             chosen = stratified_sample(sources, args.sample, args.seed)
         for path in chosen:
             for augmentation in range(args.augmentations):
@@ -104,7 +104,7 @@ def _jobs(args) -> list[dict]:
                              "run_dir": Path(args.out) / "runs" / name, "extra": extra})
     else:
         source = Path(args.trajectories)
-        for path in [source] if source.is_file() else sorted(source.rglob("*.json")):
+        for path in [source] if source.is_file() else sorted(source.glob("*/*.json")):
             run_dir = Path(args.out) / args.tag / path.parent.name / path.stem
             extra = ["--controller", args.controller]
             if args.controller == "act":

@@ -43,7 +43,7 @@ def _parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config/xarm7_drawing.yaml")
     parser.add_argument("--trajectories", default=str(REPO_ROOT / "outputs" / "trajectories"))
-    parser.add_argument("--exclude-dir", default=str(REPO_ROOT / "outputs" / "gold" / "trajectories"))
+    parser.add_argument("--exclude-dir", default=str(PROJECT_ROOT / "data" / "act_test"))
     parser.add_argument("--out", default=str(REPO_ROOT / "outputs" / "act_demos" / "kinematic_v2"))
     parser.add_argument("--augmentations", type=int, default=3, help="Episodes per trajectory (a0 = canonical)")
     parser.add_argument("--fps", type=float, default=30.0)
