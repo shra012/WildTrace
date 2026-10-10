@@ -30,6 +30,11 @@ def _parse_args():
     parser.add_argument("--demo-path", default=None, help="Override recording.demo_path (one NPZ per drawing)")
     parser.add_argument("--controller", choices=["ik", "act"], default="ik")
     parser.add_argument("--gravity", type=float, default=None, help="Override safety.gravity_m_s2 (diagnostics)")
+    parser.add_argument(
+        "--paper-visual-only",
+        action="store_true",
+        help="Diagnostics: paper without collision, to tell gripper-paper contact from tracking error",
+    )
     parser.add_argument("--policy-address", default="127.0.0.1:8790", help="act_policy_server.py host:port")
     # Defaults run the 30 fps policy at 60 Hz with half-size steps. Holding each
     # 30 Hz step for two physics steps tracked well but its command staircase
@@ -268,6 +273,7 @@ def main() -> int:
     from coordinate_mapper import interpolate_segment, map_trajectory_to_plane
     from act_features import (
         chased_index,
+        shift_paper_heights,
         environment_state,
         observation_state,
         path_arc_length,
@@ -325,11 +331,14 @@ def main() -> int:
         )
         augmentation["seed"] = int(ARGS.augment_seed)
         # The paper prim below is built from these values, so it moves with the drawing.
-        drawing = {
-            **drawing,
-            "surface_center_xy_m": augmentation["surface_center_xy_m"],
-            "surface_size_xy_m": augmentation["surface_size_xy_m"],
-        }
+        drawing = shift_paper_heights(
+            {
+                **drawing,
+                "surface_center_xy_m": augmentation["surface_center_xy_m"],
+                "surface_size_xy_m": augmentation["surface_size_xy_m"],
+            },
+            augmentation["height_offset_m"],
+        )
         trajectory = reverse_strokes(trajectory, augmentation["reversed_strokes"])
         print(f"[OK] Augmentation: {augmentation}")
     mapped = map_trajectory_to_plane(
@@ -365,8 +374,11 @@ def main() -> int:
     ))
     paper_size = np.asarray(drawing["surface_size_xy_m"], dtype=np.float64) + 0.04
     paper_thickness = 0.01
+    from isaacsim.core.api.objects import VisualCuboid
+
+    paper_class = VisualCuboid if ARGS.paper_visual_only else FixedCuboid
     world.scene.add(
-        FixedCuboid(
+        paper_class(
             prim_path="/World/DrawingSurface",
             name="drawing_surface",
             position=np.asarray(

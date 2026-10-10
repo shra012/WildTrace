@@ -63,6 +63,11 @@ stages:
   kinematic_v4:
     dataset: wildtrace_kin_v4_train
     steps: 40000
+  # Lab-arm twin with the latest labeller: 1.5 mm projection window, paper
+  # height jitter +-15 mm, gold test set excluded (data/act_test).
+  real_kinematic_v2:
+    dataset: wildtrace_real_kin_v2_train
+    steps: 40000
   # Stage B: fine-tune the stage A checkpoint on Isaac 1 g rollouts. Made
   # tracking worse in practice: the IK demos carry IK's own ~0.7 mm sag error.
   physics_finetune:

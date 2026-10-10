@@ -134,8 +134,14 @@ def sample_augmentation(
     center_jitter_m: float = 0.02,
     scale_range: tuple[float, float] = (0.8, 1.1),
     reverse_probability: float = 0.5,
+    height_jitter_m: float = 0.0,
 ) -> dict:
-    """Random paper placement, drawing scale and per-stroke direction for one episode."""
+    """Random paper placement, drawing scale and per-stroke direction for one episode.
+
+    `height_jitter_m` also shifts the paper (and every paper-relative height)
+    up or down, so one policy tolerates the sheet being re-placed between lab
+    sessions. It is drawn last, so episodes sampled without it are unchanged.
+    """
     center = np.asarray(center_xy, dtype=np.float64) + rng.uniform(-center_jitter_m, center_jitter_m, size=2)
     scale = float(rng.uniform(*scale_range))
     reversed_strokes = [int(i) for i in range(stroke_count) if rng.random() < reverse_probability]
@@ -144,7 +150,14 @@ def sample_augmentation(
         "surface_size_xy_m": (np.asarray(size_xy, dtype=np.float64) * scale).tolist(),
         "scale": scale,
         "reversed_strokes": reversed_strokes,
+        "height_offset_m": float(rng.uniform(-height_jitter_m, height_jitter_m)) if height_jitter_m > 0 else 0.0,
     }
+
+
+def shift_paper_heights(drawing: dict, offset_m: float) -> dict:
+    """Copy of a drawing config with the paper and every pen height moved by `offset_m`."""
+    keys = ("paper_top_z_m", "pen_down_z_m", "pen_up_z_m", "approach_height_m")
+    return {**drawing, **{key: float(drawing[key]) + float(offset_m) for key in keys}}
 
 
 def reverse_strokes(trajectory: dict, stroke_indices: Sequence[int]) -> dict:

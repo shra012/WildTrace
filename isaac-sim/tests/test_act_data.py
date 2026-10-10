@@ -21,6 +21,7 @@ from act_features import (  # noqa: E402
     path_window,
     reverse_strokes,
     sample_augmentation,
+    shift_paper_heights,
 )
 from demonstration import DemonstrationRecorder  # noqa: E402
 from drawing_state_machine import build_motion_sequence  # noqa: E402
@@ -112,6 +113,20 @@ class AugmentationTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertTrue(0.8 <= first["scale"] <= 1.1)
         self.assertLessEqual(abs(first["surface_center_xy_m"][0] - 0.45), 0.02)
+
+    def test_height_jitter_is_opt_in_and_shifts_every_paper_height(self):
+        plain = sample_augmentation(np.random.default_rng(3), [0.45, 0.0], [0.16, 0.12], 4)
+        self.assertEqual(plain["height_offset_m"], 0.0)
+        jittered = sample_augmentation(np.random.default_rng(3), [0.45, 0.0], [0.16, 0.12], 4, height_jitter_m=0.015)
+        # Drawn last, so the rest of the episode is unchanged.
+        self.assertEqual({k: v for k, v in jittered.items() if k != "height_offset_m"},
+                         {k: v for k, v in plain.items() if k != "height_offset_m"})
+        self.assertLessEqual(abs(jittered["height_offset_m"]), 0.015)
+        drawing = {"paper_top_z_m": 0.2, "pen_down_z_m": 0.201, "pen_up_z_m": 0.235, "approach_height_m": 0.27, "x": 1}
+        moved = shift_paper_heights(drawing, -0.01)
+        self.assertAlmostEqual(moved["pen_down_z_m"] - moved["paper_top_z_m"], 0.001)
+        self.assertAlmostEqual(moved["approach_height_m"], 0.26)
+        self.assertEqual(moved["x"], 1)
 
     def test_reverse_only_listed_strokes(self):
         trajectory = {"drawing_id": "d", "strokes": [{"stroke_id": 0, "points": [[0, 0], [1, 0]]},

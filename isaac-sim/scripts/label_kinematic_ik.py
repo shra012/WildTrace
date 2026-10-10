@@ -27,7 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import numpy as np  # noqa: E402
 
-from act_features import reverse_strokes, sample_augmentation  # noqa: E402
+from act_features import reverse_strokes, sample_augmentation, shift_paper_heights  # noqa: E402
 from coordinate_mapper import map_trajectory_to_plane  # noqa: E402
 from demonstration import DemonstrationRecorder  # noqa: E402
 from drawing_state_machine import build_motion_sequence  # noqa: E402
@@ -63,6 +63,12 @@ def _parse_args():
         help="Measured-vs-commanded servo offset on augmented episodes (Isaac 1 g sag is up to ~0.0014 rad)",
     )
     parser.add_argument("--offset-correlation-s", type=float, default=2.0)
+    parser.add_argument(
+        "--paper-height-jitter-m",
+        type=float,
+        default=0.015,
+        help="Random paper height shift on augmented episodes (a>=1), so a policy survives the sheet being re-placed",
+    )
     return parser.parse_args()
 
 
@@ -71,7 +77,13 @@ def _seed(sample_id: str, augmentation: int) -> int:
 
 
 def _init_worker(
-    config_path: str, fps: float, noise_sigma: float, noise_correlation: float, offset_sigma: float, offset_correlation: float
+    config_path: str,
+    fps: float,
+    noise_sigma: float,
+    noise_correlation: float,
+    offset_sigma: float,
+    offset_correlation: float,
+    paper_height_jitter: float,
 ) -> None:
     import lula
 
@@ -116,6 +128,7 @@ def _init_worker(
         noise_correlation=float(noise_correlation),
         offset_sigma=float(offset_sigma),
         offset_correlation=float(offset_correlation),
+        paper_height_jitter=float(paper_height_jitter),
     )
 
 
@@ -135,8 +148,10 @@ def _label_one(job):
                 center,
                 size,
                 len(trajectory["strokes"]),
+                height_jitter_m=_WORKER["paper_height_jitter"],
             )
             center, size = placement["surface_center_xy_m"], placement["surface_size_xy_m"]
+            drawing = shift_paper_heights(drawing, placement["height_offset_m"])
             trajectory = reverse_strokes(trajectory, placement["reversed_strokes"])
         mapped = map_trajectory_to_plane(
             trajectory,
@@ -238,6 +253,7 @@ def main() -> int:
             args.noise_correlation_s,
             args.offset_sigma_rad,
             args.offset_correlation_s,
+            args.paper_height_jitter_m,
         )) as pool, manifest.open(
         "a", encoding="utf-8"
     ) as log:
