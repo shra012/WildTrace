@@ -5,13 +5,19 @@ import sys
 from pathlib import Path
 
 
-def generate_xarm7_urdf(project_root: str | Path, force: bool = False) -> Path:
+def generate_xarm7_urdf(
+    project_root: str | Path,
+    force: bool = False,
+    entry_name: str = "xarm7_isaac.urdf.xacro",
+    output_name: str = "xarm7_with_pen.urdf",
+    freeze_joints: tuple[str, ...] = (),
+) -> Path:
     root = Path(project_root).resolve()
     asset_dir = root / "assets" / "xarm7"
     source_dir = asset_dir / "xarm_ros2_source" / "xarm_description"
     xacro_vendor = asset_dir / "xacro_vendor"
-    entry = asset_dir / "xarm7_isaac.urdf.xacro"
-    output = asset_dir / "xarm7_with_pen.urdf"
+    entry = asset_dir / entry_name
+    output = asset_dir / output_name
     if output.is_file() and not force:
         return output
     for required in (source_dir, xacro_vendor, entry):
@@ -30,7 +36,15 @@ def generate_xarm7_urdf(project_root: str | Path, force: bool = False) -> Path:
 
         substitution_args._eval_find = project_find
         substitution_args._eval_dict["find"] = project_find
-        document = xacro.process_file(str(entry), mappings={})
+        document = xacro.process_file(str(entry), mappings={"asset_dir": str(asset_dir)})
+        # Frozen joints (a gripper that only holds the pen) become fixed at
+        # their zero pose so the articulation keeps exactly the 7 arm joints.
+        for joint in document.getElementsByTagName("joint"):
+            if joint.getAttribute("name") in freeze_joints:
+                joint.setAttribute("type", "fixed")
+                for tag in ("mimic", "limit", "axis", "dynamics"):
+                    for child in list(joint.getElementsByTagName(tag)):
+                        joint.removeChild(child)
         text = document.toprettyxml(indent="  ")
     finally:
         try:
