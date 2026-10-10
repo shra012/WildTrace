@@ -10,11 +10,11 @@ trajectory_path: data/line_runs/Dog_ea59d6637578c29d.json
 # Pen-tip position in the xArm base frame, millimetres, touching the paper center.
 # Set each session with the pen on the paper center:
 #   python isaac-sim/scripts/run_xarm7_hardware.py --set-paper-from-tcp
-paper_center_mm: [517.578, 126.428, 79.874]
+paper_center_mm: [476.990, 88.161, 49.614]
 
 # Roll, pitch, yaw in degrees. null keeps the orientation reported at connect
 # time, so the pen aim does not change during the drawing.
-tcp_rpy_deg: [177.620, -3.902, 1.534]
+tcp_rpy_deg: [-167.737, -5.431, -18.302]
 
 # Controller default pose, read 2026-10-08 while the arm was at its initial position.
 # The drawing start is not stored: it is this height and wrist, placed over the
