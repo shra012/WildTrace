@@ -1,0 +1,40 @@
+# One physical xArm 7. The Isaac drawing frame is not the robot base frame.
+# Measure the pen tip on the paper center in xArm Studio before --execute.
+# Leave paper_center_mm null and the script will plan and log, then refuse to move.
+
+robot_ip: "192.168.1.241"
+# Other arm in the lab, unused by this script: 192.168.1.220
+
+trajectory_path: data/line_runs/Dog_ea59d6637578c29d.json
+
+# Pen-tip position in the xArm base frame, millimetres, touching the paper center.
+# Set each session with the pen on the paper center:
+#   python isaac-sim/scripts/run_xarm7_hardware.py --set-paper-from-tcp
+paper_center_mm: [517.578, 126.428, 79.874]
+
+# Roll, pitch, yaw in degrees. null keeps the orientation reported at connect
+# time, so the pen aim does not change during the drawing.
+tcp_rpy_deg: [177.620, -3.902, 1.534]
+
+# Controller default pose, read 2026-10-08 while the arm was at its initial position.
+# The drawing start is not stored: it is this height and wrist, placed over the
+# first stroke. The pen aim above is used only after that hover.
+initial_tcp_mm_deg: [492.597, 323.054, 244.935, -128.127, -2.599, -56.349]
+initial_joints_deg: [289.700, -0.700, 108.300, 41.600, 24.000, -11.300, -292.400]
+initial_match_mm: 20
+initial_joint_match_deg: 5
+
+draw_speed_mm_s: 15
+travel_speed_mm_s: 30
+move_acceleration_mm_s2: 100
+hardware_step_m: 0.004
+position_tolerance_mm: 3.0
+waypoint_attempts: 2
+# From the paper center, the first approach can sit near a corner and 69 mm up.
+max_first_jump_mm: 130
+xy_margin_mm: 25
+z_below_paper_mm: 1.0
+z_above_approach_mm: 20
+connect_attempts: 3
+connect_timeout_s: 12
+countdown_s: 5
