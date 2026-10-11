@@ -31,6 +31,14 @@ def _parse_args():
     parser.add_argument("--controller", choices=["ik", "act"], default="ik")
     parser.add_argument("--gravity", type=float, default=None, help="Override safety.gravity_m_s2 (diagnostics)")
     parser.add_argument(
+        "--paper-shift",
+        type=float,
+        nargs=3,
+        default=None,
+        metavar=("DX", "DY", "DZ"),
+        help="Move the paper (and every paper-relative height) by this many metres, to test placement robustness",
+    )
+    parser.add_argument(
         "--paper-visual-only",
         action="store_true",
         help="Diagnostics: paper without collision, to tell gripper-paper contact from tracking error",
@@ -321,6 +329,13 @@ def main() -> int:
 
     trajectory_path = ARGS.trajectory or config["project"]["trajectory_path"]
     trajectory = load_trajectory(trajectory_path, first_n_strokes=ARGS.first_n_strokes)
+    if ARGS.paper_shift is not None:
+        dx, dy, dz = (float(v) for v in ARGS.paper_shift)
+        center = drawing["surface_center_xy_m"]
+        drawing = shift_paper_heights(
+            {**drawing, "surface_center_xy_m": [float(center[0]) + dx, float(center[1]) + dy]}, dz
+        )
+        print(f"[OK] Paper shifted by ({dx * 1e3:.1f}, {dy * 1e3:.1f}, {dz * 1e3:.1f}) mm")
     augmentation = None
     if ARGS.augment_seed is not None:
         augmentation = sample_augmentation(
@@ -839,6 +854,7 @@ def main() -> int:
     metrics = {
         "status": "finished" if machine.complete else "failed",
         "controller": ARGS.controller,
+        "paper_shift_m": ARGS.paper_shift,
         "failure_reason": machine.failure_reason,
         "drawing_id": mapped["drawing_id"],
         "requested_stroke_count": len(mapped["strokes"]),
