@@ -42,6 +42,13 @@ from trajectory_loader import load_trajectory
 # ── Config: single source of truth is config/xarm7_drawing.yaml. Values are
 # read once at module load (Kit re-imports this file on each reload_script /
 # Action Graph rebuild, so edits to the yaml take effect on the next rebuild).
+import importlib  # noqa: E402
+
+import mcp_scene  # noqa: E402
+
+# Kit keeps modules imported across reload_script/graph rebuilds; reload so
+# edits to src/mcp_scene.py take effect without restarting Isaac Sim.
+importlib.reload(mcp_scene)
 from mcp_scene import scene_config_path
 
 # The MCP server picks the config (default sim or the lab-arm twin) via

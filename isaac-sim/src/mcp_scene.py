@@ -27,3 +27,27 @@ def scene_config_path(project_root: Path) -> Path:
         relative = DEFAULT_CONFIG
     path = Path(relative)
     return path if path.is_absolute() else root / path
+
+
+# How far the pen tip sticks out past the calibrated TCP. The calibration
+# measured the TCP (172 mm, fingertip-pad centre) at 49.61 mm with the pen on
+# the paper, so the tool frame and every drawing height stay as measured; the
+# protrusion only places the visible pen tip, the sheet and the table d lower.
+# Unmeasured on the lab arm so far; 20-60 mm is the plausible range.
+DEFAULT_PEN_PROTRUSION_M = 0.035
+PEN_PROTRUSION_RANGE_M = (0.020, 0.060)
+
+
+def pen_protrusion_m(project_root: Path) -> float:
+    try:
+        value = json.loads(scene_file(Path(project_root)).read_text(encoding="utf-8")).get("pen_protrusion_m")
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        value = None
+    # Absent means the scene's IK frame already is the pen tip (the original
+    # sim's stylus); only the lab-arm twin, where it is the gripper TCP, sets it.
+    return 0.0 if value is None else float(value)
+
+
+def paper_surface_z(drawing: dict, protrusion_m: float) -> float:
+    """Where the sheet really is: the calibrated pen-down TCP height minus the protrusion."""
+    return float(drawing["pen_down_z_m"]) - float(protrusion_m)

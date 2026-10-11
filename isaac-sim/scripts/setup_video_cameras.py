@@ -15,7 +15,14 @@ SRC = PROJECT_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from mcp_scene import scene_config_path  # noqa: E402
+import importlib  # noqa: E402
+
+import mcp_scene  # noqa: E402
+
+# Kit keeps modules imported across reload_script/graph rebuilds; reload so
+# edits to src/mcp_scene.py take effect without restarting Isaac Sim.
+importlib.reload(mcp_scene)
+from mcp_scene import paper_surface_z, pen_protrusion_m, scene_config_path  # noqa: E402
 from project_config import load_config  # noqa: E402
 
 DRAWING = load_config(scene_config_path(PROJECT_ROOT), PROJECT_ROOT)["drawing"]
@@ -40,7 +47,8 @@ def main():
 
     stage = omni.usd.get_context().get_stage()
     cx, cy = (float(v) for v in DRAWING["surface_center_xy_m"])
-    paper_z = float(DRAWING["paper_top_z_m"])
+    protrusion = pen_protrusion_m(PROJECT_ROOT)
+    paper_z = paper_surface_z(DRAWING, protrusion) if protrusion > 0 else float(DRAWING["paper_top_z_m"])
     _camera(stage, "/World/VideoCams/WideFront", (cx + 0.75, cy - 0.55, paper_z + 0.55), (cx - 0.12, cy, paper_z + 0.12), 18.0)
     # Low and to the side: straight above, the wrist hides the sheet.
     _camera(stage, "/World/VideoCams/PaperTop", (cx + 0.30, cy - 0.24, paper_z + 0.20), (cx - 0.01, cy + 0.01, paper_z), 24.0)

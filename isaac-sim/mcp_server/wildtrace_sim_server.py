@@ -142,7 +142,13 @@ def _cmd(command: str, timeout_s: float = 60) -> str:
 
 
 def _kit_running() -> bool:
-    return "kit.exe" in _cmd('tasklist /FI "IMAGENAME eq kit.exe" /NH')
+    # tasklist.exe directly with an argv list: through cmd.exe the quoted
+    # filter reaches tasklist split apart ("Invalid argument/option - 'eq'").
+    proc = subprocess.run(
+        ["tasklist.exe", "/FI", "IMAGENAME eq kit.exe", "/FO", "CSV", "/NH"],
+        capture_output=True, text=True, errors="replace", timeout=60, stdin=subprocess.DEVNULL, cwd="/mnt/c",
+    )
+    return "kit.exe" in proc.stdout.lower()
 
 
 def _scene_ready() -> bool:
@@ -243,6 +249,23 @@ def _scene_config() -> str:
         return DEFAULT_CONFIG
 
 
+def _scene_protrusion() -> float:
+    sys.path.insert(0, str(ISAAC_SIM_PROJECT / "src"))
+    from mcp_scene import pen_protrusion_m
+
+    return pen_protrusion_m(ISAAC_SIM_PROJECT)
+
+
+def _paper_surface(config: str) -> float:
+    """Height of the sheet in the scene: calibrated pen-down TCP height minus the pen protrusion."""
+    sys.path.insert(0, str(ISAAC_SIM_PROJECT / "src"))
+    from mcp_scene import paper_surface_z
+
+    drawing = _load_scene_config(config)["drawing"]
+    protrusion = _scene_protrusion()
+    return paper_surface_z(drawing, protrusion) if protrusion > 0 else float(drawing["paper_top_z_m"])
+
+
 def _load_scene_config(config: str) -> dict:
     sys.path.insert(0, str(ISAAC_SIM_PROJECT / "src"))
     from project_config import load_config
@@ -251,7 +274,7 @@ def _load_scene_config(config: str) -> dict:
 
 
 @mcp.tool()
-def setup_scene(force: bool = False, config: str = "", gravity: float = -1.0) -> str:
+def setup_scene(force: bool = False, config: str = "", gravity: float = -1.0, pen_protrusion_mm: float = -1.0) -> str:
     """Build the xArm7 drawing scene from a config: physics scene, the
     config-driven robot/paper/table from scripts/setup_scene.py, the two video
     cameras, the viewport camera, and the Action Graph running
@@ -262,18 +285,34 @@ def setup_scene(force: bool = False, config: str = "", gravity: float = -1.0) ->
     gripper, measured paper placement). Empty keeps the current scene's config.
     gravity: m/s^2; negative means "from the config" (the default sim keeps
     its legacy zero-gravity MCP scene, the twin uses Earth gravity).
+    pen_protrusion_mm: twin only, 20-60 mm: how far the pen tip sticks out past
+    the calibrated gripper TCP. The calibration (TCP at the measured contact
+    height) and all control stay as measured; this only draws the pen tip and
+    puts the sheet and table that much lower. Negative keeps the current value
+    (35 mm default until the lab arm is measured).
     Skipped when the scene is already built with this config, unless force=True.
     Scene state does not survive an Isaac Sim restart."""
     config = config or _scene_config()
     if config != _scene_config():
         force = True
+    protrusion = 0.0
+    if config == TWIN_CONFIG:
+        current = _scene_protrusion() if config == _scene_config() else 0.0
+        protrusion = pen_protrusion_mm / 1000.0 if pen_protrusion_mm >= 0 else (current or 0.035)
+        if not 0.020 <= protrusion <= 0.060:
+            return json.dumps({"status": "failed", "reason": f"pen_protrusion_mm must be 20-60, got {protrusion * 1e3:.1f}"})
+        if abs(protrusion - current) > 1e-9:
+            force = True
     if not force and _scene_ready():
         return json.dumps({"status": "already_built", "config": config})
     if gravity < 0:
         gravity = 0.0 if config == DEFAULT_CONFIG else float(_load_scene_config(config)["safety"]["gravity_m_s2"])
 
     MCP_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    SCENE_FILE.write_text(json.dumps({"config": config, "gravity_m_s2": gravity}, indent=2), encoding="utf-8")
+    scene = {"config": config, "gravity_m_s2": gravity}
+    if protrusion > 0:
+        scene["pen_protrusion_m"] = protrusion
+    SCENE_FILE.write_text(json.dumps(scene, indent=2), encoding="utf-8")
     if _scene_ready():
         cleared = _isaac("scene.clear")
         if not _ok(cleared):
@@ -297,7 +336,21 @@ def setup_scene(force: bool = False, config: str = "", gravity: float = -1.0) ->
 
     if not _scene_ready():
         return json.dumps({"status": "failed", "step": "verify", "reply": _isaac("robots.get_info", {"prim_path": ROBOT_PRIM})})
-    return json.dumps({"status": "built", "config": config, "gravity_m_s2": gravity})
+    _aim_viewport(config)
+    return json.dumps({"status": "built", "config": config, "gravity_m_s2": gravity, "pen_protrusion_mm": protrusion * 1e3})
+
+
+def _aim_viewport(config: str) -> None:
+    """Point the GUI viewport at the arm and paper; recreating the viewport
+    camera leaves it at a default pose looking into the robot/table."""
+    drawing = _load_scene_config(config)["drawing"]
+    cx, cy = (float(v) for v in drawing["surface_center_xy_m"])
+    z = _paper_surface(config)
+    _isaac("simulation.execute_script", {"code": (
+        "from isaacsim.core.utils.viewports import set_camera_view\n"
+        f"set_camera_view(eye=[{cx + 0.85}, {cy - 0.65}, {z + 0.6}], target=[{cx - 0.12}, {cy}, {z + 0.12}], "
+        f"camera_prim_path='{CAMERA_PRIM}')\n"
+    )}, timeout_s=60)
 
 
 def _port_open(port: int) -> bool:
@@ -357,7 +410,7 @@ def _attach_capture(prefix: str, config: str, every: int) -> dict:
         "robot_prim": ROBOT_PRIM,
         "sheet_xy": [cx - sx / 2 - 0.005, cx + sx / 2 + 0.005, cy - sy / 2 - 0.005, cy + sy / 2 + 0.005],
         "pen_down_z": [paper_z - 0.005, pen_z + 0.0035],
-        "ink_z": paper_z + 0.0012,
+        "ink_z": _paper_surface(config) + 0.0005,
     }, indent=2), encoding="utf-8")
     _detach_capture()
     return _isaac("graphs.create_action_graph", {
