@@ -377,6 +377,7 @@ def _detach_capture() -> None:
 
 def _assemble_videos(prefix: str, label: str, sim_seconds: float, every: int) -> list[str]:
     out = VIDEO_OUT / prefix
+    shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         ["uv", "run", "--no-project", "--with", "imageio-ffmpeg", "--with", "pillow", "python",

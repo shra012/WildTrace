@@ -29,6 +29,13 @@ def main() -> int:
         action="store_true",
         help="Build xarm7_real.urdf: calibrated kinematics of the lab arm, xArm Gripper, pen at the gripper TCP",
     )
+    parser.add_argument(
+        "--gripper-closure-rad",
+        type=float,
+        default=0.76,
+        help="xArm Gripper drive angle the frozen fingers are built at (0 open, 0.85 closed). "
+        "0.76 closes the pads on the 10 mm pen (~9.9 mm gap); replace with the lab arm's reading",
+    )
     args = parser.parse_args()
     if args.real:
         path = generate_xarm7_urdf(
@@ -37,6 +44,7 @@ def main() -> int:
             entry_name="xarm7_real.urdf.xacro",
             output_name="xarm7_real.urdf",
             freeze_joints=GRIPPER_JOINTS,
+            freeze_drive_position=args.gripper_closure_rad,
         )
     else:
         path = generate_xarm7_urdf(PROJECT_ROOT, force=args.force)
