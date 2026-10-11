@@ -87,6 +87,18 @@ python3 scripts/plot_drawing_comparison.py \
   --output outputs/mcp_sessions/<prefix>_comparison.png --title "<Category> (<sample_id>)"
 ```
 
+### Lab-arm twin, ACT and video via MCP
+
+`setup_scene(config="config/xarm7_drawing_real.yaml")` builds the lab-arm twin (calibrated URDF with
+gripper, measured paper placement, 1 g, stiffened servo) instead of the default sim; the choice is stored in
+`outputs/mcp_sessions/scene.json`, which `setup_scene.py` and `mcp_drawing_controller.py` both read.
+`draw(category, controller="act", record_video=True)` starts `scripts/act_policy_server.py` with the model
+for the scene (`models/act_real_kinematic_v2` for the twin, `models/act_kinematic_v4` otherwise), runs the
+ACT policy in the Action Graph controller, records `/World/VideoCams/WideFront` and `PaperTop` through
+`scripts/video_capture_node.py` (with live ink on the sheet), and writes one MP4 per camera to
+`outputs/videos/<prefix>/`. The server launches Isaac and checks `kit.exe` through `cmd.exe`/`tasklist`;
+PowerShell hangs when called from WSL on this machine. Restart the MCP server (`/mcp`) after editing it.
+
 ### Rules that bite
 
 - Check each script's JSON `status` field, never the shell exit code (`wsl.exe` exit codes are unreliable through Git-Bash).

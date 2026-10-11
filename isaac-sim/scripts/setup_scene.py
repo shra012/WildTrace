@@ -29,7 +29,11 @@ if str(SRC) not in sys.path:
 
 from project_config import load_config
 
-CONFIG = load_config(PROJECT_ROOT / "config" / "xarm7_drawing.yaml", PROJECT_ROOT)
+from mcp_scene import scene_config_path
+
+# The MCP server picks the config (default sim or the lab-arm twin) via
+# outputs/mcp_sessions/scene.json; see src/mcp_scene.py.
+CONFIG = load_config(scene_config_path(PROJECT_ROOT), PROJECT_ROOT)
 ROBOT = CONFIG["robot"]
 DRAWING = CONFIG["drawing"]
 
@@ -105,8 +109,21 @@ def _create_lights():
     rect_xform.AddRotateXYZOp().Set(Gf.Vec3f(180.0, 0.0, 0.0))
 
 
+def _prepare_drives():
+    """Author the same PhysX drive type, gains and solver iterations the
+    headless runner authors, so an MCP run matches the evaluated sim."""
+    import omni.usd
+
+    from articulation_control import prepare_articulation_solver
+    from xarm7_loader import find_articulation_root
+
+    stage = omni.usd.get_context().get_stage()
+    prepare_articulation_solver(stage, find_articulation_root(stage, ROBOT["prim_path"]), ROBOT)
+
+
 def main():
     _load_robot()
+    _prepare_drives()
     _create_stage_dressing()
     _create_lights()
     print(f"[SceneSetup] Built from {CONFIG['_config_path']}")
