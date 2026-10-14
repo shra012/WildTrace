@@ -5,16 +5,19 @@
 robot_ip: "192.168.1.241"
 # Other arm in the lab, unused by this script: 192.168.1.220
 
-trajectory_path: data/line_runs/Dog_ea59d6637578c29d.json
+trajectory_path: inputs/trajectories/Dog/ea59d6637578c29d.json
 
 # Pen-tip position in the xArm base frame, millimetres, touching the paper center.
 # Set each session with the pen on the paper center:
 #   python isaac-sim/scripts/run_xarm7_hardware.py --set-paper-from-tcp
-paper_center_mm: [517.578, 126.428, 79.874]
+# x and y are the paper center. z is 0.5 mm below the touch reading of 51.644, taken
+# 2026-10-13 after the pen was re-seated straight in the gripper. Earlier the pen pressed
+# too hard at 46.169 against a 48.169 touch reading, so keep this offset small.
+paper_center_mm: [476.550, 86.613, 51.144]
 
 # Roll, pitch, yaw in degrees. null keeps the orientation reported at connect
 # time, so the pen aim does not change during the drawing.
-tcp_rpy_deg: [177.620, -3.902, 1.534]
+tcp_rpy_deg: [-177.438, -5.126, -4.171]
 
 # Controller default pose, read 2026-10-08 while the arm was at its initial position.
 # The drawing start is not stored: it is this height and wrist, placed over the
@@ -23,6 +26,15 @@ initial_tcp_mm_deg: [492.597, 323.054, 244.935, -128.127, -2.599, -56.349]
 initial_joints_deg: [289.700, -0.700, 108.300, 41.600, 24.000, -11.300, -292.400]
 initial_match_mm: 20
 initial_joint_match_deg: 5
+
+# Joint pose 80 mm above the paper center with the pen aim above, reached by a joint
+# move from the initial pose. Keeping every later move Cartesian at one pen aim stops the
+# controller flipping branch and winding joint 7 into its -360 deg limit (error 23).
+hover_joints_deg: [295.864, 36.316, 83.744, 59.467, -43.622, 56.852, -314.294]
+hover_height_mm: 80
+hover_min_clearance_mm: 40
+hover_joint_speed_deg_s: 8
+joint7_guard_deg: 352
 
 draw_speed_mm_s: 15
 travel_speed_mm_s: 30
