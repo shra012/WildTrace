@@ -366,6 +366,33 @@ def _with_derived_start(config: dict[str, Any], rows: list[dict[str, Any]]) -> l
     """Put the default height and wrist over the first stroke, then keep the pen aim."""
     initial = _optional_vector(config.get("initial_tcp_mm_deg"), 6, "initial_tcp_mm_deg")
     pen_rpy = _optional_vector(config.get("tcp_rpy_deg"), 3, "tcp_rpy_deg")
+    hover_joints = _optional_vector(config.get("hover_joints_deg"), 7, "hover_joints_deg")
+    paper = _optional_vector(config.get("paper_center_mm"), 3, "paper_center_mm")
+    if hover_joints is not None and pen_rpy is not None and paper is not None:
+        # The arm is joint-moved to the hover pose first, so every Cartesian move
+        # keeps the pen aim and the controller stays on the same joint branch.
+        hover_z = float(paper[2]) + float(config["hover_height_mm"])
+        stamped = []
+        for row in rows:
+            item = dict(row)
+            item["roll_deg"], item["pitch_deg"], item["yaw_deg"] = (float(v) for v in pen_rpy)
+            stamped.append(item)
+        first = stamped[0]
+        start = {
+            **first,
+            "index": 0,
+            "state": "START",
+            "stroke_id": -1,
+            "waypoint_index": -1,
+            "pen_down": 0,
+            "speed_mm_s": float(config["travel_speed_mm_s"]),
+            "sim_z_m": "",
+            "robot_z_mm": hover_z,
+        }
+        derived = [start, *stamped]
+        for index, row in enumerate(derived):
+            row["index"] = index
+        return derived
     stamped: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
@@ -487,7 +514,7 @@ def _move_to(
     speed: float,
     acceleration: float,
     timeout_s: float,
-) -> tuple[int | None, np.ndarray | None]:
+) -> tuple[int | None, np.ndarray | None, np.ndarray | None]:
     result = session.call(
         "set_position",
         "set_position",
@@ -505,7 +532,7 @@ def _move_to(
     )
     code = _code(result)
     snapshot = session.read_snapshot("after_move")
-    return code, _tcp_xyz(snapshot)
+    return code, _tcp_xyz(snapshot), _joints_deg(snapshot)
 
 
 def _lift_then_hold(session: RobotSession, z_mm: float, speed: float, acceleration: float, rpy: np.ndarray) -> None:
@@ -533,10 +560,36 @@ def _lift_then_hold(session: RobotSession, z_mm: float, speed: float, accelerati
     session.stop_holding()
 
 
+def _go_to_hover(session: RobotSession, config: dict[str, Any], paper: np.ndarray, live_joints: np.ndarray | None) -> None:
+    """Joint-move from the initial pose to the recorded hover pose above the paper."""
+    target = _optional_vector(config.get("hover_joints_deg"), 7, "hover_joints_deg")
+    if target is None or live_joints is None:
+        return
+    floor = float(paper[2]) + float(config["hover_min_clearance_mm"])
+    for fraction in np.linspace(0.0, 1.0, 21):
+        angles = live_joints + (target - live_joints) * fraction
+        code, pose = session.arm.get_forward_kinematics(angles.tolist(), input_is_radian=False, return_is_radian=False)
+        if code != 0 or float(pose[2]) < floor and fraction < 1.0:
+            raise SafeStop(f"hover joint path dips to z={pose[2] if code == 0 else 'n/a'} mm at t={fraction:.2f}")
+    session.log.event("hover_move", joints_deg=target.tolist(), speed_deg_s=float(config["hover_joint_speed_deg_s"]))
+    result = session.call(
+        "hover_move",
+        "set_servo_angle",
+        angle=target.tolist(),
+        speed=float(config["hover_joint_speed_deg_s"]),
+        mvacc=50,
+        wait=True,
+        timeout=120,
+    )
+    if _code(result) != 0:
+        raise SafeStop(f"hover joint move failed with code {_code(result)}")
+
+
 def execute(session: RobotSession, rows: list[dict[str, Any]], config: dict[str, Any], fence: dict[str, float], rpy: np.ndarray) -> None:
     acceleration = float(config["move_acceleration_mm_s2"])
     tolerance = float(config["position_tolerance_mm"])
     attempts = max(1, int(config["waypoint_attempts"]))
+    wrist_guard = float(config.get("joint7_guard_deg", 352))
     for row in rows:
         point = (float(row["robot_x_mm"]), float(row["robot_y_mm"]), float(row["robot_z_mm"]))
         if row["state"] != "START" and not _inside(fence, *point):
@@ -552,7 +605,7 @@ def execute(session: RobotSession, rows: list[dict[str, Any]], config: dict[str,
         speed = float(row["speed_mm_s"])
         reached = False
         for attempt in range(1, attempts + 1):
-            code, measured = _move_to(
+            code, measured, wrist = _move_to(
                 session,
                 x=point[0],
                 y=point[1],
@@ -575,9 +628,12 @@ def execute(session: RobotSession, rows: list[dict[str, Any]], config: dict[str,
                 code=code,
                 error_mm=None if error_mm is None else round(error_mm, 3),
                 measured_mm=None if measured is None else [round(float(v), 3) for v in measured],
+                joint7_deg=None if wrist is None else round(float(wrist[6]), 1),
             )
             if code == 0 and error_mm is not None and error_mm <= tolerance:
                 reached = True
+                if wrist is not None and abs(float(wrist[6])) > wrist_guard:
+                    raise SafeStop(f"joint 7 at {wrist[6]:.1f} deg after waypoint {row['index']}, nearing its limit")
                 break
             snapshot = session.read_snapshot(f"retry_{row['index']}_{attempt}")
             error_code, _warn = _error_warn(snapshot)
@@ -646,6 +702,13 @@ def main() -> int:
         help="With the pen tip touching the paper center, save that TCP pose into the config and keep a RealSense photo. Does not move.",
     )
     parser.add_argument("--camera-index", type=int, default=2, help="OpenCV index of the RealSense color camera. 2 saw the table.")
+    parser.add_argument(
+        "--dry-lift-mm",
+        type=float,
+        default=0.0,
+        help="Dry run: raise every drawing waypoint by this many mm so the pen never touches the paper.",
+    )
+    parser.add_argument("--stride", type=int, default=1, help="Dry run only: use every Nth waypoint.")
     parser.add_argument("--release-servos", action="store_true", help="Turn servos off after the run. Default is to hold.")
     args = parser.parse_args()
 
@@ -681,6 +744,16 @@ def main() -> int:
         rows = _with_derived_start(config, build_plan(config, sim, args.max_strokes))
         if not rows:
             raise SafeStop("plan is empty")
+        if args.stride < 1 or (args.stride > 1 and args.dry_lift_mm < 15.0):
+            raise SafeStop("--stride needs --dry-lift-mm of at least 15 so skipped waypoints cannot gouge the paper")
+        if args.dry_lift_mm < 0.0 or args.dry_lift_mm > 19.0:
+            raise SafeStop("--dry-lift-mm must be between 0 and 19 so the plan stays inside the fence")
+        if args.dry_lift_mm:
+            rows = [row for i, row in enumerate(rows) if row["state"] == "START" or i % args.stride == 0]
+            for row in rows:
+                if row["state"] != "START":
+                    row["robot_z_mm"] = float(row["robot_z_mm"]) + args.dry_lift_mm
+            log.event("dry_run", lift_mm=args.dry_lift_mm, stride=args.stride, waypoints=len(rows))
         plan_path = log.directory / "plan.csv"
         _write_plan(plan_path, rows)
         robot_points = np.asarray([[row["robot_x_mm"], row["robot_y_mm"], row["robot_z_mm"]] for row in rows])
@@ -837,6 +910,7 @@ def main() -> int:
             time.sleep(1.0)
         motion_started = True
         _prepare_motion(session)
+        _go_to_hover(session, config, paper, _joints_deg(session.read_snapshot("pre_hover")))
         execute(session, rows, config, fence, rpy)
         outcome = "finished"
         return 0
