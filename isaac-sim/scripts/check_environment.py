@@ -73,7 +73,13 @@ def main() -> int:
     from isaacsim.robot_motion.motion_generation import ArticulationKinematicsSolver, LulaKinematicsSolver
 
     print(f"[OK] Motion APIs: {LulaKinematicsSolver.__name__}, {ArticulationKinematicsSolver.__name__}")
-    urdf_path = generate_xarm7_urdf(PROJECT_ROOT)
+    # The default URDF is generated on demand; any other configured URDF (e.g.
+    # xarm7_real.urdf from generate_xarm7_urdf.py --real) must already exist.
+    urdf_path = Path(config["robot"]["urdf_path"])
+    if urdf_path.name == "xarm7_with_pen.urdf":
+        urdf_path = generate_xarm7_urdf(PROJECT_ROOT)
+    elif not urdf_path.is_file():
+        raise FileNotFoundError(f"Configured URDF is missing: {urdf_path}")
     description = inspect_urdf(urdf_path)
     usd_path = Path(config["robot"]["usd_path"])
     if ARGS.reimport or not usd_path.is_file():

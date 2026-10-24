@@ -1,0 +1,190 @@
+{
+  "clamped_command_fraction": 0.0,
+  "control_parameters": {
+    "corner_densify_factor": 3,
+    "corner_window_points": 5,
+    "drive_damping": 2050.0,
+    "drive_stiffness": 750000.0,
+    "smoothing_strength": 0.4
+  },
+  "controller": "ik",
+  "corner_gated_targets": 678,
+  "corner_tracking_error": {
+    "max_error_m": 0.0007817398247454298,
+    "mean_error_m": 0.00032887709070964324,
+    "p95_error_m": 0.0005713865938751536,
+    "rmse_m": 0.00035368597343681565,
+    "sample_count": 1355
+  },
+  "desired_pen_down_points": 687,
+  "desired_to_executed_nearest_path_error": {
+    "max_error_m": 0.000931069284939723,
+    "mean_error_m": 0.00025850822508803796,
+    "p95_error_m": 0.00042178420855381525,
+    "rmse_m": 0.0002802898964908558,
+    "sample_count": 687
+  },
+  "drawing_id": "ea59d6637578c29d",
+  "executed_pen_down_samples": 3795,
+  "executed_to_desired_nearest_path_error": {
+    "max_error_m": 0.001112740190083473,
+    "mean_error_m": 0.00038850867712026196,
+    "p95_error_m": 0.0006705232855084416,
+    "rmse_m": 0.00041932628976413275,
+    "sample_count": 3795
+  },
+  "failure_reason": "",
+  "heading_chord_m": 0.004,
+  "heading_error": {
+    "max_abs_error_deg": 165.58637361061986,
+    "max_abs_error_rad": 2.8900274159427672,
+    "mean_abs_error_deg": 1.0764644704797208,
+    "mean_abs_error_rad": 0.018787849290608432,
+    "median_abs_error_deg": 0.47528182485697196,
+    "median_abs_error_rad": 0.008295232718641188,
+    "p95_abs_error_deg": 2.5667392044028854,
+    "p95_abs_error_rad": 0.04479805015685008,
+    "rmse_deg": 6.173401519656465,
+    "rmse_rad": 0.10774618256562675,
+    "sample_count": 3357
+  },
+  "heading_valid_fraction": 0.8845849802371542,
+  "pen_down_joint_jerk_rad_s3": {
+    "p95": 1859.0473463876097,
+    "rms": 786.1064449596594
+  },
+  "pen_down_tracking_error": {
+    "max_error_m": 0.0017672384796094112,
+    "mean_error_m": 0.0004160422265437683,
+    "p95_error_m": 0.0012416117342306863,
+    "rmse_m": 0.0005086017628810608,
+    "sample_count": 3795
+  },
+  "per_stroke_tracking": {
+    "0": {
+      "RMSE_heading_deg": 3.905407322419955,
+      "RMSE_heading_rad": 0.06816221640772398,
+      "RMSE_position_m": 0.0005489707056421172,
+      "heading_sample_count": 3057,
+      "max_heading_error_deg": 111.07727085614106,
+      "max_heading_error_rad": 1.938664100569202,
+      "max_position_error_m": 0.0017672384796094112,
+      "mean_position_error_m": 0.0004501720193781943,
+      "median_heading_error_deg": 0.4996212566682408,
+      "p95_heading_error_deg": 2.5283325943898896,
+      "sample_count": 3067
+    },
+    "1": {
+      "RMSE_heading_deg": 18.36664461382571,
+      "RMSE_heading_rad": 0.32055842105494103,
+      "RMSE_position_m": 0.0002835561187646576,
+      "heading_sample_count": 239,
+      "max_heading_error_deg": 165.58637361061986,
+      "max_heading_error_rad": 2.8900274159427672,
+      "max_position_error_m": 0.0004160882306270284,
+      "mean_position_error_m": 0.0002796984218635746,
+      "median_heading_error_deg": 0.11554435964496743,
+      "p95_heading_error_deg": 1.696913380624398,
+      "sample_count": 289
+    },
+    "2": {
+      "RMSE_heading_deg": 4.289896789107892,
+      "RMSE_heading_rad": 0.07487282354066553,
+      "RMSE_position_m": 0.00023724808440111824,
+      "heading_sample_count": 35,
+      "max_heading_error_deg": 14.536355824102781,
+      "max_heading_error_rad": 0.2537072703720472,
+      "max_position_error_m": 0.00041239891663898647,
+      "mean_position_error_m": 0.0002299430413172179,
+      "median_heading_error_deg": 2.1786564208179864,
+      "p95_heading_error_deg": 7.631717001463191,
+      "sample_count": 142
+    },
+    "3": {
+      "RMSE_heading_deg": 1.3444071807508258,
+      "RMSE_heading_rad": 0.02346433179155644,
+      "RMSE_position_m": 0.0002622145367791415,
+      "heading_sample_count": 23,
+      "max_heading_error_deg": 3.3980167016253344,
+      "max_heading_error_rad": 0.05930657948111984,
+      "max_position_error_m": 0.0005282473150405466,
+      "mean_position_error_m": 0.00025693400583276646,
+      "median_heading_error_deg": 0.15154553802897125,
+      "p95_heading_error_deg": 2.479518216887635,
+      "sample_count": 115
+    },
+    "4": {
+      "RMSE_position_m": 0.0002393093417785122,
+      "max_position_error_m": 0.0004484831500958638,
+      "mean_position_error_m": 0.0002306963241503697,
+      "sample_count": 92
+    },
+    "5": {
+      "RMSE_heading_deg": 1.1296807346305417,
+      "RMSE_heading_rad": 0.019716648315651283,
+      "RMSE_position_m": 0.0003796349857519592,
+      "heading_sample_count": 3,
+      "max_heading_error_deg": 1.440908222832958,
+      "max_heading_error_rad": 0.02514859270749525,
+      "max_position_error_m": 0.0005516749555037674,
+      "mean_position_error_m": 0.0003771826446939845,
+      "median_heading_error_deg": 1.307041180223255,
+      "p95_heading_error_deg": 1.4275215185719876,
+      "sample_count": 90
+    }
+  },
+  "requested_stroke_count": 6,
+  "simulation_duration_s": 111.61016969941556,
+  "simulation_steps": 6585,
+  "status": "finished",
+  "tip_speed_mm_s_stats": {
+    "max": 102.74619281655633,
+    "mean": 14.887945276417886,
+    "median": 8.022199781903423,
+    "p95": 72.46589826046616
+  },
+  "tolerances": {
+    "corner_ik_tolerance_m": 0.00015,
+    "corner_tolerance_m": 0.0011,
+    "ik_position_tolerance_m": 0.0002,
+    "max_joint_delta_rad": 0.035,
+    "max_tip_speed_mm_s": 7.0,
+    "target_tolerance_m": 0.0012
+  },
+  "velocity_settled_fraction": 0.4476943346508564,
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "LOWER_PEN_STROKE_0",
+    "DRAW_STROKE_0",
+    "LIFT_PEN_STROKE_0",
+    "MOVE_TO_STROKE_1",
+    "LOWER_PEN_STROKE_1",
+    "DRAW_STROKE_1",
+    "LIFT_PEN_STROKE_1",
+    "MOVE_TO_STROKE_2",
+    "LOWER_PEN_STROKE_2",
+    "DRAW_STROKE_2",
+    "LIFT_PEN_STROKE_2",
+    "MOVE_TO_STROKE_3",
+    "LOWER_PEN_STROKE_3",
+    "DRAW_STROKE_3",
+    "LIFT_PEN_STROKE_3",
+    "MOVE_TO_STROKE_4",
+    "LOWER_PEN_STROKE_4",
+    "DRAW_STROKE_4",
+    "LIFT_PEN_STROKE_4",
+    "MOVE_TO_STROKE_5",
+    "LOWER_PEN_STROKE_5",
+    "DRAW_STROKE_5",
+    "LIFT_PEN_STROKE_5",
+    "FINISHED"
+  ],
+  "waypoint_reach_error": {
+    "max_error_m": 0.0011919173386203406,
+    "mean_error_m": 0.0003645448722696189,
+    "p95_error_m": 0.0009494253470628463,
+    "rmse_m": 0.00042133415328416416,
+    "sample_count": 2362
+  }
+}

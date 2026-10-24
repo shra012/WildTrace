@@ -11,12 +11,43 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from xacro_builder import generate_xarm7_urdf
 from xarm7_loader import inspect_urdf
 
+GRIPPER_JOINTS = (
+    "drive_joint",
+    "left_finger_joint",
+    "left_inner_knuckle_joint",
+    "right_outer_knuckle_joint",
+    "right_finger_joint",
+    "right_inner_knuckle_joint",
+)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--force", action="store_true")
+    parser.add_argument(
+        "--real",
+        action="store_true",
+        help="Build xarm7_real.urdf: calibrated kinematics of the lab arm, xArm Gripper, pen at the gripper TCP",
+    )
+    parser.add_argument(
+        "--gripper-closure-rad",
+        type=float,
+        default=0.76,
+        help="xArm Gripper drive angle the frozen fingers are built at (0 open, 0.85 closed). "
+        "0.76 closes the pads on the 10 mm pen (~9.9 mm gap); replace with the lab arm's reading",
+    )
     args = parser.parse_args()
-    path = generate_xarm7_urdf(PROJECT_ROOT, force=args.force)
+    if args.real:
+        path = generate_xarm7_urdf(
+            PROJECT_ROOT,
+            force=args.force,
+            entry_name="xarm7_real.urdf.xacro",
+            output_name="xarm7_real.urdf",
+            freeze_joints=GRIPPER_JOINTS,
+            freeze_drive_position=args.gripper_closure_rad,
+        )
+    else:
+        path = generate_xarm7_urdf(PROJECT_ROOT, force=args.force)
     description = inspect_urdf(path)
     print(f"[OK] Generated: {path}")
     print(f"[OK] Root link: {description.root_link}")

@@ -4,6 +4,7 @@ outputs/**/*
 
 # Local Python environments and dependency installs
 .venv/
+.venv-*/
 venv/
 .vendor/
 
@@ -26,3 +27,5 @@ __pycache__/
 # Local editor settings
 .vscode/
 .idea/
+# Importer working copy; the scene loads the self-contained assets/xarm7/xarm7_real.usd
+assets/xarm7/xarm7_real/

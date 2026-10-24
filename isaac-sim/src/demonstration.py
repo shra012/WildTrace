@@ -9,10 +9,25 @@ import numpy as np
 
 
 class DemonstrationRecorder:
-    def __init__(self, drawing_id: str, lookahead_points: int, max_action_delta_m: float):
+    """Per-step demonstration rows saved as one compressed NPZ per drawing.
+
+    Format version 2 adds the slew-limited commanded joint targets (the ACT
+    action) and an equal-arc-length path window. Rows must either all carry
+    both or none of them; a recording without them is saved as version 1.
+    """
+
+    def __init__(
+        self,
+        drawing_id: str,
+        lookahead_points: int,
+        max_action_delta_m: float,
+        metadata: Dict[str, Any] | None = None,
+    ):
         self.drawing_id = str(drawing_id)
         self.lookahead_points = int(lookahead_points)
         self.max_action_delta_m = float(max_action_delta_m)
+        # Free-form provenance (source, category, placement) stored as JSON.
+        self.metadata = dict(metadata or {})
         self.rows: List[Dict[str, Any]] = []
 
     def append(
@@ -29,6 +44,9 @@ class DemonstrationRecorder:
         upcoming_targets_m: Sequence[Sequence[float]],
         pen_down: bool,
         state: str,
+        commanded_joint_positions_rad: Sequence[float] | None = None,
+        path_window_m: Sequence[Sequence[float]] | None = None,
+        previous_command_rad: Sequence[float] | None = None,
     ) -> None:
         tip = np.asarray(pen_tip_position_m, dtype=np.float64)
         target = np.asarray(current_target_m, dtype=np.float64)
@@ -38,8 +56,21 @@ class DemonstrationRecorder:
         upcoming = np.asarray(upcoming_targets_m, dtype=np.float64)
         if upcoming.shape != (self.lookahead_points, 3):
             raise ValueError(f"Expected lookahead shape {(self.lookahead_points, 3)}, got {upcoming.shape}")
+        if (commanded_joint_positions_rad is None) != (path_window_m is None):
+            raise ValueError("commanded_joint_positions_rad and path_window_m must be recorded together")
+        if self.rows and ("commanded_joint_positions_rad" in self.rows[0]) != (path_window_m is not None):
+            raise ValueError("Every row must use the same demonstration format")
+        extra: Dict[str, Any] = {}
+        if commanded_joint_positions_rad is not None:
+            extra["commanded_joint_positions_rad"] = np.asarray(commanded_joint_positions_rad, dtype=np.float64)
+            extra["path_window_m"] = np.asarray(path_window_m, dtype=np.float64)
+        if previous_command_rad is not None:
+            # Only when the executed command differs from the previous label
+            # (noise-injected labels); otherwise it is the shifted command.
+            extra["previous_command_rad"] = np.asarray(previous_command_rad, dtype=np.float64)
         self.rows.append(
             {
+                **extra,
                 "stroke_id": int(stroke_id),
                 "waypoint_index": int(waypoint_index),
                 "simulation_time_s": float(simulation_time_s),
@@ -77,9 +108,16 @@ class DemonstrationRecorder:
             "tracking_error_m": np.asarray([r["tracking_error_m"] for r in self.rows], dtype=np.float64),
             "state": np.asarray([r["state"] for r in self.rows]),
         }
+        version = 1
+        if "commanded_joint_positions_rad" in self.rows[0]:
+            version = 2
+            arrays["commanded_joint_positions_rad"] = np.stack([r["commanded_joint_positions_rad"] for r in self.rows])
+            arrays["path_window_m"] = np.stack([r["path_window_m"] for r in self.rows])
+            if all("previous_command_rad" in r for r in self.rows):
+                arrays["previous_command_rad"] = np.stack([r["previous_command_rad"] for r in self.rows])
         features = make_policy_features(arrays)
         metadata = {
-            "format_version": 1,
+            "format_version": version,
             "feature_order": [
                 "joint_positions_rad[7]",
                 "joint_velocities_rad_s[7]",
@@ -100,6 +138,7 @@ class DemonstrationRecorder:
             json.dumps({key: _unit_for(key) for key in arrays if not key.endswith("_json")}, sort_keys=True)
         )
         arrays["normalization_metadata_json"] = np.asarray(json.dumps(metadata, sort_keys=True))
+        arrays["recording_metadata_json"] = np.asarray(json.dumps(self.metadata, sort_keys=True))
         np.savez_compressed(destination, **arrays)
         return destination
 

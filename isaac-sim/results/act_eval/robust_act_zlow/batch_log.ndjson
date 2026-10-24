@@ -1,0 +1,16 @@
+{"name": "1a5733d2b6fb8c11", "category": "Bird", "exit_code": 0, "status": "finished", "wall_s": 88.6, "sim_s": 59.169491635635495, "rmse_m": 0.00019021499305184363}
+{"name": "35d8032b6ae21c32", "category": "Bird", "exit_code": 0, "status": "finished", "wall_s": 126.1, "sim_s": 92.83050864748657, "rmse_m": 0.00018980578227292455}
+{"name": "48f51b30016f8eb1", "category": "Bird", "exit_code": 0, "status": "finished", "wall_s": 71.6, "sim_s": 44.30508482828736, "rmse_m": 0.00018652235076169302}
+{"name": "1163bceaf6134cf5", "category": "Cat", "exit_code": 0, "status": "finished", "wall_s": 130.5, "sim_s": 90.37288152426481, "rmse_m": 0.00019967614786049094}
+{"name": "323bd30d42ee2cf3", "category": "Cat", "exit_code": 0, "status": "finished", "wall_s": 111.1, "sim_s": 74.74576285108924, "rmse_m": 0.00018170079131700544}
+{"name": "4651e893ac2a26d4", "category": "Cat", "exit_code": 0, "status": "finished", "wall_s": 133.2, "sim_s": 88.72881372459233, "rmse_m": 0.0001804610641850627}
+{"name": "07379e952b3f0513", "category": "Dog", "exit_code": 0, "status": "finished", "wall_s": 96.5, "sim_s": 68.47457639873028, "rmse_m": 0.00018256628585161465}
+{"name": "0b763b6b700d128e", "category": "Dog", "exit_code": 0, "status": "finished", "wall_s": 81.0, "sim_s": 54.11864416860044, "rmse_m": 0.00018308232254379448}
+{"name": "14ab42e1e62789e2", "category": "Dog", "exit_code": 0, "status": "finished", "wall_s": 78.3, "sim_s": 52.40677975863218, "rmse_m": 0.0001868057702261825}
+{"name": "a7cbe5e2b0f491bb", "category": "Fish", "exit_code": 0, "status": "finished", "wall_s": 158.7, "sim_s": 122.28813582099974, "rmse_m": 0.00019547349659672174}
+{"name": "ba3e1657db195fe4", "category": "Fish", "exit_code": 0, "status": "finished", "wall_s": 95.6, "sim_s": 69.37288148514926, "rmse_m": 0.00019487422327619123}
+{"name": "3f221bad695edcf8", "category": "Frog", "exit_code": 0, "status": "finished", "wall_s": 85.2, "sim_s": 59.220339093357325, "rmse_m": 0.00018640508367470272}
+{"name": "6bbd7fa65eede66e", "category": "Frog", "exit_code": 0, "status": "finished", "wall_s": 152.1, "sim_s": 115.67796631716192, "rmse_m": 0.0001902635772480417}
+{"name": "165c17090deb8a48", "category": "Horse", "exit_code": 0, "status": "finished", "wall_s": 102.6, "sim_s": 75.88135607354343, "rmse_m": 0.00020288934079294005}
+{"name": "2b22d42510450af1", "category": "Horse", "exit_code": 0, "status": "finished", "wall_s": 116.0, "sim_s": 85.72881371900439, "rmse_m": 0.00017544172944111995}
+{"name": "7c54b4c75832b3b9", "category": "Horse", "exit_code": 0, "status": "finished", "wall_s": 171.9, "sim_s": 133.1186443157494, "rmse_m": 0.00020194584379646394}

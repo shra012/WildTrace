@@ -1,0 +1,111 @@
+{
+  "clamped_command_fraction": 0.0,
+  "control_parameters": {
+    "corner_densify_factor": 3,
+    "corner_window_points": 5,
+    "drive_damping": 650.0,
+    "drive_stiffness": 75000.0,
+    "smoothing_strength": 0.4
+  },
+  "controller": "ik",
+  "corner_gated_targets": 1109,
+  "corner_tracking_error": {
+    "max_error_m": 0.0013900634086810738,
+    "mean_error_m": 0.0010851966713533614,
+    "p95_error_m": 0.0012173153875423704,
+    "rmse_m": 0.0011001746241322537,
+    "sample_count": 1304
+  },
+  "desired_pen_down_points": 955,
+  "desired_to_executed_nearest_path_error": {
+    "max_error_m": 0.041112694215553885,
+    "mean_error_m": 0.00915235639905591,
+    "p95_error_m": 0.021737717214814323,
+    "rmse_m": 0.012407390976533478,
+    "sample_count": 955
+  },
+  "drawing_id": "a7cbe5e2b0f491bb",
+  "executed_pen_down_samples": 2537,
+  "executed_to_desired_nearest_path_error": {
+    "max_error_m": 0.0013414583687209821,
+    "mean_error_m": 0.0009502087583298063,
+    "p95_error_m": 0.0011711864327955369,
+    "rmse_m": 0.0009728084962305659,
+    "sample_count": 2537
+  },
+  "failure_reason": "Waypoint timeout in DRAW_STROKE_0 at index 540",
+  "heading_chord_m": 0.004,
+  "heading_error": {
+    "max_abs_error_deg": 45.83727381079623,
+    "max_abs_error_rad": 0.8000113481365626,
+    "mean_abs_error_deg": 1.8087871334366976,
+    "mean_abs_error_rad": 0.03156929094618039,
+    "median_abs_error_deg": 1.0413451865156707,
+    "median_abs_error_rad": 0.01817490215449291,
+    "p95_abs_error_deg": 5.876100277207206,
+    "p95_abs_error_rad": 0.10255729701461724,
+    "rmse_deg": 3.2830995973095587,
+    "rmse_rad": 0.05730089764395176,
+    "sample_count": 1918
+  },
+  "heading_valid_fraction": 0.7560110366574695,
+  "pen_down_joint_jerk_rad_s3": {
+    "p95": 1687.777613747423,
+    "rms": 899.5954638915154
+  },
+  "pen_down_tracking_error": {
+    "max_error_m": 0.0020202306660441166,
+    "mean_error_m": 0.0010132541733470822,
+    "p95_error_m": 0.0013242025367350217,
+    "rmse_m": 0.0010447788282142532,
+    "sample_count": 2537
+  },
+  "per_stroke_tracking": {
+    "0": {
+      "RMSE_heading_deg": 3.2830995973095587,
+      "RMSE_heading_rad": 0.05730089764395176,
+      "RMSE_position_m": 0.0010447788282142532,
+      "heading_sample_count": 1918,
+      "max_heading_error_deg": 45.83727381079623,
+      "max_heading_error_rad": 0.8000113481365626,
+      "max_position_error_m": 0.0020202306660441166,
+      "mean_position_error_m": 0.0010132541733470822,
+      "median_heading_error_deg": 1.0413451865156707,
+      "p95_heading_error_deg": 5.876100277207206,
+      "sample_count": 2537
+    }
+  },
+  "requested_stroke_count": 6,
+  "simulation_duration_s": 54.677966203540564,
+  "simulation_steps": 3226,
+  "status": "failed",
+  "tip_speed_mm_s_stats": {
+    "max": 76.3283501550747,
+    "mean": 10.667350501264076,
+    "median": 5.014437777087469,
+    "p95": 54.39096139415176
+  },
+  "tolerances": {
+    "corner_ik_tolerance_m": 0.00015,
+    "corner_tolerance_m": 0.0011,
+    "ik_position_tolerance_m": 0.0002,
+    "max_joint_delta_rad": 0.035,
+    "max_tip_speed_mm_s": 7.0,
+    "target_tolerance_m": 0.0012
+  },
+  "velocity_settled_fraction": 0.6235711470240441,
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "LOWER_PEN_STROKE_0",
+    "DRAW_STROKE_0",
+    "FAILED"
+  ],
+  "waypoint_reach_error": {
+    "max_error_m": 0.0011984213952061426,
+    "mean_error_m": 0.0008370278458137548,
+    "p95_error_m": 0.0011567364861315235,
+    "rmse_m": 0.0008562923878569783,
+    "sample_count": 699
+  }
+}

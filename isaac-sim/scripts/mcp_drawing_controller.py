@@ -42,7 +42,22 @@ from trajectory_loader import load_trajectory
 # ── Config: single source of truth is config/xarm7_drawing.yaml. Values are
 # read once at module load (Kit re-imports this file on each reload_script /
 # Action Graph rebuild, so edits to the yaml take effect on the next rebuild).
-_CONFIG_PATH = PROJECT_ROOT / "config" / "xarm7_drawing.yaml"
+import importlib  # noqa: E402
+
+import mcp_scene  # noqa: E402
+
+# Kit keeps modules imported across reload_script/graph rebuilds; reload so
+# edits to src/mcp_scene.py take effect without restarting Isaac Sim.
+importlib.reload(mcp_scene)
+from mcp_scene import scene_config_path
+
+import live_telemetry  # noqa: E402
+
+importlib.reload(live_telemetry)
+
+# The MCP server picks the config (default sim or the lab-arm twin) via
+# outputs/mcp_sessions/scene.json, the same file setup_scene.py reads.
+_CONFIG_PATH = scene_config_path(PROJECT_ROOT)
 CONFIG = load_config(_CONFIG_PATH, PROJECT_ROOT)
 ROBOT = CONFIG["robot"]
 DRAWING = CONFIG["drawing"]
@@ -187,6 +202,21 @@ _executed_rows = []
 _reached_errors = []
 _report_written = False
 _previous_tip_xy = None
+# ACT mode (job.json "controller": "act"): policy client and path bookkeeping.
+_controller = "ik"
+_policy = None
+_policy_address = "127.0.0.1:8790"
+_act_scale = 0.5
+_act_target = None
+_desired_positions = None
+_desired_arc = None
+_phase_offsets = None
+ACT_MAX_ERROR_M = 0.005
+# Live status for WildTrace Studio (src/live_telemetry.py): written ~10x per
+# simulated second while drawing, and once more on finish/fail.
+LIVE_DIR = live_telemetry.live_dir(OUTPUT_DIR)
+_live = None
+_live_progress = None
 
 
 def _log(msg):
@@ -203,7 +233,19 @@ def _go(new_state):
 def _reset(_event=None):
     global _state, _frame, _sim_time, _world, _robot, _solver, _machine, _mapped, _prefix
     global _home_action, _executed_rows, _reached_errors, _report_written
-    global _phase_corners, _previous_tip_xy
+    global _phase_corners, _previous_tip_xy, _policy, _act_target, _desired_positions, _desired_arc, _phase_offsets
+    global _live, _live_progress
+    # A Stop mid-run leaves no report; say so instead of "drawing" forever.
+    _live_finish("failed", "timeline stopped before the run finished")
+    _live = _live_progress = None
+    if _policy is not None:
+        try:
+            _policy.close()
+        except Exception:
+            pass
+    _policy = None
+    _act_target = None
+    _desired_positions = _desired_arc = _phase_offsets = None
     _state = WARMUP
     _frame = 0
     _sim_time = 0.0
@@ -238,11 +280,16 @@ def setup(db=None):
 
 
 def _load_job():
+    """Trajectory, report prefix and controller settings for this run."""
+    global _controller, _policy_address, _act_scale
     try:
         job = json.loads(JOB_FILE.read_text(encoding="utf-8"))
-        return str(job.get("trajectory_path", DEFAULT_TRAJECTORY_PATH)), str(job.get("prefix", DEFAULT_PREFIX))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return DEFAULT_TRAJECTORY_PATH, DEFAULT_PREFIX
+        job = {}
+    _controller = str(job.get("controller", "ik")).lower()
+    _policy_address = str(job.get("policy_address", "127.0.0.1:8790"))
+    _act_scale = float(job.get("act_action_scale", 0.5))
+    return str(job.get("trajectory_path", DEFAULT_TRAJECTORY_PATH)), str(job.get("prefix", DEFAULT_PREFIX))
 
 
 def _corner_flags_for(phases):
@@ -356,6 +403,7 @@ def _write_report():
         "git_sha": GIT_SHA,
         "config_hash": CONFIG_HASH,
         "config_path": str(_CONFIG_PATH),
+        "controller": _controller,
         "drawing_id": _mapped["drawing_id"] if _mapped else None,
         "stroke_count": len(_mapped["strokes"]) if _mapped else 0,
         "visited_states": _machine.visited_states,
@@ -375,6 +423,81 @@ def _write_report():
         )
     write_metrics(OUTPUT_DIR / f"{_prefix}_run_metrics.json", metrics)
     _log(f"Report written: {metrics['status']}, {len(_executed_rows)} samples")
+
+
+def _live_start(mapping):
+    """Start this run's live status and trace (clears the prefix's old trace)."""
+    global _live, _live_progress
+    try:
+        _live = live_telemetry.LiveTelemetry(
+            LIVE_DIR, _prefix, mapping, phase="HOME",
+            extra={"controller": _controller, "source": "isaac", "config_path": str(_CONFIG_PATH)},
+        )
+        _live_progress = live_telemetry.PenDownProgress(_machine.phases) if _machine is not None else None
+        _live.flush()
+    except Exception as exc:
+        _live = _live_progress = None
+        _log(f"Live telemetry disabled: {exc}")
+
+
+def _live_sample(tip_position, error, target):
+    """One DRAWING tick into the live status/trace (before _machine.update)."""
+    if _live is None:
+        return
+    try:
+        progress = _live_progress.at(_machine.phase_index, _machine.target_index) if _live_progress else None
+        _live.sample(
+            _sim_time, _machine.state, tip_position, error_m=error, progress=progress,
+            pen_down=bool(target.pen_down), stroke_id=int(target.stroke_id),
+        )
+    except Exception as exc:
+        _log(f"Live telemetry error: {exc}")
+
+
+def _live_finish(status, reason=None):
+    if _live is None or _live.finished:
+        return
+    try:
+        _live.finish(_sim_time, status, reason or None)
+    except Exception as exc:
+        _log(f"Live telemetry error: {exc}")
+
+
+def _start_act():
+    """Connect to scripts/act_policy_server.py and precompute the path the
+    policy's observation window and progress tracker read from."""
+    global _policy, _act_target, _desired_positions, _desired_arc, _phase_offsets
+    from act_client import ActPolicyClient
+    from act_features import path_arc_length
+    from drawing_state_machine import flatten_desired_targets
+
+    _desired_positions = np.asarray([t.position for t in flatten_desired_targets(_machine.phases)], dtype=np.float64)
+    _desired_arc = path_arc_length(_desired_positions)
+    _phase_offsets = np.r_[0, np.cumsum([len(phase.targets) for phase in _machine.phases])].astype(int)
+    _policy = ActPolicyClient(_policy_address)
+    _policy.reset()
+    _act_target = None
+    _log(f"[{_prefix}] ACT controller via {_policy_address} (step scale {_act_scale})")
+
+
+def _act_command(target, tip_position):
+    """One ACT tick: the next joint target, stepping from the previous one."""
+    global _act_target
+    from act_features import environment_state, observation_state, path_window
+
+    q = np.asarray(_robot.get_joint_positions(), dtype=np.float64)
+    qd = np.asarray(_robot.get_joint_velocities(), dtype=np.float64)
+    previous = q if _act_target is None else _act_target
+    index = int(_phase_offsets[_machine.phase_index]) + _machine.target_index
+    window = path_window(_desired_positions, index)
+    step = _policy.act(
+        observation_state(q, qd, previous)[0],
+        environment_state(tip_position, target.position, window[None], [[float(target.pen_down)]])[0],
+    )
+    if not np.isfinite(step).all():
+        return None
+    _act_target = np.clip(previous + _act_scale * step, JOINT_LOWER, JOINT_UPPER)
+    return _act_target
 
 
 def compute(db=None):
@@ -403,15 +526,11 @@ def compute(db=None):
             _robot = SingleArticulation(prim_path=ROBOT_PRIM_PATH, name="xarm7_mcp_cat")
             _robot.initialize()
 
-            articulation_controller = _robot.get_articulation_controller()
-            articulation_controller.switch_control_mode("position")
-            num_dof = len(_robot.dof_names)
-            articulation_controller.set_gains(
-                kps=np.full(num_dof, DRIVE_STIFFNESS, dtype=np.float64),
-                kds=np.full(num_dof, DRIVE_DAMPING, dtype=np.float64),
-            )
-            _readback_kps, _readback_kds = articulation_controller.get_gains()
-            _log(f"Gains set, readback kps={_readback_kps.tolist()} kds={_readback_kds.tolist()}")
+            # Same servo setup as the headless runner (drive type, gains, force
+            # ceilings from the config), so MCP runs match the evaluated sim.
+            from articulation_control import configure_position_drive
+
+            configure_position_drive(_robot, ROBOT, prefix="[MCP CONTROL]")
 
             lula = LulaKinematicsSolver(ROBOT_DESCRIPTION_PATH, URDF_PATH)
             base_position, base_orientation = _robot.get_world_pose()
@@ -420,6 +539,7 @@ def compute(db=None):
 
             trajectory_path, _prefix = _load_job()
             _mapped, _machine, _phase_corners = _build_machine(trajectory_path)
+            _live_start(_mapped["mapping"])
             try:
                 _clear_drawn_result()
             except Exception as exc:
@@ -433,6 +553,10 @@ def compute(db=None):
 
             traceback.print_exc()
             _log(f"Init error: {exc}")
+            if _live is None:
+                _prefix = _load_job()[1]
+                _live_start(None)
+            _live_finish("failed", f"Init error: {exc}")
             _go(FAILED)
         return True
 
@@ -460,9 +584,12 @@ def compute(db=None):
             _phase_corners[0] = corner_flags(list(approach_points), CORNER_ANGLE_DEGREES, CORNER_WINDOW_POINTS)
             _machine.mark_home_reached(_sim_time)
             _log(f"HOME reached (err={err:.4f}) -> {_machine.state} ({len(approach_points)} approach waypoints)")
+            if _controller == "act":
+                _start_act()
             _go(DRAWING)
         elif _sim_time > HOME_TIMEOUT_S:
             _log(f"Home timeout (err={err:.4f})")
+            _live_finish("failed", f"Home timeout (err={err:.4f})")
             _go(FAILED)
         return True
 
@@ -471,8 +598,62 @@ def compute(db=None):
         if _sim_time > RUN_TIMEOUT_S:
             _machine.fail("Overall run timeout")
         else:
+            if _controller == "act" and _policy is not None:
+                # ACT chases the first waypoint ahead of the pen (the labelled
+                # semantics) instead of stopping to settle on every waypoint.
+                from act_features import chased_index
+
+                tip_now, _ = _solver.compute_end_effector_pose(position_only=False)
+                current = int(_phase_offsets[_machine.phase_index]) + _machine.target_index
+                for _ in range(chased_index(_desired_positions, _desired_arc, current, tip_now) - current):
+                    _machine.update(_sim_time, True)
             target = _machine.current_target
-            if target is not None:
+            if target is not None and _controller == "act" and _policy is not None:
+                from isaacsim.core.utils.types import ArticulationAction
+
+                is_corner = bool(_phase_corners[_machine.phase_index][_machine.target_index])
+                tip_position, _tip_rot = _solver.compute_end_effector_pose(position_only=False)
+                error = float(np.linalg.norm(np.asarray(tip_position) - target.position))
+                command = _act_command(target, tip_position)
+                if command is None:
+                    _machine.fail("ACT produced a non-finite joint step")
+                elif target.pen_down and error > ACT_MAX_ERROR_M:
+                    _machine.fail(f"ACT tip error {error * 1e3:.2f} mm in {_machine.state} exceeds the safety limit")
+                else:
+                    _robot.get_articulation_controller().apply_action(ArticulationAction(joint_positions=command))
+                    tip_xy = np.asarray(tip_position, dtype=np.float64)[:2]
+                    tip_speed_mm_s = 0.0
+                    if _previous_tip_xy is not None:
+                        tip_speed_mm_s = float(np.linalg.norm(tip_xy - _previous_tip_xy)) / PHYSICS_DT_S * 1000.0
+                    _previous_tip_xy = tip_xy
+                    _executed_rows.append(
+                        {
+                            "simulation_time_s": _sim_time,
+                            "state": _machine.state,
+                            "stroke_id": target.stroke_id,
+                            "waypoint_index": target.waypoint_index,
+                            "pen_down": int(target.pen_down),
+                            "target_x_m": float(target.position[0]),
+                            "target_y_m": float(target.position[1]),
+                            "target_z_m": float(target.position[2]),
+                            "tip_x_m": float(tip_position[0]),
+                            "tip_y_m": float(tip_position[1]),
+                            "tip_z_m": float(tip_position[2]),
+                            "tracking_error_m": error,
+                            "is_corner": int(is_corner),
+                            "tip_speed_mm_s": tip_speed_mm_s,
+                        }
+                    )
+                    _live_sample(tip_position, error, target)
+                    # The final waypoint still needs the normal reach gate.
+                    reached = error <= (CORNER_TOLERANCE_M if is_corner else TARGET_TOLERANCE_M)
+                    if reached:
+                        _reached_errors.append(error)
+                    previous_phase = _machine.state
+                    _machine.update(_sim_time, reached)
+                    if _machine.state != previous_phase:
+                        _log(f"{previous_phase} -> {_machine.state}")
+            elif target is not None:
                 is_corner = bool(_phase_corners[_machine.phase_index][_machine.target_index])
                 active_ik_tolerance = CORNER_IK_TOLERANCE_M if is_corner else NORMAL_IK_TOLERANCE_M
                 action, success = _solver.compute_inverse_kinematics(
@@ -528,6 +709,7 @@ def compute(db=None):
                                 "tip_speed_mm_s": tip_speed_mm_s,
                             }
                         )
+                        _live_sample(tip_position, error, target)
                         reached = position_reached and velocity_settled
                         if reached:
                             _reached_errors.append(error)
@@ -537,10 +719,12 @@ def compute(db=None):
                             _log(f"{previous_phase} -> {_machine.state}")
         if _machine.complete:
             _write_report()
+            _live_finish("finished")
             _go(FINISHED)
         elif _machine.failed:
             _log(f"FAILED: {_machine.failure_reason}")
             _write_report()
+            _live_finish("failed", _machine.failure_reason)
             _go(FAILED)
         return True
 

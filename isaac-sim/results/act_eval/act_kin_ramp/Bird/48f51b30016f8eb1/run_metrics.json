@@ -1,0 +1,43 @@
+{
+  "act_policy": {
+    "address": "127.0.0.1:8790",
+    "hold_steps": 2,
+    "queries": 293,
+    "server_latency_ms_p50": 7.438738000928424,
+    "server_latency_ms_p95": 11.00799440173432,
+    "step_mode": "ramp"
+  },
+  "control_parameters": {
+    "corner_densify_factor": 3,
+    "corner_window_points": 5,
+    "drive_damping": 650.0,
+    "drive_stiffness": 75000.0,
+    "smoothing_strength": 0.4
+  },
+  "controller": "act",
+  "corner_gated_targets": 268,
+  "desired_pen_down_points": 397,
+  "drawing_id": "48f51b30016f8eb1",
+  "executed_pen_down_samples": 0,
+  "failure_reason": "ACT tip error 6.20 mm in DRAW_STROKE_0 exceeds the safety limit",
+  "heading_chord_m": 0.004,
+  "requested_stroke_count": 2,
+  "simulation_duration_s": 9.898305103182793,
+  "simulation_steps": 584,
+  "status": "failed",
+  "tolerances": {
+    "corner_ik_tolerance_m": 0.00015,
+    "corner_tolerance_m": 0.0011,
+    "ik_position_tolerance_m": 0.0002,
+    "max_joint_delta_rad": 0.035,
+    "max_tip_speed_mm_s": 7.0,
+    "target_tolerance_m": 0.0012
+  },
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "LOWER_PEN_STROKE_0",
+    "DRAW_STROKE_0",
+    "FAILED"
+  ]
+}

@@ -28,7 +28,9 @@ from pathlib import Path
 
 ISAAC_SIM_ROOT = Path(__file__).resolve().parents[1]
 WILDTRACE_ROOT = ISAAC_SIM_ROOT.parent
-GOLD_TRAJECTORIES_DIR = WILDTRACE_ROOT / "outputs" / "gold" / "trajectories"
+# The committed 48-drawing gold set (the ACT test split), identical on every
+# checkout; the gitignored outputs/gold copy differed between machines.
+GOLD_TRAJECTORIES_DIR = ISAAC_SIM_ROOT / "data" / "act_test"
 
 
 def _to_windows_path(path: Path) -> str:

@@ -1,0 +1,131 @@
+{
+  "act_policy": {
+    "action_scale": 0.5,
+    "address": "127.0.0.1:8790",
+    "hold_steps": 1,
+    "queries": 2370,
+    "server_latency_ms_p50": 6.545962001837324,
+    "server_latency_ms_p95": 9.208130698971216,
+    "step_mode": "ramp"
+  },
+  "clamped_command_fraction": 0.0,
+  "control_parameters": {
+    "corner_densify_factor": 3,
+    "corner_window_points": 5,
+    "drive_damping": 650.0,
+    "drive_stiffness": 75000.0,
+    "smoothing_strength": 0.4
+  },
+  "controller": "act",
+  "corner_gated_targets": 245,
+  "corner_tracking_error": {
+    "max_error_m": 0.0007724541008162377,
+    "mean_error_m": 0.00029217514651626276,
+    "p95_error_m": 0.000522104302676378,
+    "rmse_m": 0.00032215242046389073,
+    "sample_count": 359
+  },
+  "desired_pen_down_points": 327,
+  "desired_to_executed_nearest_path_error": {
+    "max_error_m": 0.0006012596917650108,
+    "mean_error_m": 0.0001753228086325154,
+    "p95_error_m": 0.0003330984734587147,
+    "rmse_m": 0.00019562052904340427,
+    "sample_count": 327
+  },
+  "drawing_id": "bbf4a726747089d9",
+  "executed_pen_down_samples": 1358,
+  "executed_to_desired_nearest_path_error": {
+    "max_error_m": 0.0008208431877448906,
+    "mean_error_m": 0.00035601740822186,
+    "p95_error_m": 0.0006498480719581866,
+    "rmse_m": 0.00039536293255082314,
+    "sample_count": 1358
+  },
+  "failure_reason": "",
+  "heading_chord_m": 0.004,
+  "heading_error": {
+    "max_abs_error_deg": 97.60916999023941,
+    "max_abs_error_rad": 1.703601396468519,
+    "mean_abs_error_deg": 2.1796016088320496,
+    "mean_abs_error_rad": 0.03804122445588478,
+    "median_abs_error_deg": 1.3687793784303326,
+    "median_abs_error_rad": 0.023889706887010757,
+    "p95_abs_error_deg": 6.560353732605914,
+    "p95_abs_error_rad": 0.11449977272947287,
+    "rmse_deg": 4.655712894978613,
+    "rmse_rad": 0.08125751904493378,
+    "sample_count": 1281
+  },
+  "heading_valid_fraction": 0.9432989690721649,
+  "pen_down_joint_jerk_rad_s3": {
+    "p95": 514.2944656154345,
+    "rms": 234.8354015094142
+  },
+  "pen_down_tracking_error": {
+    "max_error_m": 0.0018567827997240903,
+    "mean_error_m": 0.0004886940279857104,
+    "p95_error_m": 0.0012359784852659693,
+    "rmse_m": 0.0006054246316711709,
+    "sample_count": 1358
+  },
+  "per_stroke_tracking": {
+    "0": {
+      "RMSE_heading_deg": 4.655712894978613,
+      "RMSE_heading_rad": 0.08125751904493378,
+      "RMSE_position_m": 0.0006182205104452874,
+      "heading_sample_count": 1281,
+      "max_heading_error_deg": 97.60916999023941,
+      "max_heading_error_rad": 1.703601396468519,
+      "max_position_error_m": 0.0018567827997240903,
+      "mean_position_error_m": 0.0005025018892388199,
+      "median_heading_error_deg": 1.3687793784303326,
+      "p95_heading_error_deg": 6.560353732605914,
+      "sample_count": 1293
+    },
+    "1": {
+      "RMSE_position_m": 0.000234676141298282,
+      "max_position_error_m": 0.0005530498205896469,
+      "mean_position_error_m": 0.00021402380336616546,
+      "sample_count": 65
+    }
+  },
+  "requested_stroke_count": 2,
+  "simulation_duration_s": 40.18644075281918,
+  "simulation_steps": 2371,
+  "status": "finished",
+  "tip_speed_mm_s_stats": {
+    "max": 49.6292865714767,
+    "mean": 17.30091527180256,
+    "median": 15.730798921494063,
+    "p95": 30.821571443474895
+  },
+  "tolerances": {
+    "corner_ik_tolerance_m": 0.00015,
+    "corner_tolerance_m": 0.0011,
+    "ik_position_tolerance_m": 0.0002,
+    "max_joint_delta_rad": 0.035,
+    "max_tip_speed_mm_s": 7.0,
+    "target_tolerance_m": 0.0012
+  },
+  "velocity_settled_fraction": 0.035346097201767304,
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "LOWER_PEN_STROKE_0",
+    "DRAW_STROKE_0",
+    "LIFT_PEN_STROKE_0",
+    "MOVE_TO_STROKE_1",
+    "LOWER_PEN_STROKE_1",
+    "DRAW_STROKE_1",
+    "LIFT_PEN_STROKE_1",
+    "FINISHED"
+  ],
+  "waypoint_reach_error": {
+    "max_error_m": 0.0011977013682260935,
+    "mean_error_m": 0.0006831738144033937,
+    "p95_error_m": 0.0011599108111609287,
+    "rmse_m": 0.0007420847668378581,
+    "sample_count": 184
+  }
+}
