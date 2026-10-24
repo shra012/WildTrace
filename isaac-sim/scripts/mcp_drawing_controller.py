@@ -51,6 +51,10 @@ import mcp_scene  # noqa: E402
 importlib.reload(mcp_scene)
 from mcp_scene import scene_config_path
 
+import live_telemetry  # noqa: E402
+
+importlib.reload(live_telemetry)
+
 # The MCP server picks the config (default sim or the lab-arm twin) via
 # outputs/mcp_sessions/scene.json, the same file setup_scene.py reads.
 _CONFIG_PATH = scene_config_path(PROJECT_ROOT)
@@ -208,6 +212,11 @@ _desired_positions = None
 _desired_arc = None
 _phase_offsets = None
 ACT_MAX_ERROR_M = 0.005
+# Live status for WildTrace Studio (src/live_telemetry.py): written ~10x per
+# simulated second while drawing, and once more on finish/fail.
+LIVE_DIR = live_telemetry.live_dir(OUTPUT_DIR)
+_live = None
+_live_progress = None
 
 
 def _log(msg):
@@ -225,6 +234,10 @@ def _reset(_event=None):
     global _state, _frame, _sim_time, _world, _robot, _solver, _machine, _mapped, _prefix
     global _home_action, _executed_rows, _reached_errors, _report_written
     global _phase_corners, _previous_tip_xy, _policy, _act_target, _desired_positions, _desired_arc, _phase_offsets
+    global _live, _live_progress
+    # A Stop mid-run leaves no report; say so instead of "drawing" forever.
+    _live_finish("failed", "timeline stopped before the run finished")
+    _live = _live_progress = None
     if _policy is not None:
         try:
             _policy.close()
@@ -412,6 +425,44 @@ def _write_report():
     _log(f"Report written: {metrics['status']}, {len(_executed_rows)} samples")
 
 
+def _live_start(mapping):
+    """Start this run's live status and trace (clears the prefix's old trace)."""
+    global _live, _live_progress
+    try:
+        _live = live_telemetry.LiveTelemetry(
+            LIVE_DIR, _prefix, mapping, phase="HOME",
+            extra={"controller": _controller, "source": "isaac", "config_path": str(_CONFIG_PATH)},
+        )
+        _live_progress = live_telemetry.PenDownProgress(_machine.phases) if _machine is not None else None
+        _live.flush()
+    except Exception as exc:
+        _live = _live_progress = None
+        _log(f"Live telemetry disabled: {exc}")
+
+
+def _live_sample(tip_position, error, target):
+    """One DRAWING tick into the live status/trace (before _machine.update)."""
+    if _live is None:
+        return
+    try:
+        progress = _live_progress.at(_machine.phase_index, _machine.target_index) if _live_progress else None
+        _live.sample(
+            _sim_time, _machine.state, tip_position, error_m=error, progress=progress,
+            pen_down=bool(target.pen_down), stroke_id=int(target.stroke_id),
+        )
+    except Exception as exc:
+        _log(f"Live telemetry error: {exc}")
+
+
+def _live_finish(status, reason=None):
+    if _live is None or _live.finished:
+        return
+    try:
+        _live.finish(_sim_time, status, reason or None)
+    except Exception as exc:
+        _log(f"Live telemetry error: {exc}")
+
+
 def _start_act():
     """Connect to scripts/act_policy_server.py and precompute the path the
     policy's observation window and progress tracker read from."""
@@ -488,6 +539,7 @@ def compute(db=None):
 
             trajectory_path, _prefix = _load_job()
             _mapped, _machine, _phase_corners = _build_machine(trajectory_path)
+            _live_start(_mapped["mapping"])
             try:
                 _clear_drawn_result()
             except Exception as exc:
@@ -501,6 +553,10 @@ def compute(db=None):
 
             traceback.print_exc()
             _log(f"Init error: {exc}")
+            if _live is None:
+                _prefix = _load_job()[1]
+                _live_start(None)
+            _live_finish("failed", f"Init error: {exc}")
             _go(FAILED)
         return True
 
@@ -533,6 +589,7 @@ def compute(db=None):
             _go(DRAWING)
         elif _sim_time > HOME_TIMEOUT_S:
             _log(f"Home timeout (err={err:.4f})")
+            _live_finish("failed", f"Home timeout (err={err:.4f})")
             _go(FAILED)
         return True
 
@@ -587,6 +644,7 @@ def compute(db=None):
                             "tip_speed_mm_s": tip_speed_mm_s,
                         }
                     )
+                    _live_sample(tip_position, error, target)
                     # The final waypoint still needs the normal reach gate.
                     reached = error <= (CORNER_TOLERANCE_M if is_corner else TARGET_TOLERANCE_M)
                     if reached:
@@ -651,6 +709,7 @@ def compute(db=None):
                                 "tip_speed_mm_s": tip_speed_mm_s,
                             }
                         )
+                        _live_sample(tip_position, error, target)
                         reached = position_reached and velocity_settled
                         if reached:
                             _reached_errors.append(error)
@@ -660,10 +719,12 @@ def compute(db=None):
                             _log(f"{previous_phase} -> {_machine.state}")
         if _machine.complete:
             _write_report()
+            _live_finish("finished")
             _go(FINISHED)
         elif _machine.failed:
             _log(f"FAILED: {_machine.failure_reason}")
             _write_report()
+            _live_finish("failed", _machine.failure_reason)
             _go(FAILED)
         return True
 

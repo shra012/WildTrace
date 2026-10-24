@@ -33,10 +33,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
+import uuid
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -45,6 +48,8 @@ ISAAC_SIM_PROJECT = Path(__file__).resolve().parents[1]
 WILDTRACE_ROOT = ISAAC_SIM_PROJECT.parent
 sys.path.insert(0, str(ISAAC_SIM_PROJECT / "scripts"))
 from provision_and_draw import GOLD_TRAJECTORIES_DIR, MCP_SESSIONS_DIR, _to_windows_path, provision  # noqa: E402
+sys.path.insert(0, str(ISAAC_SIM_PROJECT / "src"))
+import live_telemetry  # noqa: E402  (stdlib only, like this script's environment)
 
 WIN_MCP_REPO = os.environ.get("ISAAC_MCP_REPO_WIN", r"C:\wildtrace\isaacsim-mcp-server")
 ISAAC_SIM_ROOT = os.environ.get("ISAAC_SIM_ROOT_WIN", r"C:\isaac-sim-6.0.1")
@@ -73,6 +78,7 @@ ACT_PORT = int(os.environ.get("WILDTRACE_ACT_PORT", "8790"))
 VIDEO_ROOT_WIN = r"C:\wildtrace\videos"
 VIDEO_ROOT_WSL = Path("/mnt/c/wildtrace/videos")
 VIDEO_OUT = ISAAC_SIM_PROJECT / "outputs" / "videos"
+POLL_S = 5  # seconds between checks for a run's report
 
 # Runs under Windows Python: read one command from stdin, send it to the
 # extension, print its JSON reply. Read-until-it-parses mirrors
@@ -451,29 +457,15 @@ def _assemble_videos(prefix: str, label: str, sim_seconds: float, every: int) ->
     return videos or [f"video assembly failed: {(proc.stdout + proc.stderr)[-500:]}"]
 
 
-def _result(category: str, sample_id: str, prefix: str) -> dict:
+def _metrics_summary(prefix: str, identity: dict | None = None) -> dict:
+    """The headline fields of <prefix>_run_metrics.json (no plot)."""
     metrics_path = MCP_SESSIONS_DIR / f"{prefix}_run_metrics.json"
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-    plot_path = MCP_SESSIONS_DIR / f"{prefix}_comparison.png"
-    plot = subprocess.run(
-        [
-            PLOT_PYTHON,
-            str(ISAAC_SIM_PROJECT / "scripts" / "plot_drawing_comparison.py"),
-            "--trajectory", str(GOLD_TRAJECTORIES_DIR / category / f"{sample_id}.json"),
-            "--executed-csv", str(MCP_SESSIONS_DIR / f"{prefix}_executed_path.csv"),
-            "--output", str(plot_path),
-            "--title", f"{category} ({sample_id})",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=ISAAC_SIM_PROJECT,
-    )
     err = metrics.get("desired_to_executed_nearest_path_error", {})
     return {
         "status": metrics.get("status"),
         "failure_reason": metrics.get("failure_reason") or None,
-        "category": category,
-        "sample_id": sample_id,
+        **(identity or {}),
         "prefix": prefix,
         "stroke_count": metrics.get("stroke_count", metrics.get("requested_stroke_count")),
         "pen_down_points": metrics.get("desired_pen_down_points"),
@@ -484,8 +476,120 @@ def _result(category: str, sample_id: str, prefix: str) -> dict:
         "git_sha": metrics.get("git_sha"),
         "config_hash": metrics.get("config_hash"),
         "metrics_file": str(metrics_path),
-        "comparison_plot": str(plot_path) if plot.returncode == 0 else f"plot failed: {plot.stderr.strip()[-300:]}",
     }
+
+
+def _plot(prefix: str, trajectory: Path, title: str) -> str:
+    plot_path = MCP_SESSIONS_DIR / f"{prefix}_comparison.png"
+    plot = subprocess.run(
+        [
+            PLOT_PYTHON,
+            str(ISAAC_SIM_PROJECT / "scripts" / "plot_drawing_comparison.py"),
+            "--trajectory", str(trajectory),
+            "--executed-csv", str(MCP_SESSIONS_DIR / f"{prefix}_executed_path.csv"),
+            "--output", str(plot_path),
+            "--title", title,
+        ],
+        capture_output=True,
+        text=True,
+        cwd=ISAAC_SIM_PROJECT,
+    )
+    return str(plot_path) if plot.returncode == 0 else f"plot failed: {plot.stderr.strip()[-300:]}"
+
+
+def _result(category: str, sample_id: str, prefix: str) -> dict:
+    result = _metrics_summary(prefix, {"category": category, "sample_id": sample_id})
+    result["comparison_plot"] = _plot(prefix, GOLD_TRAJECTORIES_DIR / category / f"{sample_id}.json", f"{category} ({sample_id})")
+    return result
+
+
+def _launch(job_data: dict, controller: str, config: str, record_video: bool, video_every: int, on_stage=None) -> dict:
+    """Shared by draw and draw_trajectory: start Isaac Sim and build the scene
+    if needed, start the ACT policy server, write job.json, attach or detach
+    the capture graph and restart the timeline. Returns {"status": "started",
+    "scene_config", "run_started"} or a {"status": "failed", "step", ...} dict."""
+    stage = on_stage or (lambda name: None)
+    stage("sim_start")
+    started = json.loads(sim_start())
+    if started["status"] == "timeout":
+        return {"status": "failed", "step": "sim_start", "detail": started}
+    stage("setup_scene")
+    built = json.loads(setup_scene(config=config))
+    if built["status"] == "failed":
+        return {"status": "failed", "step": "setup_scene", "detail": built}
+    scene_config = _scene_config()
+
+    job_data["controller"] = controller
+    if controller == "act":
+        checkpoint = ACT_CHECKPOINTS.get(scene_config)
+        if checkpoint is None:
+            return {"status": "failed", "reason": f"no ACT checkpoint for config {scene_config}"}
+        stage("act_policy_server")
+        server = _ensure_policy_server(checkpoint)
+        if server["status"] == "failed":
+            return {"status": "failed", "step": "act_policy_server", "detail": server}
+        job_data["policy_address"] = f"127.0.0.1:{ACT_PORT}"
+    (MCP_SESSIONS_DIR / "job.json").write_text(json.dumps(job_data, indent=2), encoding="utf-8")
+    if record_video:
+        stage("attach_capture")
+        attached = _attach_capture(job_data["prefix"], scene_config, video_every)
+        if not _ok(attached):
+            return {"status": "failed", "step": "attach_capture", "reply": attached}
+    else:
+        _detach_capture()
+
+    # With allow_repeat an earlier run's report may already sit at this path;
+    # only a file written after this run starts counts as its result.
+    run_started = time.time()
+
+    # The controller re-reads job.json and clears the previous drawing at INIT,
+    # so a stop/play cycle is all it takes to start the queued job. Confirm each
+    # transition from the timeline itself: a play once hung without effect
+    # right after the Action Graph was first created.
+    stage("timeline")
+    if not _set_timeline("simulation.stop", "stopped"):
+        return {"status": "failed", "step": "simulation.stop", "timeline": _timeline()}
+    if not _set_timeline("simulation.play", "playing"):
+        return {"status": "failed", "step": "simulation.play", "timeline": _timeline()}
+    return {"status": "started", "scene_config": scene_config, "run_started": run_started}
+
+
+def _await_run(
+    prefix: str, run_started: float, wait_s: float, make_result, *,
+    record_video: bool, video_every: int, video_label: str, stop_on_live_failure: bool = False,
+) -> dict | None:
+    """Wait up to wait_s for this run's metrics, then build its result (and
+    videos). None when the wait ran out. With stop_on_live_failure, a failed
+    live status that no report follows (INIT/HOME failures, a Stop) ends the
+    wait early with that failure."""
+    metrics_path = MCP_SESSIONS_DIR / f"{prefix}_run_metrics.json"
+    live_file = live_telemetry.status_path(_live_dir(), prefix)
+    failed_seen = None
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline:
+        if metrics_path.exists() and metrics_path.stat().st_mtime >= run_started:
+            time.sleep(1)  # let the writer finish
+            result = make_result()
+            if record_video:
+                time.sleep(3)  # let the last frames flush
+                _set_timeline("simulation.pause", "paused")
+                _detach_capture()
+                result["videos"] = _assemble_videos(
+                    prefix, video_label, float(result.get("simulation_duration_s") or 0.0), video_every,
+                )
+            return result
+        if stop_on_live_failure:
+            live = live_telemetry.read_status(live_file)
+            if live and live.get("status") == "failed" and float(live.get("updated_at") or 0) >= run_started:
+                if failed_seen is not None and time.monotonic() - failed_seen >= 5:
+                    if record_video:
+                        _set_timeline("simulation.pause", "paused")
+                        _detach_capture()
+                    return {"status": "failed", "prefix": prefix, "step": live.get("phase"),
+                            "failure_reason": live.get("failure_reason")}
+                failed_seen = failed_seen or time.monotonic()
+        time.sleep(POLL_S)
+    return None
 
 
 @mcp.tool()
@@ -516,67 +620,29 @@ def draw(
     controller = controller.lower()
     if controller not in ("ik", "act"):
         return json.dumps({"status": "failed", "reason": f"unknown controller {controller!r}"})
+    if _RUN_LOCK.locked():
+        return json.dumps({"status": "busy", "reason": "a draw_trajectory run is in progress", "prefix": _active_prefix()})
     job = provision(category, allow_repeat=allow_repeat)
     if job["status"] != "ok":
         return json.dumps(job, indent=2)
 
-    started = json.loads(sim_start())
-    if started["status"] == "timeout":
-        return json.dumps({"status": "failed", "step": "sim_start", "detail": started}, indent=2)
-    built = json.loads(setup_scene(config=config))
-    if built["status"] == "failed":
-        return json.dumps({"status": "failed", "step": "setup_scene", "detail": built}, indent=2)
-    scene_config = _scene_config()
+    job_data = json.loads((MCP_SESSIONS_DIR / "job.json").read_text(encoding="utf-8"))
+    launched = _launch(job_data, controller, config, record_video, video_every)
+    if launched["status"] != "started":
+        return json.dumps(launched, indent=2)
+    scene_config = launched["scene_config"]
 
-    job_file = MCP_SESSIONS_DIR / "job.json"
-    job_data = json.loads(job_file.read_text(encoding="utf-8"))
-    job_data["controller"] = controller
-    if controller == "act":
-        checkpoint = ACT_CHECKPOINTS.get(scene_config)
-        if checkpoint is None:
-            return json.dumps({"status": "failed", "reason": f"no ACT checkpoint for config {scene_config}"})
-        server = _ensure_policy_server(checkpoint)
-        if server["status"] == "failed":
-            return json.dumps({"status": "failed", "step": "act_policy_server", "detail": server}, indent=2)
-        job_data["policy_address"] = f"127.0.0.1:{ACT_PORT}"
-    job_file.write_text(json.dumps(job_data, indent=2), encoding="utf-8")
-    if record_video:
-        attached = _attach_capture(job["prefix"], scene_config, video_every)
-        if not _ok(attached):
-            return json.dumps({"status": "failed", "step": "attach_capture", "reply": attached}, indent=2)
-    else:
-        _detach_capture()
+    def make_result():
+        result = _result(job["category"], job["sample_id"], job["prefix"])
+        result.update({"controller": controller, "config": scene_config})
+        return result
 
-    # With allow_repeat an earlier run's report may already sit at this path;
-    # only a file written after this run starts counts as its result.
-    metrics_path = MCP_SESSIONS_DIR / f"{job['prefix']}_run_metrics.json"
-    run_started = time.time()
-
-    # The controller re-reads job.json and clears the previous drawing at INIT,
-    # so a stop/play cycle is all it takes to start the queued job. Confirm each
-    # transition from the timeline itself: a play once hung without effect
-    # right after the Action Graph was first created.
-    if not _set_timeline("simulation.stop", "stopped"):
-        return json.dumps({"status": "failed", "step": "simulation.stop", "timeline": _timeline()}, indent=2)
-    if not _set_timeline("simulation.play", "playing"):
-        return json.dumps({"status": "failed", "step": "simulation.play", "timeline": _timeline()}, indent=2)
-
-    deadline = time.monotonic() + wait_s
-    while time.monotonic() < deadline:
-        if metrics_path.exists() and metrics_path.stat().st_mtime >= run_started:
-            time.sleep(1)  # let the writer finish
-            result = _result(job["category"], job["sample_id"], job["prefix"])
-            result.update({"controller": controller, "config": scene_config})
-            if record_video:
-                time.sleep(3)  # let the last frames flush
-                _set_timeline("simulation.pause", "paused")
-                _detach_capture()
-                result["videos"] = _assemble_videos(
-                    job["prefix"], f"{job['category']} ({controller.upper()})",
-                    float(result.get("simulation_duration_s") or 0.0), video_every,
-                )
-            return json.dumps(result, indent=2)
-        time.sleep(5)
+    result = _await_run(
+        job["prefix"], launched["run_started"], wait_s, make_result, record_video=record_video,
+        video_every=video_every, video_label=f"{job['category']} ({controller.upper()})",
+    )
+    if result is not None:
+        return json.dumps(result, indent=2)
     return json.dumps(
         {"status": "running", "category": job["category"], "sample_id": job["sample_id"], "prefix": job["prefix"]},
         indent=2,
@@ -591,6 +657,257 @@ def draw_result(category: str, sample_id: str, prefix: str) -> str:
         state = _isaac("simulation.get_state", timeout_s=30)
         return json.dumps({"status": "running", "timeline": state.get("result", state.get("message"))}, indent=2)
     return json.dumps(_result(category, sample_id, prefix), indent=2)
+
+
+# ── WildTrace Studio: draw any trajectory file, poll live status. ───────────
+
+# How long a background (wait_s=0) studio run waits for its report before
+# giving up on assembling videos; the drawing itself keeps going in Isaac.
+STUDIO_WAIT_S = int(os.environ.get("WILDTRACE_STUDIO_WAIT_S", "3600"))
+STUDIO_VIDEO_EVERY = 4
+_PREFIX_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$")
+# One drawing at a time: Isaac has one robot and one timeline.
+_RUN_LOCK = threading.Lock()
+_LAUNCHES: dict[str, dict] = {}
+_LAUNCH_THREADS: dict[str, threading.Thread] = {}
+
+
+def _live_dir() -> Path:
+    return live_telemetry.live_dir(MCP_SESSIONS_DIR)
+
+
+def _active_prefix() -> str | None:
+    for prefix, launch in _LAUNCHES.items():
+        if launch.get("stage") not in ("done", "failed", "timed_out"):
+            return prefix
+    return None
+
+
+def _resolve_trajectory(trajectory_path: str) -> Path | None:
+    """A WSL path (absolute, or relative to the repo or isaac-sim/) or a
+    \\\\wsl.localhost\\<distro>\\... / \\\\wsl$\\<distro>\\... UNC path, as a WSL Path."""
+    raw = trajectory_path.strip()
+    lowered = raw.lower().replace("/", "\\")
+    for unc in ("\\\\wsl.localhost\\", "\\\\wsl$\\"):
+        if lowered.startswith(unc):
+            parts = raw.replace("/", "\\")[len(unc):].split("\\")[1:]  # drop the distro name
+            raw = "/" + "/".join(part for part in parts if part)
+            break
+    path = Path(raw).expanduser()
+    candidates = [path] if path.is_absolute() else [WILDTRACE_ROOT / path, ISAAC_SIM_PROJECT / path, Path.cwd() / path]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def _studio_file(prefix: str, kind: str) -> Path:
+    return MCP_SESSIONS_DIR / f"{prefix}_studio_{kind}.json"
+
+
+def _read_json(path: Path) -> dict | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _camera_frames(prefix: str) -> dict:
+    """Per camera: the WSL and Windows frames directories, the frame count and
+    the newest frame known to be completely written (the capture node saves
+    JPEGs on a thread pool, so the very newest file may still be growing)."""
+    cameras = {}
+    for camera in VIDEO_CAMERAS:
+        name = camera.rsplit("/", 1)[-1]
+        frames_dir = VIDEO_ROOT_WSL / prefix / name
+        try:
+            frames = sorted(entry for entry in os.listdir(frames_dir) if entry.endswith(".jpg"))
+        except OSError:
+            frames = []
+        latest = frames[-2] if len(frames) >= 2 else None
+        cameras[name] = {
+            "frames_dir": str(frames_dir),
+            "frames_dir_win": f"{VIDEO_ROOT_WIN}\\{prefix}\\{name}",
+            "frame_count": len(frames),
+            "latest_frame": str(frames_dir / latest) if latest else None,
+        }
+    return cameras
+
+
+def _fail_launch(prefix: str, launched: dict) -> None:
+    """A run that never reached the controller: record it where both
+    run_status and a UI that only reads the live status file will see it."""
+    _LAUNCHES[prefix].update(stage="failed", result=launched)
+    _studio_file(prefix, "result").write_text(json.dumps(launched, indent=2), encoding="utf-8")
+    detail = next((launched[key] for key in ("reason", "detail", "reply", "timeline") if launched.get(key)), "")
+    live_telemetry.write_status(live_telemetry.status_path(_live_dir(), prefix), {
+        "prefix": prefix, "phase": "LAUNCH", "progress": 0.0, "tip_world": None, "tip_canvas": None,
+        "error_mm": None, "sim_time": 0.0, "status": live_telemetry.STATUS_FAILED, "source": "isaac",
+        "failure_reason": f"{launched.get('step') or 'launch'}: {detail}", "updated_at": round(time.time(), 3),
+    })
+
+
+def _studio_run(prefix: str, job_data: dict, trajectory: Path, controller: str, config: str,
+                record_video: bool, title: str, wait_s: float) -> dict:
+    """Launch and wait for one studio run. The caller holds _RUN_LOCK; this releases it."""
+    try:
+        launch = _LAUNCHES[prefix]
+        launched = _launch(job_data, controller, config, record_video, STUDIO_VIDEO_EVERY,
+                           on_stage=lambda name: launch.update(stage=name))
+        if launched["status"] != "started":
+            launched["prefix"] = prefix
+            _fail_launch(prefix, launched)
+            return launched
+        scene_config = launched["scene_config"]
+        launch.update(stage="running", run_started=launched["run_started"], config=scene_config)
+
+        def make_result():
+            result = _metrics_summary(prefix, {"title": title, "trajectory_path": str(trajectory)})
+            result["comparison_plot"] = _plot(prefix, trajectory, title)
+            result.update({"controller": controller, "config": scene_config})
+            return result
+
+        result = _await_run(
+            prefix, launched["run_started"], wait_s, make_result, record_video=record_video,
+            video_every=STUDIO_VIDEO_EVERY, video_label=f"{title} ({controller.upper()})", stop_on_live_failure=True,
+        )
+        if result is None:
+            launch.update(stage="timed_out")
+            return {"status": "running", "prefix": prefix, "title": title, "trajectory_path": str(trajectory)}
+        launch.update(stage="done", result=result)
+        _studio_file(prefix, "result").write_text(json.dumps(result, indent=2), encoding="utf-8")
+        return result
+    except Exception as exc:  # a background thread has nobody else to report to
+        failed = {"status": "failed", "prefix": prefix, "step": _LAUNCHES.get(prefix, {}).get("stage"), "reason": repr(exc)}
+        _fail_launch(prefix, failed)
+        return failed
+    finally:
+        _RUN_LOCK.release()
+
+
+@mcp.tool()
+def draw_trajectory(
+    trajectory_path: str,
+    controller: str = "act",
+    config: str = "",
+    record_video: bool = True,
+    wait_s: int = 0,
+    title: str = "",
+) -> str:
+    """Draw any trajectory JSON (the pipeline schema: strokes of {x, y} points
+    in normalized canvas units) with the xArm7 in Isaac Sim, the same way
+    `draw` does, under a new prefix "studio_<8 hex>".
+
+    trajectory_path: WSL path (absolute, or relative to the repo or isaac-sim/)
+    or a \\\\wsl.localhost UNC path.
+    controller: "act" (default) or "ik". config: scene config; empty keeps the
+    current scene's. record_video: capture both cameras (live JPEG frames under
+    C:\\wildtrace\\videos\\<prefix>\\<Camera>\\) and assemble MP4s at the end.
+    wait_s: 0 returns at once with {"status": "started", "prefix", ...} while
+    the launch and run continue in the background (poll run_status(prefix) or
+    the live status file); > 0 waits like `draw` and returns its result fields,
+    or {"status": "running"} if the wait runs out. Only one run at a time:
+    a second call while one is active returns {"status": "busy"}."""
+    controller = controller.lower()
+    if controller not in ("ik", "act"):
+        return json.dumps({"status": "failed", "reason": f"unknown controller {controller!r}"})
+    trajectory = _resolve_trajectory(trajectory_path)
+    if trajectory is None:
+        return json.dumps({"status": "failed", "reason": f"trajectory file not found: {trajectory_path}"})
+    sys.path.insert(0, str(ISAAC_SIM_PROJECT / "src"))
+    from trajectory_loader import load_trajectory
+
+    try:
+        loaded = load_trajectory(trajectory)
+    except Exception as exc:
+        return json.dumps({"status": "failed", "reason": f"invalid trajectory: {exc}"})
+    if not _RUN_LOCK.acquire(blocking=False):
+        return json.dumps({"status": "busy", "reason": "another run is in progress", "prefix": _active_prefix()})
+
+    prefix = f"studio_{uuid.uuid4().hex[:8]}"
+    title = title.strip() or trajectory.stem
+    job_data = {"trajectory_path": _unc(trajectory), "prefix": prefix, "title": title, "source": "studio"}
+    info = {
+        "prefix": prefix,
+        "title": title,
+        "trajectory_path": str(trajectory),
+        "trajectory_path_win": job_data["trajectory_path"],
+        "controller": controller,
+        "config": config or _scene_config(),
+        "record_video": record_video,
+        "stroke_count": len(loaded["strokes"]),
+        "point_count": sum(len(stroke["points"]) for stroke in loaded["strokes"]),
+        "telemetry_file": str(live_telemetry.status_path(_live_dir(), prefix)),
+        "trace_file": str(live_telemetry.trace_path(_live_dir(), prefix)),
+        "frames_dir": str(VIDEO_ROOT_WSL / prefix) if record_video else None,
+        "cameras": [camera.rsplit("/", 1)[-1] for camera in VIDEO_CAMERAS] if record_video else [],
+        "created_at": round(time.time(), 3),
+    }
+    try:
+        MCP_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+        _studio_file(prefix, "job").write_text(json.dumps(info, indent=2), encoding="utf-8")
+    except OSError as exc:
+        _RUN_LOCK.release()
+        return json.dumps({"status": "failed", "reason": f"cannot write studio job: {exc}"})
+    _LAUNCHES[prefix] = {**info, "stage": "queued"}
+    args = (prefix, job_data, trajectory, controller, config, record_video, title)
+    if wait_s <= 0:
+        thread = threading.Thread(target=_studio_run, args=(*args, STUDIO_WAIT_S), name=f"studio-{prefix}", daemon=True)
+        _LAUNCH_THREADS[prefix] = thread
+        thread.start()
+        return json.dumps({"status": "started", **info}, indent=2)
+    return json.dumps({**info, **_studio_run(*args, wait_s)}, indent=2)
+
+
+@mcp.tool()
+def run_status(prefix: str) -> str:
+    """Live state of a run by prefix (from draw_trajectory or draw): the latest
+    live telemetry, the launch stage while Isaac/scene/policy are still being
+    prepared, run metrics once the report exists, the result (plot, videos)
+    once finalized, and each camera's frames directory with its newest frame.
+    "status" is "launching", "drawing", "finished", "failed" or "unknown"."""
+    if not _PREFIX_RE.match(prefix or ""):
+        return json.dumps({"status": "failed", "reason": f"invalid prefix {prefix!r}"})
+    live = live_telemetry.read_status(live_telemetry.status_path(_live_dir(), prefix))
+    launch = {key: value for key, value in _LAUNCHES.get(prefix, {}).items() if key != "result"}
+    job = launch or _read_json(_studio_file(prefix, "job")) or {}
+    result = _LAUNCHES.get(prefix, {}).get("result") or _read_json(_studio_file(prefix, "result"))
+    metrics_path = MCP_SESSIONS_DIR / f"{prefix}_run_metrics.json"
+    metrics = None
+    run_started = launch.get("run_started")
+    # 1 s of slack: file mtimes are coarser than time.time().
+    if metrics_path.exists() and (run_started is None or metrics_path.stat().st_mtime >= run_started - 1):
+        try:
+            metrics = _metrics_summary(prefix)
+        except (OSError, ValueError):
+            metrics = None  # mid-write; the next poll gets it
+
+    stage = launch.get("stage")
+    if stage == "failed":
+        status = "failed"
+    elif live is not None and (run_started is None or float(live.get("updated_at") or 0) >= run_started):
+        status = live.get("status", "unknown")
+    elif stage is not None and stage not in ("done", "timed_out"):
+        status = "launching"
+    elif metrics is not None:
+        status = metrics["status"]
+    else:
+        status = "unknown"
+    videos = sorted(str(path) for path in (VIDEO_OUT / prefix).glob("*.mp4")) if (VIDEO_OUT / prefix).is_dir() else []
+    return json.dumps({
+        "status": status,
+        "prefix": prefix,
+        "launch_stage": stage,
+        # Results (plot, videos) are still being produced after the drawing ends.
+        "finalizing": status in ("finished", "failed") and stage == "running",
+        "telemetry": live,
+        "metrics": metrics,
+        "result": result,
+        "job": job or None,
+        "cameras": _camera_frames(prefix),
+        "videos": videos,
+        "trace_file": str(live_telemetry.trace_path(_live_dir(), prefix)),
+    }, indent=2)
 
 
 if __name__ == "__main__":
