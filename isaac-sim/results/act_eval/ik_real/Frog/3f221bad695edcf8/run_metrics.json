@@ -1,0 +1,40 @@
+{
+  "control_parameters": {
+    "corner_densify_factor": 3,
+    "corner_window_points": 5,
+    "drive_damping": 650.0,
+    "drive_stiffness": 75000.0,
+    "smoothing_strength": 0.4
+  },
+  "controller": "ik",
+  "corner_gated_targets": 638,
+  "desired_pen_down_points": 533,
+  "drawing_id": "3f221bad695edcf8",
+  "executed_pen_down_samples": 0,
+  "failure_reason": "Waypoint timeout in APPROACH_STROKE_0 at index 14",
+  "heading_chord_m": 0.004,
+  "requested_stroke_count": 2,
+  "simulation_duration_s": 18.050847491249442,
+  "simulation_steps": 1065,
+  "status": "failed",
+  "tolerances": {
+    "corner_ik_tolerance_m": 0.00015,
+    "corner_tolerance_m": 0.0011,
+    "ik_position_tolerance_m": 0.0002,
+    "max_joint_delta_rad": 0.035,
+    "max_tip_speed_mm_s": 7.0,
+    "target_tolerance_m": 0.0012
+  },
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "FAILED"
+  ],
+  "waypoint_reach_error": {
+    "max_error_m": 0.00119633213097812,
+    "mean_error_m": 0.0011749184920081307,
+    "p95_error_m": 0.001194796002440105,
+    "rmse_m": 0.0011751083849409856,
+    "sample_count": 14
+  }
+}

@@ -1,0 +1,198 @@
+{
+  "description": "Held-out ACT test set: the 48 gold trajectories. Excluded from all ACT training data on every machine and used for every closed-loop comparison (IK vs ACT).",
+  "count": 48,
+  "drawings": [
+    {
+      "category": "Bird",
+      "sample_id": "1a5733d2b6fb8c11"
+    },
+    {
+      "category": "Bird",
+      "sample_id": "35d8032b6ae21c32"
+    },
+    {
+      "category": "Bird",
+      "sample_id": "48f51b30016f8eb1"
+    },
+    {
+      "category": "Bird",
+      "sample_id": "91f30c2ab24c76ea"
+    },
+    {
+      "category": "Bird",
+      "sample_id": "99cbe879e4812b0b"
+    },
+    {
+      "category": "Bird",
+      "sample_id": "bbf4a726747089d9"
+    },
+    {
+      "category": "Bird",
+      "sample_id": "c326f229ac98c00a"
+    },
+    {
+      "category": "Bird",
+      "sample_id": "c3a528aafbfd7b55"
+    },
+    {
+      "category": "Bird",
+      "sample_id": "c3b05340ef29131f"
+    },
+    {
+      "category": "Cat",
+      "sample_id": "1163bceaf6134cf5"
+    },
+    {
+      "category": "Cat",
+      "sample_id": "323bd30d42ee2cf3"
+    },
+    {
+      "category": "Cat",
+      "sample_id": "4651e893ac2a26d4"
+    },
+    {
+      "category": "Cat",
+      "sample_id": "4a1ad0b44c7f462c"
+    },
+    {
+      "category": "Cat",
+      "sample_id": "4a933ea53cf400bc"
+    },
+    {
+      "category": "Cat",
+      "sample_id": "69fff8521d33da91"
+    },
+    {
+      "category": "Cat",
+      "sample_id": "70bc30f8a5f918eb"
+    },
+    {
+      "category": "Cat",
+      "sample_id": "959e69e03f23a3a3"
+    },
+    {
+      "category": "Cat",
+      "sample_id": "ab7beb0372c96b9c"
+    },
+    {
+      "category": "Cat",
+      "sample_id": "d190d0c5f8107942"
+    },
+    {
+      "category": "Cat",
+      "sample_id": "e36c22e2336311bc"
+    },
+    {
+      "category": "Cat",
+      "sample_id": "efa93c03483769d5"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "07379e952b3f0513"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "0b763b6b700d128e"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "14ab42e1e62789e2"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "273c3abeece5d4b2"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "4cf9d2757b8a6282"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "728ed437fdddba4c"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "96ab6db6d9116afe"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "98980e7442f4a93c"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "9c942e2bb316cdb6"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "cd5042b9731161f9"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "e2fecb06cd346683"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "ea59d6637578c29d"
+    },
+    {
+      "category": "Dog",
+      "sample_id": "ed3fc2b8d2e88c0d"
+    },
+    {
+      "category": "Fish",
+      "sample_id": "a7cbe5e2b0f491bb"
+    },
+    {
+      "category": "Fish",
+      "sample_id": "ba3e1657db195fe4"
+    },
+    {
+      "category": "Fish",
+      "sample_id": "ce7b60c8b362b074"
+    },
+    {
+      "category": "Fish",
+      "sample_id": "dd305a2886cbf23c"
+    },
+    {
+      "category": "Frog",
+      "sample_id": "3f221bad695edcf8"
+    },
+    {
+      "category": "Frog",
+      "sample_id": "6bbd7fa65eede66e"
+    },
+    {
+      "category": "Frog",
+      "sample_id": "8ae3adc42375beba"
+    },
+    {
+      "category": "Frog",
+      "sample_id": "a9263f399b2c5dd0"
+    },
+    {
+      "category": "Frog",
+      "sample_id": "aef94e7551606d10"
+    },
+    {
+      "category": "Horse",
+      "sample_id": "165c17090deb8a48"
+    },
+    {
+      "category": "Horse",
+      "sample_id": "2b22d42510450af1"
+    },
+    {
+      "category": "Horse",
+      "sample_id": "7c54b4c75832b3b9"
+    },
+    {
+      "category": "Horse",
+      "sample_id": "a84882576126b982"
+    },
+    {
+      "category": "Horse",
+      "sample_id": "e659138f70574103"
+    }
+  ]
+}

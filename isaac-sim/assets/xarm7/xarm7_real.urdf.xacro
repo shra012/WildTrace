@@ -1,0 +1,77 @@
+<?xml version="1.0"?>
+<!-- The physical lab arm (192.168.1.241) around the official UFACTORY macros:
+     xArm 7 with its own calibrated kinematics, the xArm Gripper (G1) on the
+     flange, and a pen held at the gripper TCP. Like xarm7_isaac.urdf.xacro it
+     excludes xarm_sdk, ros2_control, Gazebo and all hardware plugins.
+     The calibrated parameters (xarm7_kinematics_real241.yaml) were read from the robot itself:
+       python xarm_description/config/kinematics/gen_kinematics_params.py 192.168.1.241 real241 -->
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="xarm7_real">
+  <xacro:include filename="$(find xarm_description)/urdf/common/common.material.xacro"/>
+  <xacro:include filename="$(find xarm_description)/urdf/common/common.link.xacro"/>
+  <xacro:include filename="$(find xarm_description)/urdf/xarm7/xarm7.urdf.xacro"/>
+  <xacro:include filename="$(find xarm_description)/urdf/gripper/xarm_gripper.urdf.xacro"/>
+
+  <xacro:property name="mesh_suffix" value="stl"/>
+  <xacro:property name="mesh_path" value="file://$(find xarm_description)/meshes"/>
+  <xacro:property name="use_xacro_load_yaml" value="true"/>
+  <!-- Set by src/xacro_builder.py to this folder. -->
+  <xacro:arg name="asset_dir" default="."/>
+  <xacro:common_material prefix=""/>
+
+  <!-- Pen tip beyond the gripper TCP along its +Z. 0 matches the controller's
+       172 mm TCP offset, which is what every captured pose was measured with. -->
+  <xacro:property name="pen_tip_beyond_tcp_m" value="0.0"/>
+  <xacro:property name="pen_length_m" value="0.08"/>
+
+  <link name="world"/>
+  <joint name="world_joint" type="fixed">
+    <parent link="world"/>
+    <child link="link_base"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:xarm7_urdf
+      prefix=""
+      model_num="-1"
+      inertial_params_filename=""
+      kinematics_params_filename="$(arg asset_dir)/xarm7_kinematics_real241.yaml"/>
+
+  <link name="link_eef"/>
+  <joint name="joint_eef" type="fixed">
+    <parent link="link7"/>
+    <child link="link_eef"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Defines link_tcp 0.172 m along the flange +Z. Finger joints are frozen by
+       the builder: the gripper only holds the pen. -->
+  <xacro:xarm_gripper_urdf prefix="" attach_to="link_eef" gripper_version="G1"/>
+
+  <link name="pen_body">
+    <visual>
+      <origin xyz="0 0 ${pen_tip_beyond_tcp_m - pen_length_m / 2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.005" length="${pen_length_m}"/></geometry>
+      <material name="PenBlue"><color rgba="0.05 0.15 0.85 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${pen_tip_beyond_tcp_m - pen_length_m / 2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.005" length="${pen_length_m}"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 ${pen_tip_beyond_tcp_m - pen_length_m / 2}" rpy="0 0 0"/>
+      <mass value="0.02"/>
+      <inertia ixx="0.000011" ixy="0" ixz="0" iyy="0.000011" iyz="0" izz="0.0000003"/>
+    </inertial>
+  </link>
+  <joint name="pen_mount_joint" type="fixed">
+    <parent link="link_tcp"/>
+    <child link="pen_body"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+  <link name="pen_tip"/>
+  <joint name="pen_tip_joint" type="fixed">
+    <parent link="pen_body"/>
+    <child link="pen_tip"/>
+    <origin xyz="0 0 ${pen_tip_beyond_tcp_m}" rpy="0 0 0"/>
+  </joint>
+</robot>

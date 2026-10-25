@@ -1,0 +1,166 @@
+@import "tailwindcss";
+
+@plugin "daisyui" {
+  themes: false;
+}
+
+@plugin "daisyui/theme" {
+  name: "wildtrace-dark";
+  default: true;
+  prefersdark: true;
+  color-scheme: dark;
+  --color-base-100: oklch(22% 0.017 258);
+  --color-base-200: oklch(19% 0.016 258);
+  --color-base-300: oklch(16% 0.014 258);
+  --color-base-content: oklch(92% 0.012 258);
+  --color-primary: oklch(79% 0.135 172);
+  --color-primary-content: oklch(21% 0.04 172);
+  --color-secondary: oklch(72% 0.15 292);
+  --color-secondary-content: oklch(18% 0.04 292);
+  --color-accent: oklch(83% 0.14 78);
+  --color-accent-content: oklch(23% 0.05 78);
+  --color-neutral: oklch(28% 0.02 258);
+  --color-neutral-content: oklch(88% 0.012 258);
+  --color-info: oklch(75% 0.12 236);
+  --color-info-content: oklch(20% 0.04 236);
+  --color-success: oklch(77% 0.15 155);
+  --color-success-content: oklch(20% 0.04 155);
+  --color-warning: oklch(83% 0.15 82);
+  --color-warning-content: oklch(23% 0.05 82);
+  --color-error: oklch(69% 0.19 22);
+  --color-error-content: oklch(97% 0.01 22);
+  --radius-selector: 1rem;
+  --radius-field: 0.6rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+@plugin "daisyui/theme" {
+  name: "wildtrace-light";
+  default: false;
+  prefersdark: false;
+  color-scheme: light;
+  --color-base-100: oklch(99.2% 0.003 250);
+  --color-base-200: oklch(96.6% 0.007 250);
+  --color-base-300: oklch(92.5% 0.011 250);
+  --color-base-content: oklch(26% 0.025 260);
+  --color-primary: oklch(56% 0.115 182);
+  --color-primary-content: oklch(98% 0.01 182);
+  --color-secondary: oklch(54% 0.2 292);
+  --color-secondary-content: oklch(98% 0.01 292);
+  --color-accent: oklch(72% 0.16 62);
+  --color-accent-content: oklch(22% 0.05 62);
+  --color-neutral: oklch(32% 0.025 260);
+  --color-neutral-content: oklch(96% 0.01 260);
+  --color-info: oklch(60% 0.14 240);
+  --color-info-content: oklch(98% 0.01 240);
+  --color-success: oklch(60% 0.15 155);
+  --color-success-content: oklch(98% 0.01 155);
+  --color-warning: oklch(76% 0.16 75);
+  --color-warning-content: oklch(24% 0.05 75);
+  --color-error: oklch(58% 0.21 25);
+  --color-error-content: oklch(98% 0.01 25);
+  --radius-selector: 1rem;
+  --radius-field: 0.6rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --animate-fade-in: fade-in 0.25s ease-out both;
+  --animate-rise: rise 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-pulse-ring: pulse-ring 1.6s ease-out infinite;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes pulse-ring {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 55%, transparent);
+    }
+    100% {
+      box-shadow: 0 0 0 7px transparent;
+    }
+  }
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-base-300);
+  background-image:
+    radial-gradient(60rem 30rem at 10% -10%, color-mix(in oklab, var(--color-primary) 9%, transparent), transparent 70%),
+    radial-gradient(50rem 30rem at 100% 0%, color-mix(in oklab, var(--color-secondary) 8%, transparent), transparent 70%);
+  background-attachment: fixed;
+  color: var(--color-base-content);
+}
+
+@layer components {
+  .panel {
+    @apply flex min-h-0 flex-col overflow-hidden rounded-box border border-base-content/10 bg-base-100/80 shadow-sm backdrop-blur;
+  }
+  .panel-header {
+    @apply flex items-center gap-2 border-b border-base-content/10 px-4 py-3;
+  }
+  .panel-title {
+    @apply text-sm font-semibold tracking-wide;
+  }
+  .paper {
+    background-color: #fbfaf7;
+    background-image:
+      linear-gradient(to right, rgb(0 0 0 / 0.035) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(0 0 0 / 0.035) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  .checker {
+    background-color: #fff;
+  }
+}
+
+@layer utilities {
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--color-base-content) 22%, transparent) transparent;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,4 @@
+{"name": "1a5733d2b6fb8c11", "category": "Bird", "exit_code": 0, "status": "finished", "wall_s": 65.5, "sim_s": 56.8135594278574, "rmse_m": 0.0009098529969911995}
+{"name": "35d8032b6ae21c32", "category": "Bird", "exit_code": 0, "status": "finished", "wall_s": 82.4, "sim_s": 78.89830523170531, "rmse_m": 0.0007362855955173689}
+{"name": "48f51b30016f8eb1", "category": "Bird", "exit_code": 0, "status": "finished", "wall_s": 54.6, "sim_s": 44.372881438583136, "rmse_m": 0.0008108324320039876}
+{"name": "91f30c2ab24c76ea", "category": "Bird", "exit_code": 1, "status": "failed", "wall_s": 72.5, "sim_s": 65.11864418908954, "rmse_m": 0.005230093269335216}

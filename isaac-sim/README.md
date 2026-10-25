@@ -87,6 +87,18 @@ python3 scripts/plot_drawing_comparison.py \
   --output outputs/mcp_sessions/<prefix>_comparison.png --title "<Category> (<sample_id>)"
 ```
 
+### Lab-arm twin, ACT and video via MCP
+
+`setup_scene(config="config/xarm7_drawing_real.yaml")` builds the lab-arm twin (calibrated URDF with
+gripper, measured paper placement, 1 g, stiffened servo) instead of the default sim; the choice is stored in
+`outputs/mcp_sessions/scene.json`, which `setup_scene.py` and `mcp_drawing_controller.py` both read.
+`draw(category, controller="act", record_video=True)` starts `scripts/act_policy_server.py` with the model
+for the scene (`models/act_real_kinematic_v2` for the twin, `models/act_kinematic_v4` otherwise), runs the
+ACT policy in the Action Graph controller, records `/World/VideoCams/WideFront` and `PaperTop` through
+`scripts/video_capture_node.py` (with live ink on the sheet), and writes one MP4 per camera to
+`outputs/videos/<prefix>/`. The server launches Isaac and checks `kit.exe` through `cmd.exe`/`tasklist`;
+PowerShell hangs when called from WSL on this machine. Restart the MCP server (`/mcp`) after editing it.
+
 ### Rules that bite
 
 - Check each script's JSON `status` field, never the shell exit code (`wsl.exe` exit codes are unreliable through Git-Bash).
@@ -190,6 +202,70 @@ call "%ISAAC_ROOT%\python.bat" scripts\evaluate_policy.py --config config\xarm7_
 ```
 
 Evaluation is offline imitation evaluation only; it does not claim closed-loop Isaac or physical-robot performance.
+
+## ACT path-following policy (LeRobot)
+
+An ACT policy replaces Lula IK in the drawing loop: joint state plus the next 2 cm of pen path in,
+joint steps out. Branch `shra012/act-training`. Config: `config/act_drawing.yaml`.
+
+**Data.** `scripts/label_kinematic_ik.py` walks every non-gold trajectory through the same motion
+phases the runner executes and labels it with Lula IK without a physics sim (Lula imports directly in
+Isaac's python, ~20k solves/s), 3 episodes per drawing. Episodes a1/a2 add DART-style command noise
+and a measured-versus-commanded servo offset so the policy sees off-path states and gravity-like sag
+together with the corrective label. Progress along the path comes from projecting the actual tip onto
+it (`act_features.project_on_path`), the same rule the runner uses at run time. `isaac_batch.py record`
+adds Isaac 1 g IK rollouts (format-version-2 NPZ with commanded joints) for fine-tuning.
+
+**Features** (`src/act_features.py`, shared by labeller, recorder, converter and runner):
+`observation.state` = q, qd, previous command (21); `observation.environment_state` = tip, target - tip,
+10-point equal-arc path window relative to the tip, pen_down (37); `action` = step from the previous
+joint command (7). Absolute joint targets were too imprecise (mm-level at the tip even on one drawing).
+
+```bash
+# 1. Kinematic labels (Windows Isaac python, no SimulationApp; ~20 min for 8.5k episodes)
+cmd.exe /c "C:\isaac-sim-6.0.1\python.bat \\wsl.localhost\Ubuntu-24.04\...\isaac-sim\scripts\label_kinematic_ik.py --out ...\outputs\act_demos\kinematic_v3"
+# 2. LeRobot datasets (WSL, isolated env: uv venv isaac-sim/.venv-act && uv pip install 'lerobot[dataset,training]==0.6.1')
+isaac-sim/.venv-act/bin/python isaac-sim/scripts/build_lerobot_dataset.py --inputs "outputs/act_demos/kinematic_v3/*/*.npz" --name wildtrace_kin_v1
+# 3. Train (stages in config/act_drawing.yaml; --policy KEY=VALUE overrides)
+isaac-sim/.venv-act/bin/python isaac-sim/scripts/train_act.py --stage kinematic
+# 4. Serve the checkpoint; Isaac reaches WSL through localhost forwarding
+isaac-sim/.venv-act/bin/python isaac-sim/scripts/act_policy_server.py --checkpoint outputs/act/kinematic/checkpoints/last/pretrained_model --execution first
+# 5. Closed loop on the 48 held-out gold drawings, then the comparison report
+python3 isaac-sim/scripts/isaac_batch.py eval --controller act --tag act_kin
+python3 isaac-sim/scripts/report_act_eval.py --baseline ik --tags ik act_kin
+```
+
+`isaac_batch.py` launches one headless runner per drawing with stdin closed and
+`OMNI_KIT_ACCEPT_EULA=YES`; without both, Kit blocks at startup indefinitely.
+
+**Recipe findings (single-drawing overfit gate).** ACT defaults (VAE, dropout 0.1, lr 1e-4) left 33-45%
+relative first-action error on training frames; no VAE, dropout 0, lr 3e-4 reach ~11%. A 10-step chunk
+fits the executed first action ~2.5x better at p95 than a 30-step chunk. Re-planning every tick
+(`--execution first`) tracks far better than temporal ensembling. Kinematic labels alone draw the gate
+drawing at 0 g (0.50 mm path RMSE) but drift in z at 1 g; a short fine-tune on four Isaac 1 g demos of
+the drawing finishes it at 0.84 mm (IK: 0.68-0.78 mm).
+
+**Results, 48 held-out gold drawings, 1 g** (`report_act_eval.py`, means over finished drawings):
+
+| Controller | Finished | Path RMSE | p95 | Corner RMSE | Joint jerk RMS | Draw time |
+|---|---|---|---|---|---|---|
+| Lula IK | 39/48 | 0.698 mm | 0.883 mm | 0.813 mm | 806 rad/s^3 | 94 s |
+| ACT, 30 Hz step held 2 physics steps | 48/48 | 0.366 mm | 0.567 mm | 0.307 mm | 1018 rad/s^3 | 67 s |
+| ACT, queried at 60 Hz, half step (default) | 48/48 | 0.325 mm | 0.483 mm | 0.292 mm | 272 rad/s^3 | 68 s |
+| ACT v2, hairpin fix (`models/act_kinematic_v2`) | 48/48 | 0.239 mm | 0.413 mm | 0.289 mm | 255 rad/s^3 | 66 s |
+| ACT v4, spike-tip fix (`models/act_kinematic_v4`) | 48/48 | 0.256 mm | 0.443 mm | 0.396 mm | 285 rad/s^3 | 76 s |
+
+IK fails all 4 Fish drawings and 5 others with a first-stroke waypoint timeout. ACT (kinematic stage A
+checkpoint, `outputs/act/kinematic`) has lower path RMSE than IK on 38 of the 39 drawings both finish.
+v1 had a hairpin problem: the projection-based progress could jump across narrow hairpins (8.1 mm on a
+162 deg toe in Frog `8ae3adc42375beba`). v2 caps the projection at 5 mm of path ahead: that drawing's
+worst point drops to 0.72 mm (IK 1.01), worst-point error averages 1.47 mm (v1 2.36, IK 0.99), heading
+RMSE improves to 9.2 deg (IK 10.0) and ACT beats IK on path RMSE on 39/39 drawings. v2 still rounded
+needle-sharp spike tips by up to 2.6 mm on 10 drawings: within 5 mm the tracker hopped from one leg of a
+spike to the other. Slowing the labels into sharp turns (v3) made things worse (1.86 mm mean worst point).
+v4 cuts the window to 1.5 mm: worst point 0.89 mm mean (IK 0.99), 1.48 mm at most, none over 1.5 mm. Fine-tuning on Isaac IK demos
+(`physics_finetune`) made tracking worse (0.74-0.91 mm on a 4-drawing check): those labels carry IK's own
+~0.7 mm sag error, so the kinematic checkpoint is the one to use.
 
 ## V0 trajectory-conditioned PPO baseline
 
