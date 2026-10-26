@@ -1,0 +1,55 @@
+{
+  "config_hash": "fa95ad083029",
+  "config_path": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\shravan\\Workspace\\WildTrace\\isaac-sim\\config\\xarm7_drawing_real.yaml",
+  "controller": "act",
+  "desired_pen_down_points": 802,
+  "desired_to_executed_nearest_path_error": {
+    "max_error_m": 0.0011363387834413523,
+    "mean_error_m": 0.00018130812401961677,
+    "p95_error_m": 0.00035559557458663294,
+    "rmse_m": 0.00021315826503584605,
+    "sample_count": 802
+  },
+  "drawing_id": "trajectory",
+  "executed_pen_down_samples": 2108,
+  "executed_sample_count": 3325,
+  "executed_to_desired_nearest_path_error": {
+    "max_error_m": 0.0007622656261425768,
+    "mean_error_m": 0.0003266540312374124,
+    "p95_error_m": 0.0006362859490720633,
+    "rmse_m": 0.0003727085760177149,
+    "sample_count": 2108
+  },
+  "failure_reason": "",
+  "git_sha": "unknown",
+  "simulation_duration_s": 55.916666778497266,
+  "status": "finished",
+  "stroke_count": 4,
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "LOWER_PEN_STROKE_0",
+    "DRAW_STROKE_0",
+    "LIFT_PEN_STROKE_0",
+    "MOVE_TO_STROKE_1",
+    "LOWER_PEN_STROKE_1",
+    "DRAW_STROKE_1",
+    "LIFT_PEN_STROKE_1",
+    "MOVE_TO_STROKE_2",
+    "LOWER_PEN_STROKE_2",
+    "DRAW_STROKE_2",
+    "LIFT_PEN_STROKE_2",
+    "MOVE_TO_STROKE_3",
+    "LOWER_PEN_STROKE_3",
+    "DRAW_STROKE_3",
+    "LIFT_PEN_STROKE_3",
+    "FINISHED"
+  ],
+  "waypoint_reach_error": {
+    "max_error_m": 0.00119993205920188,
+    "mean_error_m": 0.0007292068182067342,
+    "p95_error_m": 0.0011577488953334915,
+    "rmse_m": 0.0008044341938973635,
+    "sample_count": 2178
+  }
+}

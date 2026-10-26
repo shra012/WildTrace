@@ -479,7 +479,7 @@ def _metrics_summary(prefix: str, identity: dict | None = None) -> dict:
     }
 
 
-def _plot(prefix: str, trajectory: Path, title: str) -> str:
+def _plot(prefix: str, trajectory: Path, title: str, config: str = "") -> str:
     plot_path = MCP_SESSIONS_DIR / f"{prefix}_comparison.png"
     plot = subprocess.run(
         [
@@ -489,6 +489,7 @@ def _plot(prefix: str, trajectory: Path, title: str) -> str:
             "--executed-csv", str(MCP_SESSIONS_DIR / f"{prefix}_executed_path.csv"),
             "--output", str(plot_path),
             "--title", title,
+            "--config", config or _scene_config(),
         ],
         capture_output=True,
         text=True,
@@ -763,7 +764,7 @@ def _studio_run(prefix: str, job_data: dict, trajectory: Path, controller: str, 
 
         def make_result():
             result = _metrics_summary(prefix, {"title": title, "trajectory_path": str(trajectory)})
-            result["comparison_plot"] = _plot(prefix, trajectory, title)
+            result["comparison_plot"] = _plot(prefix, trajectory, title, scene_config)
             result.update({"controller": controller, "config": scene_config})
             return result
 

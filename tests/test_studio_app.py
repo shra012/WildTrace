@@ -136,3 +136,19 @@ def test_group_photo_waits_for_a_face_choice(client):
     stages = {s["name"]: s["status"] for s in job["stages"]}
     assert stages == {"detect_faces": "done", "choose_face": "done", "face_landmarks": "done", "extract": "done"}
     assert client.post(f"/api/jobs/{job['id']}/choose", json={"index": 1}).status_code == 409
+
+
+def test_animal_worker_reports_pipeline_errors(client, tmp_path):
+    """The animal pipeline runs in a child process; its errors come back as a job error, not a crash."""
+    from wildtrace_app import jobs
+
+    events = []
+    with pytest.raises(RuntimeError) as failure:
+        jobs._run_animal_worker(
+            "job_worker_test",
+            {"out_dir": tmp_path, "repo_root": REPO_ROOT, "config_dir": REPO_ROOT / "configs", "category": "Dog",
+             "image_path": tmp_path / "missing.jpg", "sample": None, "backend": "openrouter"},
+            events.append,
+        )
+    assert "missing.jpg" in str(failure.value) or "No such file" in str(failure.value)
+    assert (jobs.store.job_dir("job_worker_test") / "worker.log").exists()

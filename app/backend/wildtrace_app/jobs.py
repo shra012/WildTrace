@@ -9,8 +9,11 @@ Jobs run in a small thread pool and report every stage through the store.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
+import subprocess
+import sys
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -210,6 +213,39 @@ def choose_face(job_id: str, index: int) -> dict[str, Any]:
 
 # Animal -------------------------------------------------------------------------------------
 
+def _run_animal_worker(job_id: str, request: dict[str, Any], emit) -> dict[str, Any]:
+    """generate_animal_trajectory in a child process (see animal_worker.py), relaying its stage events."""
+    from wildtrace.studio_pipeline import StageEvent
+
+    out_dir = store.job_dir(job_id)
+    request_path = out_dir / "worker_request.json"
+    request_path.write_text(json.dumps(request, default=str, indent=2), encoding="utf-8")
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(Path(__file__).resolve().parents[1]), str(settings.REPO_ROOT)])}
+    with (out_dir / "worker.log").open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "wildtrace_app.animal_worker", str(request_path)],
+            cwd=settings.REPO_ROOT, env=env, stdout=subprocess.PIPE, stderr=log, text=True,
+        )
+        outcome: dict[str, Any] = {}
+        for line in process.stdout:
+            try:
+                message = json.loads(line)
+            except ValueError:
+                continue
+            if "event" in message:
+                event = message["event"]
+                emit(StageEvent(**{**event, "artifact_path": Path(event["artifact_path"]) if event.get("artifact_path") else None}))
+            else:
+                outcome = message
+        code = process.wait()
+    if "result" in outcome:
+        return outcome["result"]
+    if code in (-9, 137):
+        raise RuntimeError("The drawing worker was stopped by the system for running out of memory "
+                           "(FLUX-schnell needs about 20 GB of free RAM). Close other programs and try again.")
+    raise RuntimeError(outcome.get("error") or f"The drawing worker exited with code {code}; see {out_dir / 'worker.log'}")
+
+
 def _animal_work(job_id: str, category: str, image_path: Path | None, hint: str | None):
     def work() -> dict[str, Any]:
         from wildtrace import studio_pipeline as sp
@@ -222,11 +258,11 @@ def _animal_work(job_id: str, category: str, image_path: Path | None, hint: str 
             emit(sp.StageEvent("pick_photo", "Pick an unused photo", "done", backend="open images",
                                detail=str(sample.get("sample_id", "")), artifact_path=sample.get("resolved_image_path")))
         backend = sp.select_image_backend(settings.REPO_ROOT, settings.CONFIG_DIR)
-        return sp.generate_animal_trajectory(
-            out_dir=store.job_dir(job_id), repo_root=settings.REPO_ROOT, config_dir=settings.CONFIG_DIR,
-            category=category, image_path=image_path if sample is None else None,
-            mask_path=None, sample=sample, emit=emit, backend=backend,
-        )
+        return _run_animal_worker(job_id, {
+            "out_dir": store.job_dir(job_id), "repo_root": settings.REPO_ROOT, "config_dir": settings.CONFIG_DIR,
+            "category": category, "image_path": image_path if sample is None else None, "sample": sample,
+            "backend": backend,
+        }, emit)
     return work
 
 

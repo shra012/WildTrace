@@ -33,6 +33,8 @@ VIDEO_ROOT = Path(os.environ.get("WILDTRACE_VIDEO_ROOT", "/mnt/c/wildtrace/video
 # Replays are compressed to about this many wall seconds (never slower than real time).
 REPLAY_SECONDS = float(os.environ.get("WILDTRACE_REPLAY_SECONDS", "45"))
 POLL_S = 0.1
+# How long a live run waits for the previous one to finish before giving up.
+BUSY_WAIT_S = float(os.environ.get("WILDTRACE_BUSY_WAIT_S", "900"))
 
 _active: dict[str, dict[str, Any]] = {}   # run_id -> {"prefix", "replay"?, "trace_file", "status_file"}
 _lock = threading.Lock()
@@ -98,11 +100,13 @@ def start_run(job: dict[str, Any], controller: str, mode: str | None) -> dict[st
     if mode is None:
         mode = "live" if health.isaac().get("running") else "replay"
     run = store.create_run(job["id"], controller, mode)
+    if mode == "live":
+        # Launching can wait minutes (Isaac start-up, or the previous run still writing its videos),
+        # so it happens on the run's own thread and the request returns at once.
+        threading.Thread(target=_launch_and_monitor, args=(run, job, controller), name=f"run-{run['id']}", daemon=True).start()
+        return store.get_run(run["id"])
     try:
-        if mode == "live":
-            _start_live(run, job, controller)
-        else:
-            _start_replay(run, job, controller)
+        _start_replay(run, job, controller)
     except Exception as exc:  # reported on the run; nothing else to clean up yet
         bus.log(f"Could not start the {mode} run: {exc}", "error")
         return store.update_run(run["id"], status="failed", error=str(exc))
@@ -110,14 +114,31 @@ def start_run(job: dict[str, Any], controller: str, mode: str | None) -> dict[st
     return store.get_run(run["id"])
 
 
+def _launch_and_monitor(run: dict[str, Any], job: dict[str, Any], controller: str) -> None:
+    try:
+        _start_live(run, job, controller)
+    except Exception as exc:  # reported on the run; nothing else to clean up yet
+        bus.log(f"Could not start the live run: {exc}", "error")
+        store.update_run(run["id"], status="failed", error=str(exc))
+        return
+    _monitor(run["id"])
+
+
 def _start_live(run: dict[str, Any], job: dict[str, Any], controller: str) -> None:
     server = health.sim_server()
     if server is None:
         raise RuntimeError("the wildtrace-sim MCP server cannot be imported (install the app extra)")
-    reply = json.loads(server.draw_trajectory(
-        trajectory_path=str(_trajectory_path(job)), controller=controller, config=settings.DRAW_CONFIG,
-        record_video=True, wait_s=0, title=job["title"],
-    ))
+    deadline = time.monotonic() + BUSY_WAIT_S
+    while True:
+        reply = json.loads(server.draw_trajectory(
+            trajectory_path=str(_trajectory_path(job)), controller=controller, config=settings.DRAW_CONFIG,
+            record_video=True, wait_s=0, title=job["title"],
+        ))
+        # One robot, one timeline: wait while the previous run finishes (it writes its videos after drawing).
+        if reply.get("status") != "busy" or time.monotonic() > deadline:
+            break
+        store.update_run(run["id"], phase=f"WAITING: run {reply.get('prefix') or 'in progress'} is finishing")
+        time.sleep(5)
     if reply.get("status") != "started":
         raise RuntimeError(reply.get("reason") or reply.get("status"))
     with _lock:
