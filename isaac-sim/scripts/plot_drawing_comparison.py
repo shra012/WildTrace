@@ -19,10 +19,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from coordinate_mapper import map_trajectory_to_plane
+from mcp_scene import scene_config_path
+from project_config import load_config
 from trajectory_loader import load_trajectory
-
-SURFACE_CENTER_XY_M = [0.45, 0.0]
-SURFACE_SIZE_XY_M = [0.16, 0.12]
 
 
 def main() -> int:
@@ -31,14 +30,18 @@ def main() -> int:
     parser.add_argument("--executed-csv", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--title", default="")
+    parser.add_argument("--config", default="", help="scene config the run used (default: the current MCP scene's)")
     args = parser.parse_args()
 
+    # The desired path must be placed where that scene put the paper; the lab-arm twin's
+    # sheet is not at the default config's position.
+    drawing = load_config(args.config or scene_config_path(PROJECT_ROOT), PROJECT_ROOT)["drawing"]
     trajectory = load_trajectory(args.trajectory)
     mapped = map_trajectory_to_plane(
         trajectory,
-        center_xy=SURFACE_CENTER_XY_M,
-        size_xy=SURFACE_SIZE_XY_M,
-        flip_image_y=True,
+        center_xy=list(drawing["surface_center_xy_m"]),
+        size_xy=list(drawing["surface_size_xy_m"]),
+        flip_image_y=bool(drawing.get("flip_image_y", True)),
         max_step=0.005,
         smoothing_strength=0.08,
         corner_angle_degrees=35.0,
