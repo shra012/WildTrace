@@ -125,6 +125,20 @@ class StateMachineTests(unittest.TestCase):
         self.assertTrue(machine.complete)
         self.assertEqual(machine.visited_states[-1], FINISHED)
 
+    def test_short_hop_travels_at_pen_up_height(self):
+        strokes = [
+            {"stroke_id": 0, "points": [[0.30, 0.0], [0.32, 0.0]]},
+            {"stroke_id": 1, "points": [[0.33, 0.0], [0.35, 0.0]]},  # 1 cm from the last lift: hop
+            {"stroke_id": 2, "points": [[0.45, 0.0], [0.47, 0.0]]},  # 10 cm away: full climb
+        ]
+        kwargs = dict(pen_down_z=0.2, pen_up_z=0.23, approach_height=0.26, max_cartesian_step=0.005)
+        hop = {p.state: p for p in build_motion_sequence(strokes, short_hop_m=0.03, **kwargs)}
+        climb = {p.state: p for p in build_motion_sequence(strokes, **kwargs)}
+        self.assertAlmostEqual(max(t.position[2] for t in hop["MOVE_TO_STROKE_1"].targets), 0.23)
+        self.assertAlmostEqual(max(t.position[2] for t in hop["MOVE_TO_STROKE_2"].targets), 0.26)
+        self.assertAlmostEqual(max(t.position[2] for t in climb["MOVE_TO_STROKE_1"].targets), 0.26)
+        self.assertLess(len(hop["LOWER_PEN_STROKE_1"].targets), len(climb["LOWER_PEN_STROKE_1"].targets))
+
 
 if __name__ == "__main__":
     unittest.main()

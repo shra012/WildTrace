@@ -44,11 +44,15 @@ def build_motion_sequence(
     corner_angle_degrees: float = 35.0,
     corner_densify_window: int = 0,
     corner_densify_factor: int = 1,
+    short_hop_m: float = 0.0,
 ) -> List[Phase]:
     """Build approach/lower/draw/lift phases for one or more strokes in order.
 
     A safe travel leg (lift height, then horizontal, then lower) is inserted
     between consecutive strokes; the first stroke is approached directly.
+    When the next stroke starts within short_hop_m (xy) of the last lift, the
+    pen hops across at pen_up_z instead of climbing to approach_height and
+    back: the vertical legs are most of a short stroke's drawing time.
 
     Draw phases may be densified around corners only. The default factor of 1
     leaves the sampling unchanged.
@@ -72,7 +76,8 @@ def build_motion_sequence(
         if len(xy) < 2:
             raise ValueError(f"Stroke {stroke_id} needs at least two points")
 
-        approach_point = np.r_[xy[0], approach_height]
+        hop = previous_lift_xyz is not None and float(np.linalg.norm(xy[0] - previous_lift_xyz[:2])) <= short_hop_m
+        approach_point = np.r_[xy[0], pen_up_z if hop else approach_height]
         down_point = np.r_[xy[0], pen_down_z]
 
         if previous_lift_xyz is None:
@@ -80,10 +85,13 @@ def build_motion_sequence(
             phases.append(Phase(state, targets(state, np.asarray([approach_point]), stroke_id, False)))
         else:
             travel_start = previous_lift_xyz.copy()
-            travel_start[2] = approach_height
-            vertical = interpolate_segment(previous_lift_xyz, travel_start, max_cartesian_step)[1:]
-            horizontal = interpolate_segment(travel_start, approach_point, max_cartesian_step)[1:]
-            travel = np.vstack([part for part in (vertical, horizontal) if len(part)])
+            travel_start[2] = approach_point[2]
+            legs = [(previous_lift_xyz, travel_start), (travel_start, approach_point)]
+            travel = np.vstack([
+                interpolate_segment(start, end, max_cartesian_step)[1:]
+                for start, end in legs
+                if not np.allclose(start, end)  # a hop has no climb
+            ] or [approach_point[None]])
             state = f"MOVE_TO_STROKE_{stroke_id}"
             phases.append(Phase(state, targets(state, travel, stroke_id, False)))
 

@@ -171,6 +171,7 @@ def _label_one(job):
             corner_angle_degrees=float(drawing["corner_angle_degrees"]),
             corner_densify_window=int(drawing["corner_window_points"]),
             corner_densify_factor=int(drawing["corner_densify_factor"]),
+            short_hop_m=float(drawing.get("short_hop_m", 0.0)),
         )
         home = np.asarray(robot_config["home_joint_positions_rad"], dtype=np.float64)
         home_tip, _ = _WORKER["forward"](home)

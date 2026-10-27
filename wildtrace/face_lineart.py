@@ -46,6 +46,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "simplify_epsilon_px": 1.2,          # Douglas-Peucker tolerance on the resized photo
     "min_stroke_length_px": 18.0,
     "hair_face_gap_px": 6.0,             # hair outline points this close to the face outline are dropped
+    # Sketch style: up to this many flow lines inside the hair, each an offset of the hair outline
+    # at hair_strand_depth of the hair's thickness (0 = outline, 1 = its middle).
+    "hair_strands": 2,
+    "hair_strand_depth": 0.5,
+    # Hair, neck and shoulder pieces shorter than this many face widths are stray marks: each one
+    # costs a full pen lift, travel and lower for a line nobody reads.
+    "min_contour_stroke_faces": 0.3,
+    "join_gap_px": 4.0,                  # consecutive strokes whose ends are this close are drawn as one
     "max_points_per_stroke": 128,        # export.yaml max_points_per_stroke
     "margin": 0.04,                      # normalized-canvas margin around the drawing
     # Group photos: faces are searched in the whole photo and in overlapping tiles (fractions of
@@ -157,6 +165,8 @@ def _chain(connections) -> list[list[int]]:
 
 
 # Face mesh landmark indices for the sketch style (MediaPipe's "left" is the subject's left).
+# Labels of the segmentation-mask strokes, which are filtered by length relative to the face.
+CONTOUR_LABELS = {"hair", "hair_strand", "neck", "shoulders"}
 BROW_ROWS = {  # upper and lower edge of each brow, outer end first
     "left_brow": ([300, 293, 334, 296, 336], [276, 283, 282, 295, 285]),
     "right_brow": ([70, 63, 105, 66, 107], [46, 53, 52, 65, 55]),
@@ -347,7 +357,41 @@ def _segmentation_strokes(category: np.ndarray, face_outline: np.ndarray, settin
                 labels.append(label)
         if label == "neck":
             drawn_contours += [np.vstack([c, c[:1]]) for c in contours]
+        if label == "hair" and sketch and contours:
+            for strand in hair_strands(contours, face_outline, category.shape, settings):
+                strokes.append(strand)
+                labels.append("hair_strand")
     return strokes, labels
+
+
+def hair_strands(contours: list[np.ndarray], face_outline: np.ndarray, shape: tuple[int, int],
+                 settings: dict[str, Any]) -> list[np.ndarray]:
+    """Flow lines inside the hair: the outer hair outline offset inward by a fraction of the
+    hair's thickness (an isoline of the distance transform), so they follow the shape of the hair
+    the way a sketcher's strands do. The part of the isoline that runs along the face is left out,
+    which keeps the strands open arcs instead of a second outline round the head. Photo texture
+    edges were tried first and were mostly noise."""
+    count = int(settings.get("hair_strands", 0))
+    if count <= 0:
+        return []
+    mask = np.zeros(shape, np.uint8)
+    cv2.drawContours(mask, [c.astype(np.int32).reshape(-1, 1, 2) for c in contours], -1, 1, thickness=-1)
+    distance = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
+    inside = distance[mask > 0]
+    if inside.size == 0:
+        return []
+    level = float(settings["hair_strand_depth"]) * float(np.percentile(inside, 95))
+    if level < 3.0:  # thin or sparse hair: no room for a line inside it
+        return []
+    height, width = shape
+    strands = []
+    for contour in _mask_contours(distance > level, min_area=0):
+        x, y = contour[:, 0], contour[:, 1]
+        on_border = (x <= 2) | (x >= width - 3) | (y <= 2) | (y >= height - 3)
+        along_face = _distance_to(contour, face_outline) < 2 * level + float(settings["hair_face_gap_px"])
+        strands += [_smooth(piece, 9) for piece in _runs(contour, ~(on_border | along_face))]
+    strands.sort(key=_length, reverse=True)
+    return strands[:count]
 
 
 def _clip_to_box(stroke: np.ndarray, box: tuple[float, float, float, float]) -> list[np.ndarray]:
@@ -391,6 +435,23 @@ def _simplify(stroke: np.ndarray, epsilon: float, max_points: int) -> np.ndarray
 
 def _length(stroke: np.ndarray) -> float:
     return float(np.linalg.norm(np.diff(stroke, axis=0), axis=1).sum()) if len(stroke) > 1 else 0.0
+
+
+def join_strokes(strokes: list[np.ndarray], labels: list[str], gap_px: float,
+                 max_points: int) -> tuple[list[np.ndarray], list[str]]:
+    """Draw consecutive strokes whose ends (nearly) touch as one stroke: the pen drags across the
+    gap instead of a lift, travel and lower, which is most of a short stroke's drawing time."""
+    if not strokes:
+        return strokes, labels
+    joined, joined_labels = [strokes[0]], [labels[0]]
+    for stroke, label in zip(strokes[1:], labels[1:]):
+        previous = joined[-1]
+        if np.linalg.norm(stroke[0] - previous[-1]) <= gap_px and len(previous) + len(stroke) <= max_points:
+            joined[-1] = np.vstack([previous, stroke])
+        else:
+            joined.append(stroke)
+            joined_labels.append(label)
+    return joined, joined_labels
 
 
 def order_strokes(strokes: list[np.ndarray], labels: list[str]) -> tuple[list[np.ndarray], list[str]]:
@@ -601,12 +662,15 @@ def extract_face_lineart(photo: np.ndarray, settings: dict[str, Any] | None = No
         strokes, labels = [s for s, _ in clipped], [l for _, l in clipped]
 
     epsilon, max_points = float(settings["simplify_epsilon_px"]), int(settings["max_points_per_stroke"])
+    face_width = float(np.ptp(face_outline[:, 0])) if len(face_outline) else 0.0
+    contour_min = max(float(settings["min_stroke_length_px"]), float(settings["min_contour_stroke_faces"]) * face_width)
     kept = [
         (_simplify(s, epsilon, max_points), l)
         for s, l in zip(strokes, labels)
-        if _length(s) >= float(settings["min_stroke_length_px"])
+        if _length(s) >= (contour_min if l in CONTOUR_LABELS else float(settings["min_stroke_length_px"]))
     ]
     strokes, labels = order_strokes([s for s, _ in kept], [l for _, l in kept])
+    strokes, labels = join_strokes(strokes, labels, float(settings["join_gap_px"]), max_points)
     return FaceLineArt(strokes=strokes, labels=labels, size=(width, height), backend=backend, notes=notes)
 
 

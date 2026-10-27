@@ -116,3 +116,32 @@ def test_chaikin_keeps_end_points_and_adds_points():
     smooth = _chaikin(line, 2)
     assert np.allclose(smooth[0], line[0]) and np.allclose(smooth[-1], line[-1])
     assert len(smooth) > len(line)
+
+
+def test_join_strokes_merges_touching_ends_only():
+    from wildtrace.face_lineart import join_strokes
+
+    a = np.array([[0.0, 0.0], [10.0, 0.0]])
+    b = np.array([[12.0, 0.0], [20.0, 0.0]])  # starts 2 px after a ends
+    c = np.array([[40.0, 0.0], [50.0, 0.0]])
+    strokes, labels = join_strokes([a, b, c], ["hair", "hair", "neck"], gap_px=4.0, max_points=128)
+    assert labels == ["hair", "neck"]
+    assert len(strokes[0]) == 4 and np.allclose(strokes[1], c)
+    assert len(join_strokes([a, b], ["x", "y"], gap_px=4.0, max_points=3)[0]) == 2  # too long to join
+
+
+def test_hair_strands_follow_the_outer_hair_edge_away_from_the_face():
+    from wildtrace.face_lineart import _mask_contours, hair_strands
+
+    # A thick arch of hair over a face: the strand is an open arc inside the arch,
+    # not a second loop round the head.
+    yy, xx = np.mgrid[0:200, 0:200]
+    radius = np.hypot(xx - 100, yy - 120)
+    hair = (radius < 80) & (radius > 45) & (yy < 120)
+    face = np.array([[100 + 45 * np.cos(t), 120 + 45 * np.sin(t)] for t in np.linspace(0, 2 * np.pi, 60)])
+    strands = hair_strands(_mask_contours(hair, 0), face, hair.shape, {**DEFAULT_SETTINGS, "hair_strands": 2})
+    assert len(strands) >= 1
+    distances = np.hypot(strands[0][:, 0] - 100, strands[0][:, 1] - 120)
+    assert distances.min() > 55 and distances.max() < 80
+    assert np.linalg.norm(strands[0][0] - strands[0][-1]) > 40  # open, not closed
+    assert hair_strands(_mask_contours(hair, 0), face, hair.shape, {**DEFAULT_SETTINGS, "hair_strands": 0}) == []

@@ -83,6 +83,7 @@ def plan_phases(trajectory: Mapping[str, Any], drawing: Mapping[str, Any]):
         corner_angle_degrees=corner_angle,
         corner_densify_window=int(drawing["corner_window_points"]),
         corner_densify_factor=int(drawing["corner_densify_factor"]),
+        short_hop_m=float(drawing.get("short_hop_m", 0.0)),
     )
     return mapped, phases
 

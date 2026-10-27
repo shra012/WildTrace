@@ -469,6 +469,7 @@ def main() -> int:
         corner_angle_degrees=float(drawing["corner_angle_degrees"]),
         corner_densify_window=int(drawing["corner_window_points"]),
         corner_densify_factor=int(drawing["corner_densify_factor"]),
+        short_hop_m=float(drawing.get("short_hop_m", 0.0)),
     )
     # Enforce max step from the actual simulated home pen pose to first approach.
     home_tip, _ = ik.end_effector_pose()
