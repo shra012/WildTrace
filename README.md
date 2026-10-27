@@ -20,7 +20,7 @@ SmolVLA) are compared against classic inverse kinematics on the same drawings.
       The lab-arm twin in Isaac Sim is built from this arm's calibrated model and its measured paper
       placement, so simulation runs match the real setup.
       <br><br>
-      <a href="docs/readme/bird_live_edit.mp4"><b>Watch the 1-minute video</b></a>
+      <a href="docs/readme/bird_live_edit.mp4"><b>Watch the 40-second video (with sound)</b></a>
     </td>
   </tr>
 </table>
