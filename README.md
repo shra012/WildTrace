@@ -8,6 +8,23 @@ SmolVLA) are compared against classic inverse kinematics on the same drawings.
 
 ![Photo to line drawing to pen strokes to robot drawing](docs/readme/hero.jpg)
 
+## From simulation to the real arm
+
+<table>
+  <tr>
+    <td width="260"><a href="docs/readme/bird_live_edit.mp4"><img src="docs/readme/bird_live.gif" alt="A real xArm 7 drawing a WildTrace bird" width="240"></a></td>
+    <td>
+      The same pipeline, on a real UFACTORY xArm 7 in the lab: a WildTrace bird trajectory, drawn with a pen
+      on paper (shown at 12x speed).
+      <br><br>
+      The lab-arm twin in Isaac Sim is built from this arm's calibrated model and its measured paper
+      placement, so simulation runs match the real setup.
+      <br><br>
+      <a href="docs/readme/bird_live_edit.mp4"><b>Watch the 1-minute video</b></a>
+    </td>
+  </tr>
+</table>
+
 ## How it works
 
 ```mermaid
