@@ -13,12 +13,14 @@ job never competes with another GPU workload.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import random
 import re
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from importlib import util as importlib_util
@@ -33,6 +35,7 @@ from wildtrace.config import load_runtime_config
 from wildtrace.diagram import (
     FluxSilhouetteRectifier,
     OutlineRectifier,
+    OutlineRectifierResult,
     SemanticValidator,
     _silhouette_contour_image,
     build_outline_validator,
@@ -446,6 +449,77 @@ class _EventingGenerator:
         return self.inner.run(*args, **kwargs)
 
 
+class _ProcessPerAttemptRectifier:
+    """Runs each outline attempt of a rectifier in a fresh Python process.
+
+    A cached FLUX pipeline with model CPU offload keeps growing in host RAM from
+    one call to the next (see FluxSilhouetteRectifier.run), so the third
+    attempt of a validation retry loop gets OOM-killed on a 24 GB machine. One
+    process per attempt costs a model load (~15 s) but every attempt starts
+    from the footprint of the first. The attempt itself is the inner
+    rectifier's own run(), unchanged.
+    """
+
+    def __init__(self, inner: OutlineRectifier) -> None:
+        self.inner = inner
+        self.settings = inner.settings
+
+    def validate_ready(self) -> None:
+        self.inner.validate_ready()
+
+    def prepare_conditioning_image(self, crop_image: Image.Image, isolated_image: Image.Image | None = None) -> Image.Image:
+        return self.inner.prepare_conditioning_image(crop_image, isolated_image)
+
+    def run(self, sample: dict[str, Any], subject_image: Image.Image, subject_mask: Image.Image | None,
+            generated_path: Path | None, destination: Path, params: dict[str, Any]) -> OutlineRectifierResult:
+        work = Path(destination).parent / f".{Path(destination).stem}_attempt"
+        work.mkdir(parents=True, exist_ok=True)
+        subject_image.save(work / "subject.png")
+        if subject_mask is not None:
+            subject_mask.save(work / "mask.png")
+        request = {
+            "rectifier": f"{type(self.inner).__module__}:{type(self.inner).__qualname__}",
+            "settings": self.settings,
+            "sample": sample,
+            "generated_path": str(generated_path) if generated_path else None,
+            "destination": str(destination),
+            "params": params,
+            "work": str(work),
+        }
+        (work / "request.json").write_text(json.dumps(request, default=str), encoding="utf-8")
+        completed = subprocess.run([sys.executable, "-m", "wildtrace.studio_pipeline", "--outline-attempt", str(work / "request.json")],
+                                   cwd=Path(__file__).resolve().parents[1], stdout=subprocess.DEVNULL)
+        result_path = work / "result.json"
+        if completed.returncode != 0 or not result_path.exists():
+            if completed.returncode in (-9, 137):
+                raise RuntimeError("The outline attempt was stopped by the system for running out of memory "
+                                   "(FLUX-schnell needs about 20 GB of free RAM).")
+            raise RuntimeError(f"The outline attempt failed (exit code {completed.returncode}).")
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        shutil.rmtree(work, ignore_errors=True)
+        return OutlineRectifierResult(diagram_path=Path(result["diagram_path"]), metadata=result["metadata"])
+
+
+def _outline_attempt_main(request_path: Path) -> int:
+    """Child side of _ProcessPerAttemptRectifier: one rectifier.run() call."""
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    module_name, class_name = request["rectifier"].split(":")
+    rectifier = getattr(importlib.import_module(module_name), class_name)(request["settings"])
+    work = Path(request["work"])
+    mask_path = work / "mask.png"
+    result = rectifier.run(
+        request["sample"],
+        Image.open(work / "subject.png"),
+        Image.open(mask_path) if mask_path.exists() else None,
+        Path(request["generated_path"]) if request["generated_path"] else None,
+        Path(request["destination"]),
+        request["params"],
+    )
+    (work / "result.json").write_text(json.dumps({"diagram_path": str(result.diagram_path), "metadata": result.metadata},
+                                                 default=str), encoding="utf-8")
+    return 0
+
+
 RATE_LIMIT_BACKOFF_S = (3.0, 8.0, 20.0)
 
 
@@ -509,7 +583,8 @@ def build_studio_rectifier(runtime: dict[str, Any], backend: str) -> OutlineRect
     settings = _rectifier_settings(runtime, backend)
     rectifier: OutlineRectifier = FluxSilhouetteRectifier(settings) if backend == "flux" else OpenRouterImageRectifier(settings)
     rectifier.validate_ready()
-    return rectifier
+    # FLUX attempts run one per process; the OpenRouter stand-in holds no model, so it stays in-process.
+    return _ProcessPerAttemptRectifier(rectifier) if backend == "flux" else rectifier
 
 
 def build_studio_validator(runtime: dict[str, Any], backend: str) -> SemanticValidator:
@@ -829,3 +904,9 @@ def generate_animal_trajectory(
     }
     (out_dir / "result.json").write_text(json.dumps(result, indent=2, default=str), encoding="utf-8")
     return result
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--outline-attempt":
+        raise SystemExit(_outline_attempt_main(Path(sys.argv[2])))
+    raise SystemExit("usage: python -m wildtrace.studio_pipeline --outline-attempt <request.json>")

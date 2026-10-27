@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -494,3 +495,45 @@ def test_judge_does_not_retry_real_errors(monkeypatch):
 
     with pytest.raises(RuntimeError, match="invalid api key"):
         sp._TrackingValidator(BrokenJudge()).validate({}, Path("x.png"), SimpleNamespace(score=1.0, passed=True, flags=[]))
+
+
+class _FakeAttemptRectifier:
+    """Stands in for FLUX in the one-process-per-attempt round trip."""
+
+    def __init__(self, settings: dict) -> None:
+        self.settings = settings
+
+    def prepare_conditioning_image(self, crop_image, isolated_image=None):
+        return crop_image
+
+    def run(self, sample, subject_image, subject_mask, generated_path, destination, params):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        subject_image.convert("L").save(destination)
+        return OutlineRectifierResult(diagram_path=destination, metadata={"size": list(subject_image.size), "mask": subject_mask is not None,
+                                                                         "category": sample["category"], "strength": params["strength"]})
+
+
+def _run_in_process(monkeypatch):
+    """Replace the child process with a direct call to its entry point."""
+    def fake_run(argv, **kwargs):
+        monkeypatch.setattr(sp.importlib, "import_module", lambda name: sys.modules[__name__])
+        return SimpleNamespace(returncode=sp._outline_attempt_main(Path(argv[-1])))
+    monkeypatch.setattr(sp.subprocess, "run", fake_run)
+
+
+def test_outline_attempts_round_trip_through_a_child_process(tmp_path, monkeypatch):
+    _run_in_process(monkeypatch)
+    wrapped = sp._ProcessPerAttemptRectifier(_FakeAttemptRectifier({"size": 64}))
+    image = Image.new("RGB", (40, 30), "white")
+    result = wrapped.run({"category": "Dog"}, image, Image.new("L", (40, 30), 255), None,
+                         tmp_path / "diagrams" / "Dog" / "x_attempt01.png", {"strength": 0.85})
+    assert result.diagram_path.exists()
+    assert result.metadata == {"size": [40, 30], "mask": True, "category": "Dog", "strength": 0.85}
+    assert not any(p.name.startswith(".") for p in result.diagram_path.parent.iterdir())  # scratch dir removed
+
+
+def test_outline_attempt_killed_for_memory_reports_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(sp.subprocess, "run", lambda argv, **kwargs: SimpleNamespace(returncode=-9))
+    wrapped = sp._ProcessPerAttemptRectifier(_FakeAttemptRectifier({}))
+    with pytest.raises(RuntimeError, match="running out of memory"):
+        wrapped.run({"category": "Dog"}, Image.new("RGB", (8, 8)), None, None, tmp_path / "a.png", {"strength": 0.85})
