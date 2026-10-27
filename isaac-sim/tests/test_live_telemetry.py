@@ -258,7 +258,7 @@ class DrawTrajectoryTests(unittest.TestCase):
             mock.patch.object(server, "sim_start", lambda wait_s=300: json.dumps({"status": "already_running"})),
             mock.patch.object(server, "setup_scene", lambda **kw: json.dumps({"status": "already_built"})),
             mock.patch.object(server, "_scene_config", lambda: server.TWIN_CONFIG),
-            mock.patch.object(server, "_ensure_policy_server", lambda checkpoint: self.calls.append(("policy", checkpoint)) or {"status": "already_running"}),
+            mock.patch.object(server, "_ensure_policy_server", lambda checkpoint, args=(): self.calls.append(("policy", checkpoint)) or {"status": "already_running"}),
             mock.patch.object(server, "_attach_capture", lambda prefix, config, every: self.calls.append(("capture", prefix)) or {"status": "success"}),
             mock.patch.object(server, "_detach_capture", lambda: self.calls.append(("detach",))),
             mock.patch.object(server, "_set_timeline", lambda command, wanted, attempts=2: self.calls.append((command,)) or True),

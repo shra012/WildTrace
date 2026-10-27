@@ -1,0 +1,60 @@
+"""SmolVLA observations derived from the ACT ones (src/vla_features.py)."""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+import vla_features  # noqa: E402
+from act_features import PATH_WINDOW_POINTS  # noqa: E402
+
+
+def _env(window_xyz: np.ndarray, error=(0.0, 0.0, 0.0), pen_down=1.0) -> np.ndarray:
+    return np.r_[[0.4, 0.1, 0.05], error, np.asarray(window_xyz, dtype=float).reshape(-1), pen_down]
+
+
+def test_state_keeps_joints_tip_error_and_pen():
+    act_state = np.arange(21, dtype=np.float32)
+    env = _env(np.zeros((PATH_WINDOW_POINTS, 3)), error=(0.001, -0.002, 0.0), pen_down=1.0)
+    state = vla_features.vla_state(act_state, env)
+    assert state.shape == (1, vla_features.STATE_DIM) == (1, len(vla_features.STATE_NAMES))
+    assert np.allclose(state[0, :21], act_state)
+    assert np.allclose(state[0, 21:27], env[:6]) and state[0, 27] == 1.0
+
+
+def test_path_view_draws_the_path_ahead_of_the_tip():
+    # Straight path along +x from the tip, level with it.
+    window = np.c_[np.arange(PATH_WINDOW_POINTS) * 0.002, np.zeros(PATH_WINDOW_POINTS), np.zeros(PATH_WINDOW_POINTS)]
+    image = vla_features.path_view(_env(window))
+    size = vla_features.IMAGE_SIZE_PX
+    assert image.shape == (size, size, 3) and image.dtype == np.uint8
+    red = image[..., 0]
+    center = size // 2
+    assert red[center, center + 40] > 100  # on the path, right of the tip
+    assert red[center, center - 40] == 0  # nothing behind the tip
+    assert red[center - 40, center + 40] == 0  # nor off to the side
+    # Level path: blue is mid-grey where the path is.
+    assert 100 < image[center, center + 40, 2] < 160
+    # The nearest dot is brighter than the farthest.
+    scale = (size / 2) / vla_features.VIEW_HALF_EXTENT_M
+    near = image[center, int(center + 0.002 * scale), 1]
+    far = image[center, int(center + 0.018 * scale), 1]
+    assert near > far > 0
+
+
+def test_path_view_shows_a_lift_in_blue():
+    window = np.c_[np.zeros(PATH_WINDOW_POINTS), np.arange(PATH_WINDOW_POINTS) * 0.002,
+                   np.arange(PATH_WINDOW_POINTS) * 0.004]
+    image = vla_features.path_view(_env(window))
+    center = vla_features.IMAGE_SIZE_PX // 2
+    column = image[:center, center, 2]  # +y is up in the image
+    assert column.max() > 200
+
+
+def test_image_layout_is_channels_first_unit_range():
+    image = np.full((4, 5, 3), 255, dtype=np.uint8)
+    tensor = vla_features.image_tensor_layout(image)
+    assert tensor.shape == (3, 4, 5) and tensor.dtype == np.float32 and tensor.max() == 1.0

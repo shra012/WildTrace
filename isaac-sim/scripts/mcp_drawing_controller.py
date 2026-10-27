@@ -140,6 +140,7 @@ CORNER_ANGLE_DEGREES = float(DRAWING["corner_angle_degrees"])
 PEN_DOWN_Z_M = float(DRAWING["pen_down_z_m"])
 PEN_UP_Z_M = float(DRAWING["pen_up_z_m"])
 APPROACH_HEIGHT_M = float(DRAWING["approach_height_m"])
+SHORT_HOP_M = float(DRAWING.get("short_hop_m", 0.0))
 MAX_CARTESIAN_STEP_M = float(DRAWING["max_cartesian_step_m"])
 # Straight-run vs. corner position-reach gates: corners settle to a tighter
 # tolerance before the waypoint is allowed to advance, since overshoot
@@ -203,6 +204,8 @@ _reached_errors = []
 _report_written = False
 _previous_tip_xy = None
 # ACT mode (job.json "controller": "act"): policy client and path bookkeeping.
+# "smolvla" is served behind the same policy protocol, so it runs the same way.
+POLICY_CONTROLLERS = ("act", "smolvla")
 _controller = "ik"
 _policy = None
 _policy_address = "127.0.0.1:8790"
@@ -319,6 +322,7 @@ def _build_machine(trajectory_path):
         corner_angle_degrees=CORNER_ANGLE_DEGREES,
         corner_densify_window=CORNER_WINDOW_POINTS,
         corner_densify_factor=CORNER_DENSIFY_FACTOR,
+        short_hop_m=SHORT_HOP_M,
     )
     return mapped, MultiStrokeStateMachine(phases, WAYPOINT_TIMEOUT_S), _corner_flags_for(phases)
 
@@ -369,8 +373,15 @@ def _author_drawn_curves():
             executed_by_stroke.setdefault(row["stroke_id"], []).append(
                 [row["tip_x_m"], row["tip_y_m"]]
             )
-    _curve("Desired", desired_strokes, PEN_DOWN_Z_M + 0.0005, (0.15, 0.7, 0.15), 0.0015)
-    _curve("Executed", list(executed_by_stroke.values()), PEN_DOWN_Z_M + 0.001, (0.05, 0.05, 0.05), 0.0018)
+    # On the sheet as the scene shows it: on the lab-arm twin the sheet sits a pen
+    # protrusion below the calibrated pen-down height, and curves authored at that
+    # height floated above it, showing up as a shifted second drawing on camera.
+    from mcp_scene import paper_surface_z, pen_protrusion_m
+
+    protrusion = pen_protrusion_m(PROJECT_ROOT)
+    surface_z = paper_surface_z(DRAWING, protrusion) if protrusion > 0 else PEN_DOWN_Z_M
+    _curve("Desired", desired_strokes, surface_z + 0.0005, (0.15, 0.7, 0.15), 0.0015)
+    _curve("Executed", list(executed_by_stroke.values()), surface_z + 0.001, (0.05, 0.05, 0.05), 0.0018)
 
 
 def _write_report():
@@ -584,7 +595,7 @@ def compute(db=None):
             _phase_corners[0] = corner_flags(list(approach_points), CORNER_ANGLE_DEGREES, CORNER_WINDOW_POINTS)
             _machine.mark_home_reached(_sim_time)
             _log(f"HOME reached (err={err:.4f}) -> {_machine.state} ({len(approach_points)} approach waypoints)")
-            if _controller == "act":
+            if _controller in POLICY_CONTROLLERS:
                 _start_act()
             _go(DRAWING)
         elif _sim_time > HOME_TIMEOUT_S:
@@ -598,7 +609,7 @@ def compute(db=None):
         if _sim_time > RUN_TIMEOUT_S:
             _machine.fail("Overall run timeout")
         else:
-            if _controller == "act" and _policy is not None:
+            if _controller in POLICY_CONTROLLERS and _policy is not None:
                 # ACT chases the first waypoint ahead of the pen (the labelled
                 # semantics) instead of stopping to settle on every waypoint.
                 from act_features import chased_index
@@ -608,7 +619,7 @@ def compute(db=None):
                 for _ in range(chased_index(_desired_positions, _desired_arc, current, tip_now) - current):
                     _machine.update(_sim_time, True)
             target = _machine.current_target
-            if target is not None and _controller == "act" and _policy is not None:
+            if target is not None and _controller in POLICY_CONTROLLERS and _policy is not None:
                 from isaacsim.core.utils.types import ArticulationAction
 
                 is_corner = bool(_phase_corners[_machine.phase_index][_machine.target_index])

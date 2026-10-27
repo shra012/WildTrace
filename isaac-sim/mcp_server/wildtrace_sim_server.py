@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["mcp>=1.2,<2"]
+# dependencies = ["mcp>=1.2,<2", "pyyaml>=6"]
 # ///
 """wildtrace-sim: one MCP server that takes "draw a <category>" from nothing
 running to a finished, measured drawing -- launch Isaac Sim, build the xArm7
@@ -73,6 +73,13 @@ ACT_CHECKPOINTS = {
     DEFAULT_CONFIG: ISAAC_SIM_PROJECT / "models" / "act_kinematic_v4",
     TWIN_CONFIG: ISAAC_SIM_PROJECT / "models" / "act_real_kinematic_v2",
 }
+# SmolVLA checkpoints (scripts/train_smolvla.py), served by the same script with --policy smolvla.
+SMOLVLA_CHECKPOINTS = {
+    TWIN_CONFIG: ISAAC_SIM_PROJECT / "outputs" / "smolvla" / "real_kinematic_v2" / "checkpoints" / "last" / "pretrained_model",
+}
+# Actions executed per sampled SmolVLA chunk: a chunk takes ~10 flow-matching steps to sample.
+SMOLVLA_REPLAN_EVERY = int(os.environ.get("WILDTRACE_SMOLVLA_REPLAN_EVERY", "3"))
+POLICY_CONTROLLERS = ("act", "smolvla")
 ACT_PYTHON = ISAAC_SIM_PROJECT / ".venv-act" / "bin" / "python"
 ACT_PORT = int(os.environ.get("WILDTRACE_ACT_PORT", "8790"))
 VIDEO_ROOT_WIN = r"C:\wildtrace\videos"
@@ -369,14 +376,15 @@ def _port_open(port: int) -> bool:
         return False
 
 
-def _ensure_policy_server(checkpoint: Path) -> dict:
+def _ensure_policy_server(checkpoint: Path, policy_args: tuple[str, ...] = ("--execution", "first")) -> dict:
     """Start scripts/act_policy_server.py for `checkpoint` unless it is already serving it."""
     marker = MCP_SESSIONS_DIR / "act_server.json"
     try:
         running = json.loads(marker.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         running = {}
-    if _port_open(ACT_PORT) and running.get("checkpoint") == str(checkpoint):
+    if _port_open(ACT_PORT) and running.get("checkpoint") == str(checkpoint) \
+            and running.get("args", ["--execution", "first"]) == list(policy_args):
         return {"status": "already_running", "checkpoint": str(checkpoint)}
     if running.get("pid"):
         try:
@@ -387,10 +395,11 @@ def _ensure_policy_server(checkpoint: Path) -> dict:
     log = open(MCP_SESSIONS_DIR / "act_server.log", "w", encoding="utf-8")
     proc = subprocess.Popen(
         [str(ACT_PYTHON), "-u", str(ISAAC_SIM_PROJECT / "scripts" / "act_policy_server.py"),
-         "--checkpoint", str(checkpoint), "--execution", "first", "--port", str(ACT_PORT)],
+         "--checkpoint", str(checkpoint), *policy_args, "--port", str(ACT_PORT)],
         stdout=log, stderr=subprocess.STDOUT, cwd=WILDTRACE_ROOT, start_new_session=True,
     )
-    marker.write_text(json.dumps({"pid": proc.pid, "checkpoint": str(checkpoint)}), encoding="utf-8")
+    marker.write_text(json.dumps({"pid": proc.pid, "checkpoint": str(checkpoint), "args": list(policy_args)}),
+                      encoding="utf-8")
     for _ in range(120):
         if _port_open(ACT_PORT):
             return {"status": "started", "checkpoint": str(checkpoint), "pid": proc.pid}
@@ -521,12 +530,16 @@ def _launch(job_data: dict, controller: str, config: str, record_video: bool, vi
     scene_config = _scene_config()
 
     job_data["controller"] = controller
-    if controller == "act":
-        checkpoint = ACT_CHECKPOINTS.get(scene_config)
-        if checkpoint is None:
-            return {"status": "failed", "reason": f"no ACT checkpoint for config {scene_config}"}
+    if controller in POLICY_CONTROLLERS:
+        if controller == "smolvla":
+            checkpoint = SMOLVLA_CHECKPOINTS.get(scene_config)
+            policy_args = ("--policy", "smolvla", "--replan-every", str(SMOLVLA_REPLAN_EVERY))
+        else:
+            checkpoint, policy_args = ACT_CHECKPOINTS.get(scene_config), ("--execution", "first")
+        if checkpoint is None or not checkpoint.exists():
+            return {"status": "failed", "reason": f"no {controller} checkpoint for config {scene_config}"}
         stage("act_policy_server")
-        server = _ensure_policy_server(checkpoint)
+        server = _ensure_policy_server(checkpoint, policy_args)
         if server["status"] == "failed":
             return {"status": "failed", "step": "act_policy_server", "detail": server}
         job_data["policy_address"] = f"127.0.0.1:{ACT_PORT}"
@@ -619,7 +632,7 @@ def draw(
     camera) under isaac-sim/outputs/videos/<prefix>/; video_every is the
     number of physics ticks between saved frames."""
     controller = controller.lower()
-    if controller not in ("ik", "act"):
+    if controller not in ("ik", *POLICY_CONTROLLERS):
         return json.dumps({"status": "failed", "reason": f"unknown controller {controller!r}"})
     if _RUN_LOCK.locked():
         return json.dumps({"status": "busy", "reason": "a draw_trajectory run is in progress", "prefix": _active_prefix()})
@@ -801,7 +814,8 @@ def draw_trajectory(
 
     trajectory_path: WSL path (absolute, or relative to the repo or isaac-sim/)
     or a \\\\wsl.localhost UNC path.
-    controller: "act" (default) or "ik". config: scene config; empty keeps the
+    controller: "act" (default), "ik", or "smolvla" (twin config only, once
+    scripts/train_smolvla.py has a checkpoint). config: scene config; empty keeps the
     current scene's. record_video: capture both cameras (live JPEG frames under
     C:\\wildtrace\\videos\\<prefix>\\<Camera>\\) and assemble MP4s at the end.
     wait_s: 0 returns at once with {"status": "started", "prefix", ...} while
@@ -810,7 +824,7 @@ def draw_trajectory(
     or {"status": "running"} if the wait runs out. Only one run at a time:
     a second call while one is active returns {"status": "busy"}."""
     controller = controller.lower()
-    if controller not in ("ik", "act"):
+    if controller not in ("ik", *POLICY_CONTROLLERS):
         return json.dumps({"status": "failed", "reason": f"unknown controller {controller!r}"})
     trajectory = _resolve_trajectory(trajectory_path)
     if trajectory is None:
