@@ -77,3 +77,42 @@ def test_sample_portrait_end_to_end(tmp_path):
         ("face_landmarks", "running"), ("face_landmarks", "done"), ("extract", "running"), ("extract", "done"),
     ]
     assert Path(result["svg_path"]).exists() and Path(result["lineart_path"]).exists()
+
+
+def test_distance_to_open_polylines_ignores_the_closing_edge():
+    from wildtrace.face_lineart import _distance_to_polylines
+
+    arc = np.array([[0.0, 0.0], [0.0, 10.0], [10.0, 10.0], [10.0, 0.0]])  # open at the top
+    points = np.array([[5.0, 0.0], [5.0, 9.0]])
+    distances = _distance_to_polylines(points, [arc])
+    assert distances[0] == pytest.approx(5.0)  # a closed polygon would say 0 (on the closing edge)
+    assert distances[1] == pytest.approx(1.0)
+
+
+def test_trim_forehead_keeps_the_outline_below_the_brows():
+    from wildtrace.face_lineart import trim_forehead
+
+    angles = np.linspace(0, 2 * np.pi, 37)
+    oval = np.column_stack([100 + 40 * np.cos(angles), 100 + 60 * np.sin(angles)])  # y down, top at y=40
+    runs = trim_forehead(oval, brow_y=80.0)
+    assert len(runs) == 1 and len(runs[0]) > 20
+    assert runs[0][:, 1].min() >= 80.0 and runs[0][:, 1].max() == pytest.approx(160.0, abs=1.0)
+
+
+def test_hair_over_forehead_needs_hair_above_the_face():
+    from wildtrace.face_lineart import HAIR, hair_over_forehead
+
+    outline = np.array([[40.0, 50.0], [60.0, 50.0], [60.0, 90.0], [40.0, 90.0]])
+    category = np.zeros((120, 100), dtype=np.uint8)
+    assert not hair_over_forehead(category, outline)  # bald: keep the whole face outline
+    category[30:55, 30:70] = HAIR
+    assert hair_over_forehead(category, outline)
+
+
+def test_chaikin_keeps_end_points_and_adds_points():
+    from wildtrace.face_lineart import _chaikin
+
+    line = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]])
+    smooth = _chaikin(line, 2)
+    assert np.allclose(smooth[0], line[0]) and np.allclose(smooth[-1], line[-1])
+    assert len(smooth) > len(line)

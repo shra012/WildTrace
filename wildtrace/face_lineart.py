@@ -38,6 +38,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "model_dir": "~/.cache/wildtrace/mediapipe",
     "max_side_px": 1024,                 # photos are resized so the long side is at most this
     "include_irises": True,
+    # sketch: single-line brows, a one-stroke nose (bridge side + nostril base), hairline instead of
+    # the forehead edge, and neck/collar lines. mesh: MediaPipe's landmark outlines as they are.
+    "feature_style": "sketch",
     "include_hair": True,
     "include_shoulders": True,
     "simplify_epsilon_px": 1.2,          # Douglas-Peucker tolerance on the resized photo
@@ -153,27 +156,60 @@ def _chain(connections) -> list[list[int]]:
     return [p for p in paths if len(p) >= 2]
 
 
-def _feature_strokes(landmarks, size: tuple[int, int], include_irises: bool) -> tuple[list[np.ndarray], list[str]]:
+# Face mesh landmark indices for the sketch style (MediaPipe's "left" is the subject's left).
+BROW_ROWS = {  # upper and lower edge of each brow, outer end first
+    "left_brow": ([300, 293, 334, 296, 336], [276, 283, 282, 295, 285]),
+    "right_brow": ([70, 63, 105, 66, 107], [46, 53, 52, 65, 55]),
+}
+# One stroke the way people draw a nose: down one side of the bridge, a hook into the nostril,
+# then along the base of the nose to the other nostril.
+NOSE_SKETCH = [193, 122, 188, 114, 217, 209, 49, 48, 64, 98, 97, 2, 326, 327, 294, 278, 279]
+
+
+def _chaikin(points: np.ndarray, iterations: int = 2) -> np.ndarray:
+    """Corner-cutting smoothing for short landmark polylines (keeps the end points)."""
+    for _ in range(iterations):
+        if len(points) < 3:
+            return points
+        q = 0.75 * points[:-1] + 0.25 * points[1:]
+        r = 0.25 * points[:-1] + 0.75 * points[1:]
+        points = np.vstack([points[:1], np.column_stack([q, r]).reshape(-1, 2), points[-1:]])
+    return points
+
+
+def _feature_strokes(landmarks, size: tuple[int, int], include_irises: bool,
+                     style: str = "sketch") -> tuple[list[np.ndarray], list[str]]:
     from mediapipe.tasks.python.vision import FaceLandmarksConnections as C
 
     width, height = size
     points = np.asarray([[lm.x * width, lm.y * height] for lm in landmarks], dtype=np.float64)
     groups = [
         ("face_outline", C.FACE_LANDMARKS_FACE_OVAL),
-        ("left_brow", C.FACE_LANDMARKS_LEFT_EYEBROW),
-        ("right_brow", C.FACE_LANDMARKS_RIGHT_EYEBROW),
         ("left_eye", C.FACE_LANDMARKS_LEFT_EYE),
         ("right_eye", C.FACE_LANDMARKS_RIGHT_EYE),
-        ("nose", C.FACE_LANDMARKS_NOSE),
         ("lips", C.FACE_LANDMARKS_LIPS),
     ]
+    if style == "mesh":
+        groups += [("left_brow", C.FACE_LANDMARKS_LEFT_EYEBROW), ("right_brow", C.FACE_LANDMARKS_RIGHT_EYEBROW),
+                   ("nose", C.FACE_LANDMARKS_NOSE)]
     if include_irises and len(points) > 473:
         groups += [("left_iris", C.FACE_LANDMARKS_LEFT_IRIS), ("right_iris", C.FACE_LANDMARKS_RIGHT_IRIS)]
     strokes, labels = [], []
     for label, connections in groups:
         for path in _chain(connections):
-            strokes.append(points[path])
+            stroke = points[path]
+            if style != "mesh" and label != "face_outline":
+                # Eyes, irises and lips are a handful of landmarks; corner cutting turns the
+                # diamonds and polygons into the curves a person would draw.
+                stroke = _chaikin(stroke, 3)
+            strokes.append(stroke)
             labels.append(label)
+    if style != "mesh":
+        for label, (upper, lower) in BROW_ROWS.items():
+            strokes.append(_chaikin((points[upper] + points[lower]) / 2))
+            labels.append(label)
+        strokes.append(_chaikin(points[NOSE_SKETCH]))
+        labels.append("nose")
     return strokes, labels
 
 
@@ -213,6 +249,40 @@ def _distance_to(points: np.ndarray, polyline: np.ndarray) -> np.ndarray:
     return np.asarray([abs(cv2.pointPolygonTest(poly, (float(x), float(y)), True)) for x, y in points])
 
 
+def _distance_to_polylines(points: np.ndarray, polylines: list[np.ndarray]) -> np.ndarray:
+    """Distance from each point to the nearest segment of any open polyline."""
+    best = np.full(len(points), np.inf)
+    for line in polylines:
+        if len(line) < 2:
+            continue
+        a, b = line[:-1], line[1:]
+        ab = b - a
+        length2 = np.maximum((ab ** 2).sum(axis=1), 1e-9)
+        for start in range(0, len(points), 2048):
+            chunk = points[start:start + 2048, None, :]
+            t = np.clip(((chunk - a) * ab).sum(axis=2) / length2, 0.0, 1.0)
+            nearest = a + t[..., None] * ab
+            best[start:start + 2048] = np.minimum(best[start:start + 2048], np.sqrt(((chunk - nearest) ** 2).sum(axis=2)).min(axis=1))
+    return best
+
+
+def trim_forehead(face_outline: np.ndarray, brow_y: float) -> list[np.ndarray]:
+    """The face outline from temple to temple round the chin: the part above the brows is where
+    the hairline goes in a sketch, so it is left out."""
+    # Landmarks are ~20 px apart, so no splitting on jumps (that is for dense mask contours).
+    return _runs(face_outline, face_outline[:, 1] >= brow_y, closed=True, max_gap_px=np.inf)
+
+
+def hair_over_forehead(category: np.ndarray, face_outline: np.ndarray) -> bool:
+    """Whether hair covers the top of the head (bald heads keep the full face outline)."""
+    low, high = face_outline.min(axis=0), face_outline.max(axis=0)
+    width, height = high - low
+    x0, x1 = int(low[0] + 0.25 * width), int(high[0] - 0.25 * width)
+    y0, y1 = int(max(0, low[1] - 0.35 * height)), int(low[1] + 0.1 * height)
+    band = category[y0:y1, max(0, x0):max(0, x1)]
+    return band.size > 0 and float((band == HAIR).mean()) > 0.3
+
+
 def person_columns(face: tuple[float, float, float, float], others, width: int) -> tuple[float, float]:
     """x range of the photo that belongs to `face` when other people stand beside it: the
     boundary to each neighbour divides the gap between face centres in proportion to face width."""
@@ -237,7 +307,11 @@ def _smooth(points: np.ndarray, window: int = 5) -> np.ndarray:
 
 
 def _segmentation_strokes(category: np.ndarray, face_outline: np.ndarray, settings: dict[str, Any],
-                          columns: tuple[float, float] | None = None) -> tuple[list[np.ndarray], list[str]]:
+                          columns: tuple[float, float] | None = None,
+                          drawn_outline: list[np.ndarray] | None = None) -> tuple[list[np.ndarray], list[str]]:
+    """Hair, neck and shoulder contours. Parts that retrace `drawn_outline` (the face outline as
+    it will be drawn; default the whole of face_outline) are left out. With a forehead-trimmed
+    outline the hair contour's lower edge stays in, and that edge is the hairline."""
     height, width = category.shape
     left, right = columns or (0.0, float(width))
     category = category.copy()
@@ -245,27 +319,34 @@ def _segmentation_strokes(category: np.ndarray, face_outline: np.ndarray, settin
     category[:, min(width, int(np.ceil(right))):] = 0
     gap = float(settings["hair_face_gap_px"])
     area = category.size
+    outline = drawn_outline if drawn_outline is not None else [face_outline]
+    sketch = settings.get("feature_style", "sketch") != "mesh"
+    drawn_contours: list[np.ndarray] = []
 
     def keep(contour: np.ndarray) -> np.ndarray:
         # Drop edges that only exist because the photo, the crop or a neighbour cut the mask,
-        # and the parts that would retrace the face outline.
+        # and the parts that would retrace the face outline or a contour already drawn.
         x, y = contour[:, 0], contour[:, 1]
         kept = (x > max(2, left + 2)) & (x < min(width - 3, right - 3)) & (y > 2) & (y < height - 3)
-        return kept & (_distance_to(contour, face_outline) > gap)
+        return kept & (_distance_to_polylines(contour, outline + drawn_contours) > gap)
 
     strokes, labels = [], []
     masks = []
     if settings["include_hair"]:
         masks.append(("hair", category == HAIR, 0.004, False))
     if settings["include_shoulders"]:
+        if sketch:
+            # Neck sides and the collar: the outline of the visible neck and chest skin.
+            masks.append(("neck", category == BODY_SKIN, 0.002, True))
         masks.append(("shoulders", (category == BODY_SKIN) | (category == CLOTHES), 0.01, True))
     for label, mask, min_fraction, below in masks:
-        for contour in _mask_contours(mask, min_area=area * min_fraction):
-            if not _near_face(contour, face_outline, below=below):
-                continue
+        contours = [c for c in _mask_contours(mask, min_area=area * min_fraction) if _near_face(c, face_outline, below=below)]
+        for contour in contours:
             for piece in _runs(contour, keep(contour)):
                 strokes.append(_smooth(piece))
                 labels.append(label)
+        if label == "neck":
+            drawn_contours += [np.vstack([c, c[:1]]) for c in contours]
     return strokes, labels
 
 
@@ -482,7 +563,8 @@ def extract_face_lineart(photo: np.ndarray, settings: dict[str, Any] | None = No
     else:
         landmarks = _central_face(result.face_landmarks, (width, height))
     others = [_box(face, (width, height)) for face in result.face_landmarks if face is not landmarks] + list(other_faces)
-    strokes, labels = _feature_strokes(landmarks, (width, height), bool(settings["include_irises"]))
+    strokes, labels = _feature_strokes(landmarks, (width, height), bool(settings["include_irises"]),
+                                       str(settings.get("feature_style", "sketch")))
     face_outline = next((s for s, l in zip(strokes, labels) if l == "face_outline"), np.zeros((0, 2)))
 
     notes = []
@@ -499,10 +581,19 @@ def extract_face_lineart(photo: np.ndarray, settings: dict[str, Any] | None = No
         if category.shape != (height, width):
             category = cv2.resize(category, (width, height), interpolation=cv2.INTER_NEAREST)
         columns = person_columns(_box(landmarks, (width, height)), others, width)
-        extra, extra_labels = _segmentation_strokes(category, face_outline, settings, columns)
+        drawn_outline = None
+        if str(settings.get("feature_style", "sketch")) != "mesh" and settings["include_hair"] and len(face_outline) \
+                and hair_over_forehead(category, face_outline):
+            brow_y = float(np.mean([s[:, 1].mean() for s, l in zip(strokes, labels) if l.endswith("_brow")]))
+            drawn_outline = trim_forehead(face_outline, brow_y)
+            index = labels.index("face_outline")
+            strokes[index:index + 1] = drawn_outline
+            labels[index:index + 1] = ["face_outline"] * len(drawn_outline)
+        extra, extra_labels = _segmentation_strokes(category, face_outline, settings, columns, drawn_outline)
         strokes += extra
         labels += extra_labels
-        notes.append(f"hair strokes: {extra_labels.count('hair')}, shoulder strokes: {extra_labels.count('shoulders')}")
+        notes.append(f"hair strokes: {extra_labels.count('hair')}, neck strokes: {extra_labels.count('neck')}, "
+                     f"shoulder strokes: {extra_labels.count('shoulders')}")
 
     if len(face_outline):
         box = portrait_box(face_outline, settings)
