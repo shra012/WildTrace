@@ -45,7 +45,7 @@ sys.path.insert(0, str(PROJECT / "scripts"))
 from act_features import PathProgress, environment_state, observation_state, path_arc_length, path_window  # noqa: E402
 from coordinate_mapper import interpolate_segment, map_trajectory_to_plane  # noqa: E402
 from drawing_state_machine import MotionTarget, Phase, build_motion_sequence, flatten_desired_targets  # noqa: E402
-from run_xarm7_hardware import RunLog, SafeStop  # noqa: E402
+from run_xarm7_hardware import RunLog, SafeStop, _jsonable  # noqa: E402
 from trajectory_loader import load_trajectory  # noqa: E402
 
 TWIN_CONFIG = PROJECT / "config" / "xarm7_drawing_real.yaml"
@@ -58,6 +58,11 @@ MAX_STEP_RAD = 0.006  # per 60 Hz tick, about 0.36 rad/s
 MAX_TICK_S = 0.10
 REAL_CHECK_TICKS = 6  # query the real pose at 10 Hz
 MAX_LAG_M = 0.005  # real tip further than this from the commanded tip stops the run
+# Values the SDK's report thread keeps up to date (3-11 Hz); reading them costs no request to the arm.
+REPORT_FIELDS = ("angles", "position", "realtime_joint_speeds", "joints_torque", "currents", "temperatures",
+                 "voltages", "error_code", "warn_code", "state", "mode")
+ROBOT_CONFIG_FIELDS = ("version", "tcp_offset", "tcp_load", "collision_sensitivity", "teach_sensitivity",
+                       "gravity_direction", "tcp_speed_limit", "joint_speed_limit")
 
 
 def _rpy(roll: float, pitch: float, yaw: float) -> np.ndarray:
@@ -247,6 +252,10 @@ class HardwareArm:
             raise SafeStop(f"get_position returned {code}")
         return np.asarray(pose[:3], dtype=np.float64) / 1000.0
 
+    def report(self) -> dict[str, Any]:
+        """The arm's last reported joints, pose, torques, currents, temperatures and codes."""
+        return {name: getattr(self.api, name, None) for name in REPORT_FIELDS}
+
 
 def _fence_check(plan: dict, tip: np.ndarray, lift_m: float) -> str | None:
     cx, cy = plan["paper_xy"]
@@ -272,7 +281,7 @@ def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: 
     last_tick = time.perf_counter()
     started = last_tick
     done_since = None
-    rows, errors, tick_ms, steps, progress, lags = [], [], [], [], [], []
+    errors, tick_ms, steps, progress, lags, real_errors, reports = [], [], [], [], [], [], []
     lo = np.radians(LIMITS_DEG[:, 0] + LIMIT_MARGIN_DEG)
     hi = np.radians(LIMITS_DEG[:, 1] - LIMIT_MARGIN_DEG)
     handle = csv_path.open("w", newline="", encoding="utf-8")
@@ -298,6 +307,13 @@ def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: 
                     raise SafeStop(f"real arm: {problem}")
                 lag = float(np.linalg.norm(real - tip))
                 lags.append(lag)
+                # Measured, not commanded: the real tip against the path target the policy was steering to.
+                real_error = float(np.linalg.norm(real - positions[index]))
+                if flags[index]:
+                    real_errors.append(real_error)
+                reports.append(dict(t_s=round(now - started, 4), tick=tick, index=index, pen_down=bool(flags[index]),
+                                    real_tip_mm=(real * 1000).round(3), real_err_mm=round(real_error * 1e3, 3),
+                                    lag_mm=round(lag * 1e3, 3), **arm.report()))
                 lag_mm = f"{lag * 1e3:.3f}"
                 if lag > MAX_LAG_M:
                     raise SafeStop(f"real tip is {lag * 1e3:.1f} mm from the commanded tip")
@@ -352,10 +368,15 @@ def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: 
         handle.close()
         for item in progress:
             log.event("progress", **item)
+        if reports:
+            with (csv_path.parent / "robot_report.jsonl").open("w", encoding="utf-8") as stream:
+                for item in reports:
+                    stream.write(json.dumps(item, default=_jsonable) + "\n")
     log.event("stall_releases", count=progress_tracker.releases)
     if hasattr(runner, "holds"):
         log.event("policy_chunks", underruns=runner.underruns, holds=runner.holds, ticks=runner.tick)
-    return {"outcome": outcome, "ticks": len(steps), "errors": np.asarray(errors), "tick_ms": np.asarray(tick_ms), "steps": np.asarray(steps), "lags": np.asarray(lags), "last_q": q}
+    return {"outcome": outcome, "ticks": len(steps), "errors": np.asarray(errors), "tick_ms": np.asarray(tick_ms), "steps": np.asarray(steps), "lags": np.asarray(lags),
+            "real_errors": np.asarray(real_errors), "last_q": q}
 
 
 def main() -> int:
@@ -397,7 +418,7 @@ def main() -> int:
     if args.z_offset_mm < -1 or args.z_offset_mm > 40:
         parser.error("--z-offset-mm must be between -1 and 40")
 
-    log = RunLog(PROJECT / "outputs" / "hardware_runs" / (datetime.now().strftime("%Y%m%d_%H%M%S") + "_act"))
+    log = RunLog(PROJECT / "outputs" / "hardware_runs" / (datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{args.policy}"))
     outcome, api, motion_started = "started", None, False
     try:
         hardware = _load_yaml(Path(args.config))
@@ -416,6 +437,7 @@ def main() -> int:
             raise SafeStop(f"could not connect to {ip}")
         if api.get_err_warn_code()[1][0] not in (0, None):
             raise SafeStop(f"controller error {api.get_err_warn_code()[1]}")
+        log.event("robot_config", **{name: getattr(api, name, None) for name in ROBOT_CONFIG_FIELDS})
         # The policy lives in the twin's joint convention; the real arm may sit 360 deg away on a joint.
         offset = np.radians(start_deg) - home_model
         offset = 2.0 * np.pi * np.round(offset / (2.0 * np.pi))
@@ -488,6 +510,12 @@ def main() -> int:
             "policy_ms_mean": round(float(result["tick_ms"].mean()), 2),
             "real_tip_lag_mm": {"mean": round(float(result["lags"].mean() * 1e3), 3), "max": round(float(result["lags"].max() * 1e3), 3)}
             if len(result["lags"]) else None,
+            # pen_down_error_mm is from the commanded joints; this one is the arm's measured tip, sampled at 10 Hz.
+            "real_pen_down_error_mm": {"rmse": round(float(np.sqrt(np.mean(result["real_errors"] ** 2)) * 1e3), 3),
+                                       "p95": round(float(np.percentile(result["real_errors"], 95) * 1e3), 3),
+                                       "max": round(float(result["real_errors"].max() * 1e3), 3),
+                                       "samples": int(len(result["real_errors"]))}
+            if len(result["real_errors"]) else None,
         }
         log.event("summary", **summary)
         outcome = result["outcome"]
