@@ -2,7 +2,7 @@
     "dataset": {
         "repo_id": "wildtrace/wildtrace_real_kin_v2_train",
         "repo_type": "dataset",
-        "root": "/home/shravan/Workspace/WildTrace/outputs/lerobot/wildtrace_real_kin_v2_train",
+        "root": "outputs/lerobot/wildtrace_real_kin_v2_train",
         "episodes": null,
         "image_transforms": {
             "enable": false,
@@ -148,7 +148,7 @@
         "optimizer_lr_backbone": 1e-05
     },
     "reward_model": null,
-    "output_dir": "/home/shravan/Workspace/WildTrace/outputs/act/real_kinematic_v2",
+    "output_dir": "outputs/act/real_kinematic_v2",
     "job_name": "act_real_kinematic_v2",
     "resume": false,
     "seed": 17,

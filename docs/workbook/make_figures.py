@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Figures for Workbook 1 (docs/workbook/). Run with any Python that has matplotlib:
 
-    /home/shravan/anaconda3/bin/python3 docs/workbook/make_figures.py
+    python3 docs/workbook/make_figures.py
 
 Numbers are copied from the manifests and benchmark summaries cited in the
 workbook text; keep the two in sync when either changes.

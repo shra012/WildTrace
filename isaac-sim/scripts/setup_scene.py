@@ -22,7 +22,28 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(r"\\wsl.localhost\Ubuntu-24.04\home\shravan\Workspace\WildTrace\isaac-sim")
+def _wt_project_root():
+    """isaac-sim/ as Isaac (Windows) sees it, over \\\\wsl.localhost. Isaac runs this file as a script,
+    so __file__ can be missing: WILDTRACE_ISAAC_SIM_ROOT overrides, then the script's own location,
+    then the WildTrace checkout in the WSL user's home (user name from wsl.exe)."""
+    import os
+    import subprocess
+    from pathlib import Path
+
+    candidates = [os.environ.get("WILDTRACE_ISAAC_SIM_ROOT")]
+    try:
+        candidates.append(str(Path(__file__).resolve().parents[1]))
+    except (NameError, IndexError):
+        pass
+    for candidate in candidates:
+        if candidate and (Path(candidate) / "src" / "project_config.py").exists():
+            return Path(candidate)
+    user = subprocess.run(["wsl.exe", "-d", "Ubuntu-24.04", "-e", "whoami"], capture_output=True, text=True,
+                          timeout=30).stdout.strip()
+    return Path(rf"\\wsl.localhost\Ubuntu-24.04\home\{user}\Workspace\WildTrace\isaac-sim")
+
+
+PROJECT_ROOT = _wt_project_root()
 SRC = PROJECT_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

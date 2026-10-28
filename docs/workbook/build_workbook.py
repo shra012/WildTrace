@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build DATA 298B Workbook 1 for WildTrace + Isaac Sim as a Word document.
 
-    /home/shravan/anaconda3/bin/python3 docs/workbook/make_figures.py   # charts
+    python3 docs/workbook/make_figures.py   # charts
     .venv/bin/python docs/workbook/build_workbook.py                     # -> WildTrace_Workbook1.docx
 
 Every number in this file is taken from the repo's manifests, run_metrics.json

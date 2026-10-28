@@ -37,7 +37,7 @@ def _to_windows_path(path: Path) -> str:
     """job.json's trajectory_path is read by Windows-native Isaac Sim, not by
     this script itself -- when this script runs inside WSL (its natural
     home, next to the rest of WildTrace), plain WSL paths like
-    /home/shravan/... resolve to nothing on the Windows side. Convert to the
+    /home/<user>/... resolve to nothing on the Windows side. Convert to the
     \\\\wsl.localhost\\<distro>\\... form Windows can actually open. A no-op
     when this script is ever run from Windows Python instead (no
     WSL_DISTRO_NAME set), where the path is already Windows-native."""

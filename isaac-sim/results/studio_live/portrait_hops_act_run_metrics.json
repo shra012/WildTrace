@@ -1,6 +1,6 @@
 {
   "config_hash": "4dc272edd730",
-  "config_path": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\shravan\\Workspace\\WildTrace\\isaac-sim\\config\\xarm7_drawing_real.yaml",
+  "config_path": "isaac-sim\\config\\xarm7_drawing_real.yaml",
   "controller": "act",
   "desired_pen_down_points": 882,
   "desired_to_executed_nearest_path_error": {

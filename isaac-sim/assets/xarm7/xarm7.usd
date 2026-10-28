@@ -4,10 +4,10 @@
         string creator = "URDF USD Converter v0.1.3"
     }
     defaultPrim = "xarm7_drawing"
-    doc = """Generated from Composed Stage of root layer C:\\Users\\Aswin\\AppData\\Local\\Temp\\tmpsogo8x0v\\xarm7_drawing.usdc
+    doc = """Generated from Composed Stage of root layer %TEMP%\\tmpsogo8x0v\\xarm7_drawing.usdc
 
 
-Generated from Composed Stage of root layer C:\\Users\\Aswin\\AppData\\Local\\Temp\\urdf_import_xarm7_with_pen_4ovqwag2\\usdex_xarm7_with_pen\\xarm7_drawing.usdc
+Generated from Composed Stage of root layer %TEMP%\\urdf_import_xarm7_with_pen_4ovqwag2\\usdex_xarm7_with_pen\\xarm7_drawing.usdc
 """
     kilogramsPerUnit = 1
     metersPerUnit = 1

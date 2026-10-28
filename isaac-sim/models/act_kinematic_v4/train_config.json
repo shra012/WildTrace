@@ -2,7 +2,7 @@
     "dataset": {
         "repo_id": "wildtrace/wildtrace_kin_v4_train",
         "repo_type": "dataset",
-        "root": "/home/shravan/Workspace/WildTrace/outputs/lerobot/wildtrace_kin_v4_train",
+        "root": "outputs/lerobot/wildtrace_kin_v4_train",
         "episodes": null,
         "image_transforms": {
             "enable": false,
@@ -148,7 +148,7 @@
         "optimizer_lr_backbone": 1e-05
     },
     "reward_model": null,
-    "output_dir": "/home/shravan/Workspace/WildTrace/outputs/act/kinematic_v4",
+    "output_dir": "outputs/act/kinematic_v4",
     "job_name": "act_kinematic_v4",
     "resume": false,
     "seed": 17,
