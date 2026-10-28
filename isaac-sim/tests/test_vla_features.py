@@ -58,3 +58,35 @@ def test_image_layout_is_channels_first_unit_range():
     image = np.full((4, 5, 3), 255, dtype=np.uint8)
     tensor = vla_features.image_tensor_layout(image)
     assert tensor.shape == (3, 4, 5) and tensor.dtype == np.float32 and tensor.max() == 1.0
+
+
+def test_full_state_appends_the_path_window_after_the_compact_state():
+    act_state = np.arange(21, dtype=np.float32)
+    window = np.arange(PATH_WINDOW_POINTS * 3, dtype=float).reshape(PATH_WINDOW_POINTS, 3) * 1e-3
+    env = _env(window, error=(0.001, -0.002, 0.0))
+    compact = vla_features.vla_state(act_state, env)
+    full = vla_features.vla_state(act_state, env, full=True)
+    assert full.shape == (1, vla_features.FULL_STATE_DIM) == (1, len(vla_features.FULL_STATE_NAMES))
+    assert np.allclose(full[:, : vla_features.STATE_DIM], compact)
+    assert np.allclose(full[0, vla_features.STATE_DIM :], window.reshape(-1))
+
+
+def test_widening_the_state_input_keeps_the_old_outputs():
+    import types
+
+    import pytest
+
+    torch = pytest.importorskip("torch")
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from train_smolvla import widen_state_input
+
+    old = torch.nn.Linear(32, 8)
+    config = types.SimpleNamespace(max_state_dim=32)
+    policy = types.SimpleNamespace(config=config, model=types.SimpleNamespace(state_proj=old, config=config))
+    compact = torch.cat([torch.randn(4, 28), torch.zeros(4, 4)], dim=1)  # 28 values, zero padding
+    before = old(compact)
+    widen_state_input(policy, 64, keep=28)
+    wide = policy.model.state_proj
+    assert wide.in_features == 64 and config.max_state_dim == 64
+    full = torch.cat([compact[:, :28], torch.randn(4, 36)], dim=1)  # window values land on zero weights
+    assert torch.allclose(wide(full), before, atol=1e-6)

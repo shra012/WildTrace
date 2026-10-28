@@ -26,8 +26,8 @@ just automated end to end.
 
 Register with Claude Code:
     claude mcp add wildtrace-sim -s user \\
-      -e WILDTRACE_PYTHON=/home/shravan/anaconda3/bin/python3 \\
-      -- uv run --script /home/shravan/Workspace/WildTrace/isaac-sim/mcp_server/wildtrace_sim_server.py
+      -e WILDTRACE_PYTHON=$HOME/anaconda3/bin/python3 \\
+      -- uv run --script $HOME/Workspace/WildTrace/isaac-sim/mcp_server/wildtrace_sim_server.py
 """
 from __future__ import annotations
 
@@ -77,8 +77,13 @@ ACT_CHECKPOINTS = {
 SMOLVLA_CHECKPOINTS = {
     TWIN_CONFIG: ISAAC_SIM_PROJECT / "outputs" / "smolvla" / "real_kinematic_v2" / "checkpoints" / "last" / "pretrained_model",
 }
-# Actions executed per sampled SmolVLA chunk: a chunk takes ~10 flow-matching steps to sample.
+# How the SmolVLA server samples: actions executed per chunk, starting noise ("zero" removes the
+# chunk-to-chunk wobble of fresh noise), and flow-matching steps per chunk (0 = the checkpoint's).
 SMOLVLA_REPLAN_EVERY = int(os.environ.get("WILDTRACE_SMOLVLA_REPLAN_EVERY", "3"))
+SMOLVLA_NOISE = os.environ.get("WILDTRACE_SMOLVLA_NOISE", "zero")
+SMOLVLA_FLOW_STEPS = int(os.environ.get("WILDTRACE_SMOLVLA_FLOW_STEPS", "0"))
+if os.environ.get("WILDTRACE_SMOLVLA_CHECKPOINT"):
+    SMOLVLA_CHECKPOINTS[TWIN_CONFIG] = Path(os.environ["WILDTRACE_SMOLVLA_CHECKPOINT"])
 POLICY_CONTROLLERS = ("act", "smolvla")
 ACT_PYTHON = ISAAC_SIM_PROJECT / ".venv-act" / "bin" / "python"
 ACT_PORT = int(os.environ.get("WILDTRACE_ACT_PORT", "8790"))
@@ -533,7 +538,8 @@ def _launch(job_data: dict, controller: str, config: str, record_video: bool, vi
     if controller in POLICY_CONTROLLERS:
         if controller == "smolvla":
             checkpoint = SMOLVLA_CHECKPOINTS.get(scene_config)
-            policy_args = ("--policy", "smolvla", "--replan-every", str(SMOLVLA_REPLAN_EVERY))
+            policy_args = ("--policy", "smolvla", "--replan-every", str(SMOLVLA_REPLAN_EVERY),
+                           "--noise", SMOLVLA_NOISE, "--flow-steps", str(SMOLVLA_FLOW_STEPS))
         else:
             checkpoint, policy_args = ACT_CHECKPOINTS.get(scene_config), ("--execution", "first")
         if checkpoint is None or not checkpoint.exists():

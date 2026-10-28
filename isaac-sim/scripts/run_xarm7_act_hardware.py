@@ -17,6 +17,11 @@ forward kinematics with ideal joint tracking and reports path error, pen height 
 close each joint gets to its limit. Do that first. --dry-lift-mm raises the whole path so
 the pen never touches the paper. A real run needs the arm at the policy's start pose
 (act_start_joints_deg); the script joint-moves there first after a tip-height check.
+
+--policy smolvla --checkpoint <train_smolvla pretrained_model> runs a SmolVLA checkpoint
+instead. It cannot sample a chunk inside one 60 Hz tick, so it samples the next chunk in
+the background while the current one plays, two ticks per action; a tick with no action
+ready holds still, and the run log counts those holds.
 """
 from __future__ import annotations
 
@@ -37,7 +42,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT / "src"))
 sys.path.insert(0, str(PROJECT / "scripts"))
 
-from act_features import chased_index, environment_state, observation_state, path_arc_length, path_window  # noqa: E402
+from act_features import PathProgress, environment_state, observation_state, path_arc_length, path_window  # noqa: E402
 from coordinate_mapper import interpolate_segment, map_trajectory_to_plane  # noqa: E402
 from drawing_state_machine import MotionTarget, Phase, build_motion_sequence, flatten_desired_targets  # noqa: E402
 from run_xarm7_hardware import RunLog, SafeStop  # noqa: E402
@@ -259,6 +264,7 @@ def _fence_check(plan: dict, tip: np.ndarray, lift_m: float) -> str | None:
 def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: Path, args, lift_m: float) -> dict:
     positions, flags = plan["positions"], plan["pen_down"]
     arc = path_arc_length(positions)
+    progress_tracker = PathProgress(positions, arc, stall_s=args.stall_release_s)
     dt = 1.0 / CONTROL_HZ
     q, qd, tip = arm.read(dt)
     prev_cmd = q.copy()
@@ -298,7 +304,7 @@ def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: 
             if np.any(q < lo) or np.any(q > hi):
                 joint = int(np.argmax((q < lo) | (q > hi))) + 1
                 raise SafeStop(f"joint {joint} at {np.degrees(q[joint - 1]):.1f} deg is inside the {LIMIT_MARGIN_DEG} deg limit margin")
-            index = chased_index(positions, arc, index, tip)
+            index = progress_tracker.update(index, tip, now - started)
             target = positions[index]
             error = float(np.linalg.norm(tip - target))
             if flags[index] and error > args.max_error_mm / 1000.0:
@@ -346,6 +352,9 @@ def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: 
         handle.close()
         for item in progress:
             log.event("progress", **item)
+    log.event("stall_releases", count=progress_tracker.releases)
+    if hasattr(runner, "holds"):
+        log.event("policy_chunks", underruns=runner.underruns, holds=runner.holds, ticks=runner.tick)
     return {"outcome": outcome, "ticks": len(steps), "errors": np.asarray(errors), "tick_ms": np.asarray(tick_ms), "steps": np.asarray(steps), "lags": np.asarray(lags), "last_q": q}
 
 
@@ -375,7 +384,12 @@ def main() -> int:
     parser.add_argument("--max-strokes", type=int, default=None)
     parser.add_argument("--skip-strokes", type=int, default=0)
     parser.add_argument("--max-error-mm", type=float, default=3.0, help="Pen-down tip error that stops the run")
+    parser.add_argument("--stall-release-s", type=float, default=0.0,
+                        help="Step the target one waypoint ahead when the pen hovers within 1.5 mm of the path without "
+                             "progressing for this long (act_features.PathProgress); 0 = off, the previous behaviour")
     parser.add_argument("--max-seconds", type=float, default=600.0)
+    parser.add_argument("--policy", choices=["act", "smolvla"], default="act")
+    parser.add_argument("--flow-steps", type=int, default=3, help="smolvla: flow-matching steps per chunk")
     parser.add_argument("--start-joints-deg", type=float, nargs=7, default=None, help="Real-arm joints (deg) for the policy's start pose")
     args = parser.parse_args()
     if args.offline == args.execute:
@@ -422,12 +436,19 @@ def main() -> int:
         log.event("plan_ready", targets=len(plan["positions"]), strokes=plan["strokes"], home_tip_mm=(home_tip * 1000).round(2),
                   pen_down_z_mm=round(plan["pen_down_z"] * 1000, 3), lift_mm=args.z_offset_mm)
 
-        from act_policy_server import ActRunner
+        from act_policy_server import ActRunner, SmolVlaRunner
 
-        runner = ActRunner(Path(args.checkpoint).resolve(), "cuda", "first", 0.01)
+        if args.policy == "smolvla":
+            runner = SmolVlaRunner(Path(args.checkpoint).resolve(), "cuda", 1, "zero", 1, args.flow_steps,
+                                   # a 30 fps action covers two 60 Hz ticks at ACTION_SCALE each
+                                   async_chunks=True, ticks_per_action=round(CONTROL_HZ / 30.0), hold_on_underrun=True)
+            warm_up = lambda: runner.chunk(np.zeros(21), np.zeros(37))  # noqa: E731
+        else:
+            runner = ActRunner(Path(args.checkpoint).resolve(), "cuda", "first", 0.01)
+            warm_up = lambda: runner.act(np.zeros(21), np.zeros(37))  # noqa: E731
         # The first CUDA calls take over a second; do them before the 60 Hz loop starts.
         for _ in range(8):
-            runner.act(np.zeros(21), np.zeros(37))
+            warm_up()
         runner.reset()
         csv_path = log.directory / "act_ticks.csv"
 

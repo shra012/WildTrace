@@ -18,7 +18,21 @@ current control tick.
 protocol: the request's ACT state and env are turned into SmolVLA's state and
 path image (src/vla_features.py) here, so Isaac's side does not change.
 SmolVLA samples its chunk with 10 flow-matching steps, so --replan-every can
-execute several actions of a chunk before sampling the next one.
+execute several actions of a chunk before sampling the next one. Each chunk
+starts from Gaussian noise; with fresh noise every chunk, consecutive chunks
+disagree slightly and the pen wobbles. --noise zero starts every chunk from the
+same (zero) noise, and --samples N averages N chunks sampled together.
+
+--async-chunks is for the real arm, which cannot wait for a chunk: every reply
+comes straight from the current chunk, while a background thread keeps sampling
+the next one from the latest observation. A finished chunk replaces the queue,
+minus the actions whose ticks passed while it was being sampled; the count of
+ticks that still had to wait (underruns) is printed when the client leaves.
+--ticks-per-action 2 plays each chunk action for two ticks, for a 30 fps policy
+driven by a 60 Hz loop at half scale, so a chunk lasts as long as it was trained
+to. --hold-on-underrun never waits: a tick with no action ready gets a zero
+joint step (the arm holds still) and is counted as a hold, which keeps every
+tick inside a real-time loop's budget.
 """
 from __future__ import annotations
 
@@ -26,6 +40,7 @@ import argparse
 import json
 import socket
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import torch
@@ -49,6 +64,16 @@ def _parse_args():
     parser.add_argument("--temporal-ensemble-coeff", type=float, default=0.01, help="ACT paper default")
     parser.add_argument("--policy", choices=["act", "smolvla"], default="act")
     parser.add_argument("--replan-every", type=int, default=1, help="smolvla: actions executed per sampled chunk")
+    parser.add_argument("--noise", choices=["random", "zero"], default="random", help="smolvla: starting noise of each chunk")
+    parser.add_argument("--samples", type=int, default=1, help="smolvla: chunks sampled and averaged per query")
+    parser.add_argument("--async-chunks", action="store_true",
+                        help="smolvla: sample the next chunk in the background while the current one runs")
+    parser.add_argument("--flow-steps", type=int, default=0,
+                        help="smolvla: flow-matching steps per chunk (0 = the checkpoint's, 10); fewer is faster")
+    parser.add_argument("--ticks-per-action", type=int, default=1,
+                        help="smolvla --async-chunks: control ticks each chunk action is played for")
+    parser.add_argument("--hold-on-underrun", action="store_true",
+                        help="smolvla --async-chunks: return a zero step instead of waiting for a chunk")
     return parser.parse_args()
 
 
@@ -85,7 +110,9 @@ class ActRunner:
 
 
 class SmolVlaRunner:
-    def __init__(self, checkpoint: Path, device: str, replan_every: int):
+    def __init__(self, checkpoint: Path, device: str, replan_every: int, noise: str = "random", samples: int = 1,
+                 flow_steps: int = 0, async_chunks: bool = False, ticks_per_action: int = 1,
+                 hold_on_underrun: bool = False):
         import sys
 
         from lerobot.configs.policies import PreTrainedConfig
@@ -98,25 +125,88 @@ class SmolVlaRunner:
         self.features = vla_features
         config = PreTrainedConfig.from_pretrained(checkpoint)
         config.device = device
-        config.n_action_steps = max(1, min(replan_every, config.chunk_size))
+        if flow_steps > 0:
+            config.num_steps = flow_steps
         self.policy = SmolVLAPolicy.from_pretrained(checkpoint, config=config)
+        import smolvla_direct_state
+
+        smolvla_direct_state.load_direct_state(self.policy, checkpoint)
         self.policy.to(device).eval()
         self.preprocessor, self.postprocessor = make_pre_post_processors(config, pretrained_path=str(checkpoint))
+        self.replan_every = max(1, min(replan_every, config.chunk_size))
+        self.noise, self.samples, self.device = noise, max(1, samples), device
+        self.noise_shape = (self.samples, config.chunk_size, config.max_action_dim)
+        # Checkpoints trained with --state full take the path window as numbers too.
+        self.full_state = config.input_features["observation.state"].shape[0] == vla_features.FULL_STATE_DIM
+        self.queue: list[list[float]] = []
+        self.async_chunks = async_chunks
+        self.ticks_per_action = max(1, ticks_per_action)
+        self.hold_on_underrun = hold_on_underrun
+        self._executor = ThreadPoolExecutor(max_workers=1) if async_chunks else None
+        self._pending = None  # (future, tick whose observation it was sampled from)
+        self.tick = 0
+        self.underruns = 0
+        self.holds = 0
 
     def reset(self) -> None:
+        if self._pending is not None:
+            self._pending[0].result()  # let an in-flight chunk finish before clearing state
+        self._pending = None
         self.policy.reset()
+        self.queue = []
+        self.tick = 0
+        self.underruns = 0
+        self.holds = 0
 
     @torch.no_grad()
-    def act(self, state, env) -> list[float]:
+    def chunk(self, state, env) -> torch.Tensor:
+        """The next (chunk_size, 7) actions, unnormalized, averaged over `samples` sampled chunks."""
         image = self.features.path_view(env)
         observation = {
-            "observation.state": torch.from_numpy(self.features.vla_state(state, env)[0]),
+            "observation.state": torch.from_numpy(self.features.vla_state(state, env, self.full_state)[0]),
             self.features.IMAGE_KEY: torch.from_numpy(self.features.image_tensor_layout(image)),
             "task": self.features.TASK,
         }
         batch = self.preprocessor(observation)
-        action = self.postprocessor(self.policy.select_action(batch))
-        return action.reshape(-1).float().cpu().tolist()
+        if self.samples > 1:
+            batch = {key: value.repeat(self.samples, *[1] * (value.dim() - 1))
+                     if torch.is_tensor(value) and value.dim() > 0 and value.shape[0] == 1 else value
+                     for key, value in batch.items()}
+        noise = torch.zeros(self.noise_shape, device=self.device) if self.noise == "zero" else None
+        self.policy.reset()
+        actions = self.policy.predict_action_chunk(batch, noise=noise).mean(dim=0, keepdim=True)
+        return self.postprocessor(actions)[0].float().cpu()
+
+    def act(self, state, env) -> list[float]:
+        if not self.async_chunks:
+            if not self.queue:
+                self.queue = self.chunk(state, env)[: self.replan_every].tolist()
+            return self.queue.pop(0)
+        wait = not self.hold_on_underrun
+        waited = False
+        if self._pending is not None and (self._pending[0].done() or (wait and not self.queue)):
+            future, launched = self._pending
+            self._pending = None
+            waited = not future.done()
+            # chunk[0] was meant for the tick it was sampled at; skip the ticks that have passed since.
+            # A chunk that is entirely in the past is dropped.
+            self.queue = self._ticks(future.result())[self.tick - launched:]
+        if not self.queue and wait:
+            waited = waited or self.tick > 0
+            self.queue = self._ticks(self.chunk(state, env))
+        self.underruns += int(waited)
+        if self.queue:
+            action = self.queue.pop(0)
+        else:
+            self.holds += 1
+            action = [0.0] * 7
+        self._pending = self._pending or (self._executor.submit(self.chunk, list(state), list(env)), self.tick)
+        self.tick += 1
+        return action
+
+    def _ticks(self, chunk: torch.Tensor) -> list[list[float]]:
+        """A chunk's actions, one per control tick."""
+        return [action for action in chunk.tolist() for _ in range(self.ticks_per_action)]
 
 
 def _serve(runner, host: str, port: int) -> None:
@@ -140,15 +230,20 @@ def _serve(runner, host: str, port: int) -> None:
                         }
                     stream.write((json.dumps(reply) + "\n").encode())
                     stream.flush()
-            print(f"[OK] Client {address} disconnected", flush=True)
+            print(f"[OK] Client {address} disconnected"
+                  + (f" ({runner.underruns} underruns, {runner.holds} holds in {runner.tick} ticks)"
+                     if getattr(runner, "async_chunks", False)
+                     else ""), flush=True)
 
 
 def main() -> int:
     args = _parse_args()
     checkpoint = Path(args.checkpoint).resolve()
     if args.policy == "smolvla":
-        runner = SmolVlaRunner(checkpoint, args.device, args.replan_every)
-        print(f"[OK] SmolVLA, executing {runner.policy.config.n_action_steps} action(s) per chunk", flush=True)
+        runner = SmolVlaRunner(checkpoint, args.device, args.replan_every, args.noise, args.samples, args.flow_steps,
+                               args.async_chunks, args.ticks_per_action, args.hold_on_underrun)
+        print(f"[OK] SmolVLA, executing {runner.replan_every} action(s) per chunk, noise {args.noise}, "
+              f"{runner.samples} sample(s) per chunk, {runner.policy.config.num_steps} flow steps", flush=True)
     else:
         runner = ActRunner(checkpoint, args.device, args.execution, args.temporal_ensemble_coeff)
         print(f"[OK] Execution mode: {args.execution}", flush=True)

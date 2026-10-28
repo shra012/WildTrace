@@ -31,6 +31,7 @@ import torch
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+import smolvla_direct_state  # noqa: E402
 import vla_features  # noqa: E402
 
 DATASETS_ROOT = PROJECT_ROOT.parent / "outputs" / "lerobot"
@@ -40,7 +41,8 @@ ACT_STATE, ACT_ENV, ACTION = "observation.state", "observation.environment_state
 def _parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="wildtrace_real_kin_v2_train")
-    parser.add_argument("--val-dataset", default="wildtrace_real_kin_v2_val")
+    parser.add_argument("--val-dataset", default="wildtrace_real_kin_v2_val",
+                        help='"train" validates on training frames (overfit tests with --episodes)')
     parser.add_argument("--output", default=str(PROJECT_ROOT / "outputs" / "smolvla" / "real_kinematic_v2"))
     parser.add_argument("--init", default="lerobot/smolvla_base", help="pretrained SmolVLA to start from")
     parser.add_argument("--steps", type=int, default=20000)
@@ -49,25 +51,52 @@ def _parse_args():
     parser.add_argument("--warmup-steps", type=int, default=1000)
     parser.add_argument("--chunk-size", type=int, default=10, help="same 1/3 s chunk as ACT")
     parser.add_argument("--episodes", type=int, default=0, help="train on the first N episodes only (0 = all)")
+    parser.add_argument("--episode-stride", type=int, default=1,
+                        help="use one episode in N; 3 keeps one recording of each drawing (the datasets hold "
+                             "3 recordings per drawing, stored next to each other: a0 clean, a1-a2 with DART noise, "
+                             "servo offset and paper shift), rotating through them so all three kinds stay in")
+    parser.add_argument("--image-size", type=int, default=0,
+                        help="resize the path image to this square size inside the model (0 = the checkpoint's, 512); "
+                             "the vision encoder dominates step time")
+    parser.add_argument("--vlm-layers", type=int, default=0,
+                        help="keep only the first N language-model layers (0 = the checkpoint's); fewer is faster")
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--log-freq", type=int, default=100)
     parser.add_argument("--val-freq", type=int, default=2000)
     parser.add_argument("--save-freq", type=int, default=5000)
     parser.add_argument("--seed", type=int, default=17)
     parser.add_argument("--resume", action="store_true", help="continue from <output>/checkpoints/last")
+    parser.add_argument("--train-vlm", action="store_true",
+                        help="also train the language model layers (the vision encoder stays frozen); the state "
+                             "token passes through them on its way to the action expert")
+    parser.add_argument("--direct-state", action="store_true",
+                        help="also feed the state straight to the action expert (src/smolvla_direct_state.py)")
+    parser.add_argument("--state", choices=["compact", "full"], default="compact",
+                        help="full adds the 30-value path window to the state (58 values, max_state_dim 64)")
     return parser.parse_args()
+
+
+def episode_subset(total: int, stride: int) -> list[int]:
+    """One episode in each group of `stride` neighbours, at offset group % stride. A plain
+    range(0, total, 3) would keep only each drawing's clean a0 recording and never show a recovery."""
+    stride = max(1, stride)
+    return [i for i in range(total) if i % stride == (i // stride) % stride]
 
 
 class VlaFrames(torch.utils.data.Dataset):
     """An ACT LeRobotDataset seen as SmolVLA frames."""
 
-    def __init__(self, name: str, chunk_size: int, episodes: int = 0):
+    def __init__(self, name: str, chunk_size: int, episodes: int = 0, full_state: bool = False, stride: int = 1):
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
+        self.full_state = full_state
         root = DATASETS_ROOT / name
-        fps = json.loads((root / "meta" / "info.json").read_text())["fps"]
+        info = json.loads((root / "meta" / "info.json").read_text())
+        fps = info["fps"]
+        selected = episode_subset(episodes or info["total_episodes"], stride)
         self.frames = LeRobotDataset(
-            f"wildtrace/{name}", root=root, episodes=list(range(episodes)) if episodes else None,
+            f"wildtrace/{name}", root=root,
+            episodes=selected if (episodes or stride > 1) else None,
             delta_timestamps={ACTION: [i / fps for i in range(chunk_size)]},
         )
 
@@ -78,7 +107,8 @@ class VlaFrames(torch.utils.data.Dataset):
         frame = self.frames[index]
         env = frame[ACT_ENV].numpy()
         return {
-            "observation.state": torch.from_numpy(vla_features.vla_state(frame[ACT_STATE].numpy(), env)[0]),
+            "observation.state": torch.from_numpy(
+                vla_features.vla_state(frame[ACT_STATE].numpy(), env, self.full_state)[0]),
             vla_features.IMAGE_KEY: torch.from_numpy(vla_features.image_tensor_layout(vla_features.path_view(env))),
             ACTION: frame[ACTION],
             "action_is_pad": frame["action_is_pad"],
@@ -86,9 +116,10 @@ class VlaFrames(torch.utils.data.Dataset):
         }
 
 
-def vla_stats(act_stats: dict) -> dict:
-    """SmolVLA normalization statistics from the ACT dataset's (state = ACT state + 7 env values)."""
-    pick = list(range(6)) + [-1]
+def vla_stats(act_stats: dict, full_state: bool = False) -> dict:
+    """SmolVLA normalization statistics from the ACT dataset's (state = ACT state + 7 env values,
+    then the path window with `full_state`), in vla_features.vla_state's order."""
+    pick = list(range(6)) + [-1] + (list(range(6, 36)) if full_state else [])
     stats = {}
     for key in ("mean", "std", "min", "max"):
         state = np.asarray(act_stats[ACT_STATE][key], dtype=np.float32).reshape(-1)
@@ -98,14 +129,38 @@ def vla_stats(act_stats: dict) -> dict:
     return stats
 
 
-def make_policy(init: str, chunk_size: int, device: str):
+FULL_MAX_STATE_DIM = 64
+
+
+def widen_state_input(policy, max_state_dim: int, keep: int = vla_features.STATE_DIM) -> None:
+    """Grow SmolVLA's state projection to max_state_dim inputs. The first `keep` columns (the
+    compact state the checkpoint was trained on) keep their weights; the rest, which only ever
+    saw zero padding, start at zero. The policy starts out exactly as before on the compact
+    values and learns to use the added ones."""
+    old = policy.model.state_proj
+    if old.in_features >= max_state_dim:
+        return
+    new = torch.nn.Linear(max_state_dim, old.out_features, device=old.weight.device, dtype=old.weight.dtype)
+    with torch.no_grad():
+        new.weight.zero_()
+        new.weight[:, :keep] = old.weight[:, :keep]
+        new.bias.copy_(old.bias)
+    new.weight.requires_grad = new.bias.requires_grad = old.weight.requires_grad
+    policy.model.state_proj = new
+    policy.config.max_state_dim = max_state_dim
+    policy.model.config.max_state_dim = max_state_dim
+
+
+def make_policy(init: str, chunk_size: int, device: str, full_state: bool = False, train_vlm: bool = False,
+                vlm_layers: int = 0, image_size: int = 0):
     from lerobot.configs.policies import PreTrainedConfig
     from lerobot.configs.types import FeatureType, PolicyFeature
     from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 
     config = PreTrainedConfig.from_pretrained(init)
     config.input_features = {
-        "observation.state": PolicyFeature(type=FeatureType.STATE, shape=(vla_features.STATE_DIM,)),
+        "observation.state": PolicyFeature(
+            type=FeatureType.STATE, shape=(vla_features.FULL_STATE_DIM if full_state else vla_features.STATE_DIM,)),
         vla_features.IMAGE_KEY: PolicyFeature(
             type=FeatureType.VISUAL, shape=(3, vla_features.IMAGE_SIZE_PX, vla_features.IMAGE_SIZE_PX)
         ),
@@ -115,7 +170,17 @@ def make_policy(init: str, chunk_size: int, device: str):
     config.n_action_steps = chunk_size
     config.device = device
     config.push_to_hub = False
-    return SmolVLAPolicy.from_pretrained(init, config=config).to(device), config
+    if vlm_layers > 0:
+        config.num_vlm_layers = vlm_layers
+    if image_size > 0:
+        config.resize_imgs_with_padding = (image_size, image_size)
+    if train_vlm:
+        config.train_expert_only = False
+        config.freeze_vision_encoder = True
+    policy = SmolVLAPolicy.from_pretrained(init, config=config).to(device)
+    if full_state:
+        widen_state_input(policy, FULL_MAX_STATE_DIM)
+    return policy, policy.config
 
 
 def _batches(loader):
@@ -128,7 +193,10 @@ def first_action_error(policy, preprocessor, batch: dict) -> float:
     """Mean |predicted - true| first action over mean |true| (normalized), as for the ACT overfit gate."""
     batch = preprocessor(batch)
     policy.reset()
-    predicted = policy.predict_action_chunk(batch)[:, 0]
+    # Zero starting noise, so checkpoints are compared without sampling luck.
+    noise = torch.zeros(len(batch[ACTION]), policy.config.chunk_size, policy.config.max_action_dim,
+                        device=batch[ACTION].device)
+    predicted = policy.predict_action_chunk(batch, noise=noise)[:, 0]
     true = batch[ACTION][:, 0]
     policy.train()
     return float((predicted - true).abs().mean() / true.abs().mean().clamp_min(1e-6))
@@ -138,6 +206,8 @@ def save(policy, preprocessor, postprocessor, output: Path, step: int) -> None:
     target = output / "checkpoints" / f"{step:06d}" / "pretrained_model"
     target.mkdir(parents=True, exist_ok=True)
     policy.save_pretrained(target)
+    if hasattr(policy.model, "state_to_expert"):
+        smolvla_direct_state.mark_checkpoint(target)
     preprocessor.save_pretrained(target)
     postprocessor.save_pretrained(target)
     (target.parent / "training_state.json").write_text(json.dumps({"step": step}))
@@ -157,8 +227,9 @@ def main() -> int:
     output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
 
-    train = VlaFrames(args.dataset, args.chunk_size, args.episodes)
-    stats = vla_stats(train.frames.meta.stats)
+    full_state = args.state == "full"
+    train = VlaFrames(args.dataset, args.chunk_size, args.episodes, full_state, args.episode_stride)
+    stats = vla_stats(train.frames.meta.stats, full_state)
     start_step = 0
     if args.resume:
         last = output / "checkpoints" / "last"
@@ -166,7 +237,10 @@ def main() -> int:
         start_step = json.loads((last / "training_state.json").read_text())["step"]
     else:
         init = args.init
-    policy, config = make_policy(init, args.chunk_size, device)
+    policy, config = make_policy(init, args.chunk_size, device, full_state, args.train_vlm, args.vlm_layers,
+                                 args.image_size)
+    if not smolvla_direct_state.load_direct_state(policy, Path(init)) and args.direct_state:
+        smolvla_direct_state.add_direct_state(policy)
     if args.resume:
         preprocessor, postprocessor = make_pre_post_processors(config, pretrained_path=init)
     else:
@@ -184,12 +258,15 @@ def main() -> int:
         progress = min(1.0, (step - args.warmup_steps) / max(1, args.steps - args.warmup_steps))
         return 0.025 + 0.975 * 0.5 * (1 + math.cos(math.pi * progress))
 
+    for group in optimizer.param_groups:  # LambdaLR needs this to start part-way through (--resume)
+        group.setdefault("initial_lr", args.lr)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_factor, last_epoch=start_step - 1 if start_step else -1)
     loader = torch.utils.data.DataLoader(train, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers,
                                          pin_memory=device == "cuda", drop_last=True, persistent_workers=True)
     val_batch = None
     if args.val_dataset:
-        val = VlaFrames(args.val_dataset, args.chunk_size)
+        val = train if args.val_dataset == "train" else VlaFrames(args.val_dataset, args.chunk_size,
+                                                                     full_state=full_state)
         generator = torch.Generator().manual_seed(args.seed)
         val_batch = next(iter(torch.utils.data.DataLoader(val, batch_size=64, shuffle=True, generator=generator)))
 

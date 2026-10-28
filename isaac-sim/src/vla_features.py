@@ -12,8 +12,10 @@ rendered top-down view centred on the pen tip:
 
 The numbers that need sub-millimetre precision (tip, target - tip, pen_down)
 stay in the state: [q(7), qd(7), previous command(7), tip(3), target-tip(3),
-pen_down(1)] = 28 values. Everything here is a pure function of the ACT
-observation, so the same LeRobot datasets train both policies and the policy
+pen_down(1)] = 28 values. The "full" state appends the 30-value path window
+as numbers too (58 values, the whole ACT observation); it needs SmolVLA's
+max_state_dim raised to 64. Its first 28 values are the compact state.
+Everything here is a pure function of the ACT observation, so the same LeRobot datasets train both policies and the policy
 server takes the same request from Isaac for either. Pure numpy + OpenCV.
 """
 from __future__ import annotations
@@ -30,6 +32,7 @@ VIEW_HALF_EXTENT_M = 0.0224
 HEIGHT_SCALE_PER_MM = 3.0          # blue channel counts per mm of height above the tip
 SUBPIXEL_BITS = 4                  # cv2 fixed-point drawing, 1/16 px
 STATE_DIM = 28
+FULL_STATE_DIM = 58
 TASK = "trace the upcoming pen path"
 
 STATE_NAMES = (
@@ -38,13 +41,18 @@ STATE_NAMES = (
     + [f"q{i}_prev_cmd" for i in range(1, 8)]
     + ["tip_x", "tip_y", "tip_z", "err_x", "err_y", "err_z", "pen_down"]
 )
+FULL_STATE_NAMES = STATE_NAMES + [f"w{i}_{axis}" for i in range(PATH_WINDOW_POINTS) for axis in "xyz"]
 
 
-def vla_state(act_state: np.ndarray, environment_state: np.ndarray) -> np.ndarray:
-    """[q, qd, previous command] from the ACT state + [tip, target - tip, pen_down] from its env state."""
+def vla_state(act_state: np.ndarray, environment_state: np.ndarray, full: bool = False) -> np.ndarray:
+    """[q, qd, previous command] from the ACT state + [tip, target - tip, pen_down] from its env state,
+    and with `full` the path window (relative to the tip) after them."""
     state = np.asarray(act_state, dtype=np.float32).reshape(-1, 21)
     env = np.asarray(environment_state, dtype=np.float32).reshape(len(state), -1)
-    return np.concatenate([state, env[:, :6], env[:, -1:]], axis=1)
+    parts = [state, env[:, :6], env[:, -1:]]
+    if full:
+        parts.append(env[:, 6 : 6 + 3 * PATH_WINDOW_POINTS])
+    return np.concatenate(parts, axis=1)
 
 
 def path_view(environment_state: np.ndarray, size: int = IMAGE_SIZE_PX,
