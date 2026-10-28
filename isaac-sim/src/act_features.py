@@ -218,3 +218,42 @@ def chased_index(
     loop, without the IK runner's stop-and-settle reach gate.
     """
     return project_on_path(targets, arc, index, tip, max_ahead_m)[1]
+
+
+class PathProgress:
+    """Where a learned controller is along the path, with a stall release.
+
+    Each tick the target is the first waypoint ahead of the pen's projection on
+    the path (chased_index). A policy trained on perfect-tracking labels can end
+    up hovering beside the path: close to it, but no longer moving along it, so
+    the projection, and with it the target, never advances; on the real arm the
+    pen then needed a manual nudge. If the projection has not moved forward by
+    `min_progress_m` for `stall_s` while the pen is within `band_m` of the path,
+    the target is stepped one waypoint ahead, which turns the policy's correction
+    forward again. In normal running the projection keeps moving and the release
+    never fires. stall_s <= 0 disables it (plain chased_index).
+    """
+
+    def __init__(self, targets: np.ndarray, arc: np.ndarray, stall_s: float = 0.5, band_m: float = 0.0015,
+                 min_progress_m: float = 1e-4, max_ahead_m: float = PROJECTION_AHEAD_M):
+        self.targets = np.asarray(targets, dtype=np.float64)
+        self.arc = np.asarray(arc, dtype=np.float64)
+        self.stall_s, self.band_m = float(stall_s), float(band_m)
+        self.min_progress_m, self.max_ahead_m = float(min_progress_m), float(max_ahead_m)
+        self.releases = 0
+        self._best_s: float | None = None
+        self._since = 0.0
+
+    def update(self, index: int, tip: Sequence[float], now_s: float) -> int:
+        s, ahead = project_on_path(self.targets, self.arc, index, tip, self.max_ahead_m)
+        if self._best_s is None or s > self._best_s + self.min_progress_m:
+            self._best_s, self._since = s, float(now_s)
+            return ahead
+        if self.stall_s <= 0 or now_s - self._since < self.stall_s or ahead >= len(self.targets) - 1:
+            return ahead
+        on_path = np.array([np.interp(s, self.arc, self.targets[:, axis]) for axis in range(3)])
+        if np.linalg.norm(np.asarray(tip, dtype=np.float64) - on_path) > self.band_m:
+            return ahead  # far off the path: a real tracking problem, left to the safety checks
+        self.releases += 1
+        self._since = float(now_s)
+        return ahead + 1

@@ -23,7 +23,28 @@ import json
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(r"\\wsl.localhost\Ubuntu-24.04\home\shravan\Workspace\WildTrace\isaac-sim")
+def _wt_project_root():
+    """isaac-sim/ as Isaac (Windows) sees it, over \\\\wsl.localhost. Isaac runs this file as a script,
+    so __file__ can be missing: WILDTRACE_ISAAC_SIM_ROOT overrides, then the script's own location,
+    then the WildTrace checkout in the WSL user's home (user name from wsl.exe)."""
+    import os
+    import subprocess
+    from pathlib import Path
+
+    candidates = [os.environ.get("WILDTRACE_ISAAC_SIM_ROOT")]
+    try:
+        candidates.append(str(Path(__file__).resolve().parents[1]))
+    except (NameError, IndexError):
+        pass
+    for candidate in candidates:
+        if candidate and (Path(candidate) / "src" / "project_config.py").exists():
+            return Path(candidate)
+    user = subprocess.run(["wsl.exe", "-d", "Ubuntu-24.04", "-e", "whoami"], capture_output=True, text=True,
+                          timeout=30).stdout.strip()
+    return Path(rf"\\wsl.localhost\Ubuntu-24.04\home\{user}\Workspace\WildTrace\isaac-sim")
+
+
+PROJECT_ROOT = _wt_project_root()
 SRC = PROJECT_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -31,6 +52,16 @@ if str(SRC) not in sys.path:
 import carb
 import numpy as np
 import omni.timeline
+
+import importlib  # noqa: E402
+
+import act_features  # noqa: E402
+import drawing_state_machine  # noqa: E402
+
+# Kit keeps src modules imported across graph rebuilds; reload the ones the
+# policy and motion code use so their edits apply without restarting Isaac Sim.
+importlib.reload(act_features)
+importlib.reload(drawing_state_machine)
 
 from coordinate_mapper import interpolate_segment, map_trajectory_to_plane
 from drawing_state_machine import MotionTarget, MultiStrokeStateMachine, Phase, build_motion_sequence
@@ -42,8 +73,6 @@ from trajectory_loader import load_trajectory
 # ── Config: single source of truth is config/xarm7_drawing.yaml. Values are
 # read once at module load (Kit re-imports this file on each reload_script /
 # Action Graph rebuild, so edits to the yaml take effect on the next rebuild).
-import importlib  # noqa: E402
-
 import mcp_scene  # noqa: E402
 
 # Kit keeps modules imported across reload_script/graph rebuilds; reload so
@@ -206,6 +235,10 @@ _previous_tip_xy = None
 # ACT mode (job.json "controller": "act"): policy client and path bookkeeping.
 # "smolvla" is served behind the same policy protocol, so it runs the same way.
 POLICY_CONTROLLERS = ("act", "smolvla")
+# Seconds a policy-driven pen may hover beside the path without progressing before
+# its target is stepped forward (act_features.PathProgress); 0 disables it.
+POLICY_STALL_RELEASE_S = float(CONFIG["drawing"].get("policy_stall_release_s", 0.5))
+_progress = None
 _controller = "ik"
 _policy = None
 _policy_address = "127.0.0.1:8790"
@@ -237,7 +270,7 @@ def _reset(_event=None):
     global _state, _frame, _sim_time, _world, _robot, _solver, _machine, _mapped, _prefix
     global _home_action, _executed_rows, _reached_errors, _report_written
     global _phase_corners, _previous_tip_xy, _policy, _act_target, _desired_positions, _desired_arc, _phase_offsets
-    global _live, _live_progress
+    global _live, _live_progress, _progress
     # A Stop mid-run leaves no report; say so instead of "drawing" forever.
     _live_finish("failed", "timeline stopped before the run finished")
     _live = _live_progress = None
@@ -263,6 +296,7 @@ def _reset(_event=None):
     _reached_errors = []
     _report_written = False
     _previous_tip_xy = None
+    _progress = None
     if _world is not None:
         _world.clear_instance()
         _world = None
@@ -379,7 +413,7 @@ def _author_drawn_curves():
     from mcp_scene import paper_surface_z, pen_protrusion_m
 
     protrusion = pen_protrusion_m(PROJECT_ROOT)
-    surface_z = paper_surface_z(DRAWING, protrusion) if protrusion > 0 else PEN_DOWN_Z_M
+    surface_z = paper_surface_z(CONFIG["drawing"], protrusion) if protrusion > 0 else PEN_DOWN_Z_M
     _curve("Desired", desired_strokes, surface_z + 0.0005, (0.15, 0.7, 0.15), 0.0015)
     _curve("Executed", list(executed_by_stroke.values()), surface_z + 0.001, (0.05, 0.05, 0.05), 0.0018)
 
@@ -415,6 +449,7 @@ def _write_report():
         "config_hash": CONFIG_HASH,
         "config_path": str(_CONFIG_PATH),
         "controller": _controller,
+        "stall_releases": int(_progress.releases) if _progress is not None else 0,
         "drawing_id": _mapped["drawing_id"] if _mapped else None,
         "stroke_count": len(_mapped["strokes"]) if _mapped else 0,
         "visited_states": _machine.visited_states,
@@ -477,18 +512,20 @@ def _live_finish(status, reason=None):
 def _start_act():
     """Connect to scripts/act_policy_server.py and precompute the path the
     policy's observation window and progress tracker read from."""
-    global _policy, _act_target, _desired_positions, _desired_arc, _phase_offsets
+    global _policy, _act_target, _desired_positions, _desired_arc, _phase_offsets, _progress
     from act_client import ActPolicyClient
-    from act_features import path_arc_length
+    from act_features import PathProgress, path_arc_length
     from drawing_state_machine import flatten_desired_targets
 
     _desired_positions = np.asarray([t.position for t in flatten_desired_targets(_machine.phases)], dtype=np.float64)
     _desired_arc = path_arc_length(_desired_positions)
     _phase_offsets = np.r_[0, np.cumsum([len(phase.targets) for phase in _machine.phases])].astype(int)
+    _progress = PathProgress(_desired_positions, _desired_arc, stall_s=POLICY_STALL_RELEASE_S)
     _policy = ActPolicyClient(_policy_address)
     _policy.reset()
     _act_target = None
-    _log(f"[{_prefix}] ACT controller via {_policy_address} (step scale {_act_scale})")
+    _log(f"[{_prefix}] ACT controller via {_policy_address} (step scale {_act_scale}, "
+         f"stall release {POLICY_STALL_RELEASE_S} s)")
 
 
 def _act_command(target, tip_position):
@@ -612,11 +649,11 @@ def compute(db=None):
             if _controller in POLICY_CONTROLLERS and _policy is not None:
                 # ACT chases the first waypoint ahead of the pen (the labelled
                 # semantics) instead of stopping to settle on every waypoint.
-                from act_features import chased_index
-
+                # A pen that hovers beside the path without progressing gets its target
+                # stepped forward after a short stall (act_features.PathProgress).
                 tip_now, _ = _solver.compute_end_effector_pose(position_only=False)
                 current = int(_phase_offsets[_machine.phase_index]) + _machine.target_index
-                for _ in range(chased_index(_desired_positions, _desired_arc, current, tip_now) - current):
+                for _ in range(_progress.update(current, tip_now, _sim_time) - current):
                     _machine.update(_sim_time, True)
             target = _machine.current_target
             if target is not None and _controller in POLICY_CONTROLLERS and _policy is not None:

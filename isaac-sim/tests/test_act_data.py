@@ -315,3 +315,33 @@ class KinematicLabellerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PathProgressTests(unittest.TestCase):
+    def setUp(self):
+        from act_features import PathProgress, path_arc_length
+
+        self.targets = np.c_[np.arange(20) * 0.0015, np.zeros(20), np.zeros(20)]
+        self.progress = PathProgress(self.targets, path_arc_length(self.targets), stall_s=0.5, band_m=0.0015)
+
+    def test_moving_pen_follows_the_projection_without_releases(self):
+        index = 0
+        for tick in range(60):
+            tip = [tick * 0.0004, 0.0005, 0.0]  # 0.5 mm beside the path, moving forward
+            index = self.progress.update(index, tip, tick / 30)
+        self.assertEqual(self.progress.releases, 0)
+        self.assertGreater(index, 10)
+
+    def test_pen_hovering_beside_the_path_gets_the_target_stepped_forward(self):
+        index = self.progress.update(4, [0.0055, 0.0005, 0.0], 0.0)
+        stuck_at = index
+        for tick in range(1, 16):  # 0.5 s at 30 Hz, the pen not moving
+            index = self.progress.update(index, [0.0055, 0.0005, 0.0], tick / 30)
+        self.assertEqual(self.progress.releases, 1)
+        self.assertEqual(index, stuck_at + 1)
+
+    def test_pen_far_from_the_path_is_left_to_the_safety_checks(self):
+        index = 4
+        for tick in range(40):
+            index = self.progress.update(index, [0.0055, 0.005, 0.0], tick / 30)  # 5 mm off
+        self.assertEqual(self.progress.releases, 0)
