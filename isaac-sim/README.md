@@ -25,7 +25,7 @@ Draws curated WildTrace gold trajectories (`../outputs/gold/trajectories/<Catego
 
 | What | Where |
 |---|---|
-| This project (config, scripts, src, assets) | WSL: `~/Workspace/WildTrace/isaac-sim/` (Isaac reads it as `\\wsl.localhost\Ubuntu-24.04\home\shravan\Workspace\WildTrace\isaac-sim\`) |
+| This project (config, scripts, src, assets) | WSL: `~/Workspace/WildTrace/isaac-sim/` (Isaac reads it as `\\wsl.localhost\Ubuntu-24.04\home\<user>\Workspace\WildTrace\isaac-sim\`) |
 | Isaac Sim 6.0.1 (use this one, not `C:\isaacsim`) | Windows: `C:\isaac-sim-6.0.1\` |
 | Isaac MCP extension + server | Windows: `C:\wildtrace\isaacsim-mcp-server\`. The extension socket is `localhost:8766` |
 | Isaac launch logs | `C:\wildtrace\isaac_sim_launch.log`, `C:\wildtrace\isaac_sim_launch_err.log` |
@@ -50,9 +50,9 @@ Isaac Sim stays on Windows because its GUI needs Vulkan, which WSL2 lacks. WSL2 
 Register `wildtrace-sim` once (needs `uv`; pins `mcp<2`):
 
 ```bash
-claude mcp add wildtrace-sim -s user -e WILDTRACE_PYTHON=/home/shravan/anaconda3/bin/python3 \
-  -- /home/shravan/anaconda3/bin/uv run --quiet --script \
-  /home/shravan/Workspace/WildTrace/isaac-sim/mcp_server/wildtrace_sim_server.py
+claude mcp add wildtrace-sim -s user -e WILDTRACE_PYTHON=$HOME/anaconda3/bin/python3 \
+  -- $HOME/anaconda3/bin/uv run --quiet --script \
+  $HOME/Workspace/WildTrace/isaac-sim/mcp_server/wildtrace_sim_server.py
 ```
 
 `WILDTRACE_PYTHON` must have matplotlib (used for the plot). Optional overrides: `ISAAC_SIM_ROOT_WIN`, `ISAAC_MCP_REPO_WIN`, `WIN_PYTHON`, `ISAAC_MCP_PORT`.
@@ -70,7 +70,7 @@ powershell.exe -NoProfile -Command '$c = "cmd.exe /c powershell.exe -NoProfile -
 
 # 2. Build the scene. Nothing persists across an Isaac restart, so rebuild every session (isaac-sim MCP tools):
 #    create_physics_scene(gravity=[0,0,0])
-#    reload_script(file_path="\\wsl.localhost\Ubuntu-24.04\home\shravan\Workspace\WildTrace\isaac-sim\scripts\setup_scene.py")
+#    reload_script(file_path="\\wsl.localhost\Ubuntu-24.04\home\<user>\Workspace\WildTrace\isaac-sim\scripts\setup_scene.py")
 #    create_camera(prim_path="/OmniverseKit_Persp", resolution=[1024,1024])
 #    create_action_graph(graph_path="/World/DrawingGraph", script_file="\\wsl.localhost\...\isaac-sim\scripts\mcp_drawing_controller.py")
 
@@ -206,7 +206,7 @@ Evaluation is offline imitation evaluation only; it does not claim closed-loop I
 ## ACT path-following policy (LeRobot)
 
 An ACT policy replaces Lula IK in the drawing loop: joint state plus the next 2 cm of pen path in,
-joint steps out. Branch `shra012/act-training`. Config: `config/act_drawing.yaml`.
+joint steps out. Config: `config/act_drawing.yaml`.
 
 **Data.** `scripts/label_kinematic_ik.py` walks every non-gold trajectory through the same motion
 phases the runner executes and labels it with Lula IK without a physics sim (Lula imports directly in

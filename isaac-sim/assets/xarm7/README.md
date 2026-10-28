@@ -14,15 +14,15 @@ Generate `xarm7_with_pen.urdf` with:
 
 ```bat
 cd /d C:\wildtrace\isaac_xarm7_drawing
-set "PYTHONEXE=C:\Users\Aswin\isaac-sim-standalone-6.0.1-windows-x86_64\kit\python\python.exe"
-"C:\Users\Aswin\isaac-sim-standalone-6.0.1-windows-x86_64\python.bat" scripts\generate_xarm7_urdf.py
+set "PYTHONEXE=%USERPROFILE%\isaac-sim-standalone-6.0.1-windows-x86_64\kit\python\python.exe"
+"%USERPROFILE%\isaac-sim-standalone-6.0.1-windows-x86_64\python.bat" scripts\generate_xarm7_urdf.py
 ```
 
 The generator uses the project-local `xacro_vendor` package. To recreate that
 dependency without a global install:
 
 ```bat
-"C:\Users\Aswin\isaac-sim-standalone-6.0.1-windows-x86_64\python.bat" -m pip install --target assets\xarm7\xacro_vendor xacro==2.1.1
+"%USERPROFILE%\isaac-sim-standalone-6.0.1-windows-x86_64\python.bat" -m pip install --target assets\xarm7\xacro_vendor xacro==2.1.1
 ```
 
 `xarm7.usd` is intentionally not fabricated. `check_environment.py` imports the

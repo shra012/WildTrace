@@ -25,13 +25,13 @@ running `scripts/mcp_drawing_controller.py`). Scene state does **not**
 persist across an Isaac Sim restart -- if `mcp__isaac-sim__get_scene_info`
 errors with "Could not connect" or comes back with an unexpectedly empty
 stage, rebuild the scene first via this exact 4-step sequence before
-continuing:
+continuing (`<user>` is the WSL user name, from `whoami`):
 
 1. `mcp__isaac-sim__create_physics_scene(gravity=[0,0,0])`
-2. `mcp__isaac-sim__reload_script(file_path="\\wsl.localhost\Ubuntu-24.04\home\shravan\Workspace\WildTrace\isaac-sim\scripts\setup_scene.py")`
+2. `mcp__isaac-sim__reload_script(file_path="\\wsl.localhost\Ubuntu-24.04\home\<user>\Workspace\WildTrace\isaac-sim\scripts\setup_scene.py")`
    -- config-driven, reads `config/xarm7_drawing.yaml`
 3. `mcp__isaac-sim__create_camera(prim_path="/OmniverseKit_Persp", resolution=[1024,1024])`
-4. `mcp__isaac-sim__create_action_graph(graph_path="/World/DrawingGraph", script_file="\\wsl.localhost\Ubuntu-24.04\home\shravan\Workspace\WildTrace\isaac-sim\scripts\mcp_drawing_controller.py")`
+4. `mcp__isaac-sim__create_action_graph(graph_path="/World/DrawingGraph", script_file="\\wsl.localhost\Ubuntu-24.04\home\<user>\Workspace\WildTrace\isaac-sim\scripts\mcp_drawing_controller.py")`
 
 Then confirm with `mcp__isaac-sim__get_robot_info(prim_path="/World/xarm7")`.
 

@@ -32,7 +32,7 @@
 
 ## Real arm (physical xArm 7, sim to real)
 
-Batch run by Aswin on the physical lab arm with the ACT policy, 2026-10-27: 30 drawings, 5 per class. Every
+Batch run on the physical lab arm with the ACT policy, 2026-10-27: 30 drawings, 5 per class. Every
 drawing finished, with no safety stops after the first restart. The run logs are not in the repo yet.
 
 | Class | Drawings | RMSE mean | RMSE range | Worst point | Mean time | Nudges per drawing |
