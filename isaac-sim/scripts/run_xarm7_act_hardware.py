@@ -50,7 +50,11 @@ LIMIT_MARGIN_DEG = 3.0
 CONTROL_HZ = 60.0
 ACTION_SCALE = 0.5  # a 30 fps policy queried at 60 Hz, as in the Isaac runner
 MAX_STEP_RAD = 0.006  # per 60 Hz tick, about 0.36 rad/s
-MAX_TICK_S = 0.10
+# A late tick only means the arm holds its last command a little longer (steps are relative, so there
+# is no jump afterwards); one 125 ms hiccup ended a drawing at 0.10 s. Long gaps still stop the run.
+MAX_TICK_S = 0.50
+LATE_TICK_S = 0.05
+NUDGE_AHEAD_M = 0.0015  # same as act_features.PROJECTION_AHEAD_M
 REAL_CHECK_TICKS = 6  # query the real pose at 10 Hz
 MAX_LAG_M = 0.005  # real tip further than this from the commanded tip stops the run
 
@@ -101,7 +105,14 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def build_targets(
-    hardware: dict, twin: dict, home_tip: np.ndarray, lift_m: float, skip: int, limit: int | None, floor_below_m: float = 0.0002
+    hardware: dict,
+    twin: dict,
+    home_tip: np.ndarray,
+    lift_m: float,
+    skip: int,
+    limit: int | None,
+    floor_below_m: float = 0.0002,
+    mapped_strokes: Path | None = None,
 ):
     drawing = twin["drawing"]
     trajectory_path = Path(hardware["trajectory_path"])
@@ -121,6 +132,9 @@ def build_targets(
         smoothing_strength=float(drawing["smoothing_strength"]),
         corner_angle_degrees=float(drawing["corner_angle_degrees"]),
     )
+    if mapped_strokes is not None:
+        # Strokes already in robot XY metres, e.g. the missing pieces from find_missing_ink.py.
+        mapped = {"strokes": json.loads(mapped_strokes.read_text(encoding="utf-8"))["strokes"]}
     strokes = mapped["strokes"][skip:]
     if limit is not None:
         strokes = strokes[:limit]
@@ -157,16 +171,13 @@ def build_targets(
 
 
 class OfflineArm:
-    """Ideal joint tracking; the controller's own kinematics give the pen tip. Never moves the arm."""
+    """Ideal joint tracking with the URDF pen-tip FK (checked against the controller's). Never moves the arm."""
 
-    def __init__(self, api: Any, q0_rad: np.ndarray) -> None:
-        self.api, self.q, self.q_prev = api, q0_rad.copy(), q0_rad.copy()
+    def __init__(self, fk: "UrdfTipFK", q0_rad: np.ndarray) -> None:
+        self.fk, self.q, self.q_prev = fk, q0_rad.copy(), q0_rad.copy()
 
     def tip_m(self, q_rad: np.ndarray) -> np.ndarray:
-        code, pose = self.api.get_forward_kinematics(np.degrees(q_rad).tolist(), input_is_radian=False, return_is_radian=False)
-        if code != 0:
-            raise SafeStop(f"forward kinematics failed with code {code}")
-        return np.asarray(pose[:3], dtype=np.float64) / 1000.0
+        return self.fk.tip(q_rad)
 
     def read(self, dt: float):
         qd = (self.q - self.q_prev) / dt
@@ -256,6 +267,18 @@ def _fence_check(plan: dict, tip: np.ndarray, lift_m: float) -> str | None:
     return None
 
 
+def warm_up(runner, deadline_s: float) -> float:
+    """Run the policy until five calls in a row are fast, then reset it. Returns the last call's ms."""
+    fast, last_ms, stop = 0, float("inf"), time.perf_counter() + deadline_s
+    while time.perf_counter() < stop and fast < 5:
+        t0 = time.perf_counter()
+        runner.act(np.zeros(21), np.zeros(37))
+        last_ms = (time.perf_counter() - t0) * 1e3
+        fast = fast + 1 if last_ms < 12.0 else 0
+    runner.reset()
+    return last_ms
+
+
 def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: Path, args, lift_m: float) -> dict:
     positions, flags = plan["positions"], plan["pen_down"]
     arc = path_arc_length(positions)
@@ -267,6 +290,8 @@ def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: 
     started = last_tick
     done_since = None
     rows, errors, tick_ms, steps, progress, lags = [], [], [], [], [], []
+    last_index, stall_ticks, longest_stall, nudges, late_ticks, worst_tick = 0, 0, 0, 0, 0, 0.0
+    record = {key: [] for key in ("t_s", "state", "env", "predicted", "step", "q_cmd", "tip", "real_tip", "index", "pen_down", "target", "nudged")}
     lo = np.radians(LIMITS_DEG[:, 0] + LIMIT_MARGIN_DEG)
     hi = np.radians(LIMITS_DEG[:, 1] - LIMIT_MARGIN_DEG)
     handle = csv_path.open("w", newline="", encoding="utf-8")
@@ -276,8 +301,12 @@ def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: 
     try:
         for tick in range(int(args.max_seconds * CONTROL_HZ)):
             now = time.perf_counter()
-            if args.execute and tick and now - last_tick > MAX_TICK_S:
-                raise SafeStop(f"control tick took {(now - last_tick) * 1e3:.0f} ms")
+            if args.execute and tick:
+                gap = now - last_tick
+                worst_tick = max(worst_tick, gap)
+                late_ticks += gap > LATE_TICK_S
+                if gap > MAX_TICK_S:
+                    raise SafeStop(f"control tick took {gap * 1e3:.0f} ms")
             real_dt = dt if (not tick or not args.execute) else max(now - last_tick, 1e-3)
             last_tick = now
             q, qd, tip = arm.read(real_dt)
@@ -285,11 +314,13 @@ def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: 
             if problem:
                 raise SafeStop(problem)
             lag_mm = ""
+            real_tip = np.full(3, np.nan)
             if args.execute and tick % REAL_CHECK_TICKS == 0:
                 real = arm.real_tip_m()
                 problem = _fence_check(plan, real, lift_m)
                 if problem:
                     raise SafeStop(f"real arm: {problem}")
+                real_tip = real
                 lag = float(np.linalg.norm(real - tip))
                 lags.append(lag)
                 lag_mm = f"{lag * 1e3:.3f}"
@@ -299,6 +330,24 @@ def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: 
                 joint = int(np.argmax((q < lo) | (q > hi))) + 1
                 raise SafeStop(f"joint {joint} at {np.degrees(q[joint - 1]):.1f} deg is inside the {LIMIT_MARGIN_DEG} deg limit margin")
             index = chased_index(positions, arc, index, tip)
+            # A policy that stops making progress parks the pen on one spot (an ink blob on paper). Offline,
+            # the stalls sat mid-stroke where waypoints are 0.06-0.5 mm apart, with the pen ~0.5 mm beside the
+            # target and only correcting sideways. A nudge moves the target one projection window ahead.
+            nudged = False
+            if index > last_index or index >= len(positions) - 1:
+                last_index, stall_ticks = index, 0
+            else:
+                stall_ticks += 1
+                longest_stall = max(longest_stall, stall_ticks)
+                if stall_ticks > args.max_stall_s * CONTROL_HZ:
+                    raise SafeStop(f"no progress along the path for {args.max_stall_s} s at waypoint {index}")
+                if args.stall_nudge_s > 0 and stall_ticks % max(1, int(args.stall_nudge_s * CONTROL_HZ)) == 0:
+                    if nudges >= args.max_nudges:
+                        raise SafeStop(f"needed more than {args.max_nudges} stall nudges")
+                    ahead = int(np.searchsorted(arc, arc[index] + NUDGE_AHEAD_M, side="left"))
+                    index = min(max(ahead, index + 1), len(positions) - 1)
+                    nudges += 1
+                    nudged = True
             target = positions[index]
             error = float(np.linalg.norm(tip - target))
             if flags[index] and error > args.max_error_mm / 1000.0:
@@ -322,6 +371,10 @@ def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: 
             if flags[index]:
                 errors.append(error)
             writer.writerow([f"{now - started:.4f}", index, int(flags[index]), *tip.round(5), *target.round(5), f"{error * 1e3:.3f}", f"{steps[-1]:.5f}", lag_mm, *np.degrees(q).round(3)])
+            for key, value in (("t_s", now - started), ("state", state), ("env", env), ("predicted", predicted), ("step", step),
+                               ("q_cmd", cmd - offset), ("tip", tip), ("real_tip", real_tip), ("index", index),
+                               ("pen_down", bool(flags[index])), ("target", target), ("nudged", nudged)):
+                record[key].append(value)
             if index >= len(positions) - 1:
                 done_since = done_since or now
                 if np.linalg.norm(tip - positions[-1]) < 0.002 or now - done_since > 3.0:
@@ -344,16 +397,28 @@ def rollout(arm, runner, plan: dict, offset: np.ndarray, log: RunLog, csv_path: 
             outcome = "timeout"
     finally:
         handle.close()
+        # Same layout as the LeRobot features (observation.state, observation.environment_state); joints are in
+        # the twin's convention. "predicted" is the policy's 30 fps step, "step" what was sent (half, at 60 Hz).
+        np.savez_compressed(
+            csv_path.with_suffix(".npz"),
+            **{key: np.asarray(value, dtype=np.float64 if key not in ("index", "pen_down", "nudged") else None) for key, value in record.items()},
+            path_positions=positions,
+            path_pen_down=flags,
+        )
         for item in progress:
             log.event("progress", **item)
-    return {"outcome": outcome, "ticks": len(steps), "errors": np.asarray(errors), "tick_ms": np.asarray(tick_ms), "steps": np.asarray(steps), "lags": np.asarray(lags), "last_q": q}
+    return {"outcome": outcome, "ticks": len(steps), "errors": np.asarray(errors), "tick_ms": np.asarray(tick_ms), "steps": np.asarray(steps), "lags": np.asarray(lags), "last_q": q,
+            "longest_stall_s": round(longest_stall / CONTROL_HZ, 2), "nudges": nudges,
+            "late_ticks": late_ticks, "worst_tick_ms": round(worst_tick * 1e3, 1)}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", default=str(PROJECT / "config" / "xarm7_hardware.yaml"))
+    parser.add_argument("--run-dir", default=None, help="Log folder (default outputs/hardware_runs/<time>_act)")
     parser.add_argument("--checkpoint", default=str(PROJECT / "models" / "act_real_kinematic_v2"))
     parser.add_argument("--trajectory", default=None)
+    parser.add_argument("--mapped-strokes", default=None, help="Draw these robot-frame strokes (JSON, metres) instead of the trajectory")
     parser.add_argument("--robot-ip", default=None)
     parser.add_argument("--offline", action="store_true", help="Roll out against the controller's FK. Never moves the arm.")
     parser.add_argument("--execute", action="store_true", help="Move the real arm.")
@@ -366,6 +431,9 @@ def main() -> int:
         help="Shift the whole path up. 15 or more is a dry run above the paper; 0.3 to 0.5 draws with a lighter pen.",
     )
     parser.add_argument("--start-speed-deg-s", type=float, default=8.0)
+    parser.add_argument("--max-stall-s", type=float, default=4.0, help="Stop if the pen makes no progress along the path this long")
+    parser.add_argument("--stall-nudge-s", type=float, default=1.0, help="Move the target 1.5 mm ahead after this long without progress; 0 = pure policy")
+    parser.add_argument("--max-nudges", type=int, default=40)
     parser.add_argument(
         "--floor-below-touch-mm",
         type=float,
@@ -383,7 +451,7 @@ def main() -> int:
     if args.z_offset_mm < -1 or args.z_offset_mm > 40:
         parser.error("--z-offset-mm must be between -1 and 40")
 
-    log = RunLog(PROJECT / "outputs" / "hardware_runs" / (datetime.now().strftime("%Y%m%d_%H%M%S") + "_act"))
+    log = RunLog(Path(args.run_dir) if args.run_dir else PROJECT / "outputs" / "hardware_runs" / (datetime.now().strftime("%Y%m%d_%H%M%S") + "_act"))
     outcome, api, motion_started = "started", None, False
     try:
         hardware = _load_yaml(Path(args.config))
@@ -417,7 +485,8 @@ def main() -> int:
         if fk_gap > 0.0005:
             raise SafeStop(f"URDF FK differs from the controller's by {fk_gap * 1e3:.2f} mm at the start pose")
         plan = build_targets(
-            hardware, twin, home_tip, args.z_offset_mm / 1000.0, args.skip_strokes, args.max_strokes, args.floor_below_touch_mm / 1000.0
+            hardware, twin, home_tip, args.z_offset_mm / 1000.0, args.skip_strokes, args.max_strokes, args.floor_below_touch_mm / 1000.0,
+            Path(args.mapped_strokes) if args.mapped_strokes else None,
         )
         log.event("plan_ready", targets=len(plan["positions"]), strokes=plan["strokes"], home_tip_mm=(home_tip * 1000).round(2),
                   pen_down_z_mm=round(plan["pen_down_z"] * 1000, 3), lift_mm=args.z_offset_mm)
@@ -432,7 +501,7 @@ def main() -> int:
         csv_path = log.directory / "act_ticks.csv"
 
         if args.offline:
-            arm = OfflineArm(api, np.radians(start_deg))
+            arm = OfflineArm(fk, np.radians(start_deg))
             result = rollout(arm, runner, plan, offset, log, csv_path, args, args.z_offset_mm / 1000.0)
         else:
             if hardware.get("paper_center_mm") is None:
@@ -444,6 +513,12 @@ def main() -> int:
             api.set_mode(1)
             api.set_state(0)
             time.sleep(0.3)
+            # Warm the GPU again right before the loop: during the start move and countdown it
+            # clocks down, and the first tick then took 905 ms on a laptop GPU.
+            warm_ms = warm_up(runner, deadline_s=5.0)
+            log.event("warm_up", last_ms=round(warm_ms, 2))
+            if warm_ms > 12.0:
+                raise SafeStop(f"policy inference still takes {warm_ms:.1f} ms after warm-up")
             motion_started = True
             arm = HardwareArm(api, fk, np.radians(np.asarray(api.get_servo_angle()[1][:7], dtype=np.float64)))
             result = rollout(arm, runner, plan, offset, log, csv_path, args, args.z_offset_mm / 1000.0)
@@ -465,6 +540,10 @@ def main() -> int:
             "joint_limit_margin_deg": np.minimum(joints.min(axis=0) - LIMITS_DEG[:, 0], LIMITS_DEG[:, 1] - joints.max(axis=0)).round(1).tolist(),
             "max_joint_step_rad_per_tick": round(float(result["steps"].max()), 5),
             "policy_ms_mean": round(float(result["tick_ms"].mean()), 2),
+            "longest_stall_s": result["longest_stall_s"],
+            "stall_nudges": result["nudges"],
+            "late_ticks_over_50ms": result["late_ticks"],
+            "worst_tick_ms": result["worst_tick_ms"],
             "real_tip_lag_mm": {"mean": round(float(result["lags"].mean() * 1e3), 3), "max": round(float(result["lags"].max() * 1e3), 3)}
             if len(result["lags"]) else None,
         }

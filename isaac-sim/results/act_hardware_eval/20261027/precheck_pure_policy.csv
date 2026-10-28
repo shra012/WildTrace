@@ -1,0 +1,20 @@
+class,drawing_id,outcome,reason,rmse_mm
+Bird,1a5733d2b6fb8c11,stopped,no progress along the path for 4.0 s at waypoint 1342,
+Bird,35d8032b6ae21c32,finished,,0.578
+Bird,48f51b30016f8eb1,finished,,0.586
+Bird,7cf0ca2504a8616c,finished,,0.498
+Bird,91f30c2ab24c76ea,stopped,no progress along the path for 4.0 s at waypoint 1977,
+Bird,99cbe879e4812b0b,stopped,no progress along the path for 4.0 s at waypoint 581,
+Bird,bbf4a726747089d9,finished,,0.637
+Bird,c326f229ac98c00a,finished,,0.469
+Bird,c3a528aafbfd7b55,stopped,no progress along the path for 4.0 s at waypoint 1133,
+Bird,c3b05340ef29131f,stopped,no progress along the path for 4.0 s at waypoint 362,
+Cat,1163bceaf6134cf5,stopped,no progress along the path for 4.0 s at waypoint 1701,
+Cat,323bd30d42ee2cf3,stopped,no progress along the path for 4.0 s at waypoint 1108,
+Cat,4651e893ac2a26d4,stopped,no progress along the path for 4.0 s at waypoint 1563,
+Cat,4a1ad0b44c7f462c,stopped,no progress along the path for 4.0 s at waypoint 1582,
+Cat,4a933ea53cf400bc,finished,,0.466
+Cat,69fff8521d33da91,stopped,no progress along the path for 4.0 s at waypoint 671,
+Cat,70bc30f8a5f918eb,incomplete,,
+Cat,959e69e03f23a3a3,stopped,no progress along the path for 4.0 s at waypoint 1147,
+Cat,ab7beb0372c96b9c,finished,,0.649
