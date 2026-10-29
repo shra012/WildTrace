@@ -75,7 +75,7 @@ ACT_CHECKPOINTS = {
 }
 # SmolVLA checkpoints (scripts/train_smolvla.py), served by the same script with --policy smolvla.
 SMOLVLA_CHECKPOINTS = {
-    TWIN_CONFIG: ISAAC_SIM_PROJECT / "outputs" / "smolvla" / "real_kinematic_v2" / "checkpoints" / "last" / "pretrained_model",
+    TWIN_CONFIG: ISAAC_SIM_PROJECT / "models" / "smolvla_stage2",
 }
 # How the SmolVLA server samples: actions executed per chunk, starting noise ("zero" removes the
 # chunk-to-chunk wobble of fresh noise), and flow-matching steps per chunk (0 = the checkpoint's).

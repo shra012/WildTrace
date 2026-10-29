@@ -1,0 +1,60 @@
+{
+  "config_hash": "4dc272edd730",
+  "config_path": "isaac-sim\\config\\xarm7_drawing_real.yaml",
+  "controller": "smolvla",
+  "desired_pen_down_points": 797,
+  "desired_to_executed_nearest_path_error": {
+    "max_error_m": 0.001618281617566028,
+    "mean_error_m": 0.00025439125906546014,
+    "p95_error_m": 0.0006048075308771341,
+    "rmse_m": 0.0003150525988478994,
+    "sample_count": 797
+  },
+  "drawing_id": "323bd30d42ee2cf3",
+  "executed_pen_down_samples": 1362,
+  "executed_sample_count": 2745,
+  "executed_to_desired_nearest_path_error": {
+    "max_error_m": 0.0008819256460878601,
+    "mean_error_m": 0.00032261210999491076,
+    "p95_error_m": 0.0005885335161072529,
+    "rmse_m": 0.00036201557411707987,
+    "sample_count": 1362
+  },
+  "failure_reason": "",
+  "git_sha": "df41cd1-dirty",
+  "simulation_duration_s": 46.250000092498844,
+  "stall_releases": 0,
+  "status": "finished",
+  "stroke_count": 5,
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "LOWER_PEN_STROKE_0",
+    "DRAW_STROKE_0",
+    "LIFT_PEN_STROKE_0",
+    "MOVE_TO_STROKE_1",
+    "LOWER_PEN_STROKE_1",
+    "DRAW_STROKE_1",
+    "LIFT_PEN_STROKE_1",
+    "MOVE_TO_STROKE_2",
+    "LOWER_PEN_STROKE_2",
+    "DRAW_STROKE_2",
+    "LIFT_PEN_STROKE_2",
+    "MOVE_TO_STROKE_3",
+    "LOWER_PEN_STROKE_3",
+    "DRAW_STROKE_3",
+    "LIFT_PEN_STROKE_3",
+    "MOVE_TO_STROKE_4",
+    "LOWER_PEN_STROKE_4",
+    "DRAW_STROKE_4",
+    "LIFT_PEN_STROKE_4",
+    "FINISHED"
+  ],
+  "waypoint_reach_error": {
+    "max_error_m": 0.0011992489849206064,
+    "mean_error_m": 0.0006672279072941738,
+    "p95_error_m": 0.0011535313729525549,
+    "rmse_m": 0.0007409579621958436,
+    "sample_count": 1471
+  }
+}
