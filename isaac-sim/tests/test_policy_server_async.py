@@ -30,11 +30,13 @@ def _runner(latency_s: float, ticks_per_action: int = 1, hold: bool = False) -> 
     runner.ticks_per_action = ticks_per_action
     runner.hold_on_underrun = hold
     runner.replan_every = 1
+    runner.camera = False
+    runner.history = []
     runner.policy = type("P", (), {"reset": lambda self: None})()
     seen_ticks = []
     lock = threading.Lock()
 
-    def chunk(state, env):
+    def chunk(state, env, history=None):
         with lock:
             tick = int(state[0])
             seen_ticks.append(tick)

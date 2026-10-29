@@ -49,9 +49,14 @@ def vla_preds(noise="random", samples=1, flow_steps=0, checkpoint=None):
     from act_policy_server import SmolVlaRunner
     ck = Path(checkpoint) if checkpoint else ROOT / "outputs/smolvla/real_kinematic_v2/checkpoints/last/pretrained_model"
     runner = SmolVlaRunner(ck, "cuda", 1, noise, samples, flow_steps)
+    # Camera checkpoints draw the paper from the frame's episode so far.
+    history, starts = vla_features.load_history(ds.root) if runner.camera else (None, None)
     out, started = [], time.perf_counter()
     for f in frames:
-        out.append(runner.chunk(f["observation.state"].numpy(), f["observation.environment_state"].numpy())[0].numpy())
+        current = int(f["index"])
+        prior = history[starts[current] : current + 1] if runner.camera else None
+        out.append(runner.chunk(f["observation.state"].numpy(), f["observation.environment_state"].numpy(),
+                                prior)[0].numpy())
     print(json.dumps({"ms_per_chunk": round((time.perf_counter() - started) / len(frames) * 1e3, 1)}), flush=True)
     return np.stack(out)
 

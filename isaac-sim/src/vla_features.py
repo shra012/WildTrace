@@ -83,3 +83,106 @@ def path_view(environment_state: np.ndarray, size: int = IMAGE_SIZE_PX,
 def image_tensor_layout(image: np.ndarray) -> np.ndarray:
     """(H, W, 3) uint8 -> (3, H, W) float32 in [0, 1], LeRobot's image layout."""
     return np.ascontiguousarray(image.transpose(2, 0, 1), dtype=np.float32) / 255.0
+
+
+# Camera view of the paper (#46): what a camera over the sheet would see, rendered from the
+# pen tip history instead of the path window alone. Two images:
+# - overhead: a fixed top-down camera over the drawing area (config `vla_camera`), the whole sheet;
+# - tip crop: the same paper zoomed around the pen tip, with the upcoming path drawn over it.
+# Both show the target traced so far (light blue) under the ink drawn so far (black), so a
+# missed or offset segment is visible as blue without black. Built only from per-tick tip,
+# target and pen-down values, so training (from the episode's earlier frames) and the policy
+# server (from the ticks since reset) render the same pictures.
+OVERHEAD_KEY = "observation.images.paper_overhead"
+TIP_CROP_KEY = "observation.images.paper_tip"
+CAMERA_IMAGE_SIZE_PX = 256
+OVERHEAD_CENTER_XY_M = (0.4770, 0.0882)  # config/xarm7_drawing_real.yaml drawing.surface_center_xy_m
+OVERHEAD_HALF_EXTENT_M = 0.088           # 176 mm square around the 160 x 120 mm drawing area
+TIP_CROP_HALF_EXTENT_M = VIEW_HALF_EXTENT_M
+INK_WIDTH_M = 0.0005
+INK_CONTACT_M = 0.0005  # the pen inks while pen_down and within this of the target height
+PAPER_RGB = (255, 255, 255)
+TARGET_RGB = (90, 140, 255)
+INK_RGB = (0, 0, 0)
+UPCOMING_RGB = (255, 0, 0)
+TIP_RGB = (255, 140, 0)
+HISTORY_COLUMNS = 6  # tip x, tip y, target x, target y, ink (0/1), on paper (0/1)
+
+
+def history_rows(environment_state: np.ndarray) -> np.ndarray:
+    """(N, 37) ACT env states -> (N, 6) history rows: tip xy, target xy, ink, target on paper.
+    A frame inks when the pen is down and the tip is within INK_CONTACT_M of the target height;
+    its target counts as part of the drawing whenever the pen is down."""
+    env = np.asarray(environment_state, dtype=np.float32).reshape(-1, 6 + 3 * PATH_WINDOW_POINTS + 1)
+    target = env[:, 0:3] + env[:, 3:6]
+    pen_down = env[:, -1] > 0.5
+    ink = pen_down & (env[:, 2] - target[:, 2] < INK_CONTACT_M)
+    return np.c_[env[:, 0:2], target[:, 0:2], ink, pen_down].astype(np.float32)
+
+
+def _runs(flags: np.ndarray) -> list[tuple[int, int]]:
+    """[start, end) index ranges where flags is true."""
+    edges = np.flatnonzero(np.diff(np.r_[0, flags.astype(np.int8), 0]))
+    return list(zip(edges[::2], edges[1::2]))
+
+
+def paper_view(history: np.ndarray, center_xy, half_extent_m: float, size: int = CAMERA_IMAGE_SIZE_PX,
+               environment_state: np.ndarray | None = None) -> np.ndarray:
+    """Top-down (size, size, 3) uint8 view of the paper centred on center_xy, +y up: target traced
+    so far, ink over it, the pen tip (last history row) as a dot, and with `environment_state`
+    the upcoming path from the current target through the window."""
+    history = np.asarray(history, dtype=np.float64).reshape(-1, HISTORY_COLUMNS)
+    scale = (size / 2.0) / half_extent_m
+    cx, cy = float(center_xy[0]), float(center_xy[1])
+
+    def pixels(xy: np.ndarray) -> np.ndarray:
+        px = np.c_[size / 2.0 + (xy[:, 0] - cx) * scale, size / 2.0 - (xy[:, 1] - cy) * scale]
+        return np.round(px * (1 << SUBPIXEL_BITS)).astype(np.int32)
+
+    image = np.empty((size, size, 3), dtype=np.uint8)
+    image[:] = PAPER_RGB
+    width = max(1, int(round(INK_WIDTH_M * scale)))
+    for column, xy, color in ((5, history[:, 2:4], TARGET_RGB), (4, history[:, 0:2], INK_RGB)):
+        lines = [pixels(xy[a:b]) for a, b in _runs(history[:, column] > 0.5) if b - a > 1]
+        if lines:
+            cv2.polylines(image, lines, False, color, width, cv2.LINE_AA, SUBPIXEL_BITS)
+    if environment_state is not None:
+        env = np.asarray(environment_state, dtype=np.float64).reshape(-1)
+        tip = env[0:3]
+        window = env[6 : 6 + 3 * PATH_WINDOW_POINTS].reshape(PATH_WINDOW_POINTS, 3) + tip
+        path = pixels(np.vstack([(tip + env[3:6])[None, :2], window[:, :2]]))
+        cv2.polylines(image, [path], False, UPCOMING_RGB, 1, cv2.LINE_AA, SUBPIXEL_BITS)
+        for point in path[1:]:
+            cv2.circle(image, tuple(point), 2 << SUBPIXEL_BITS, UPCOMING_RGB, -1, cv2.LINE_AA, SUBPIXEL_BITS)
+    if len(history):
+        cv2.circle(image, tuple(pixels(history[-1:, 0:2])[0]), 3 << SUBPIXEL_BITS, TIP_RGB, -1, cv2.LINE_AA,
+                   SUBPIXEL_BITS)
+    return image
+
+
+def camera_views(history: np.ndarray, environment_state: np.ndarray) -> dict[str, np.ndarray]:
+    """Both camera images for one frame, in LeRobot layout. `history` holds this frame's row last."""
+    tip = np.asarray(environment_state, dtype=np.float64).reshape(-1)[0:2]
+    overhead = paper_view(history, OVERHEAD_CENTER_XY_M, OVERHEAD_HALF_EXTENT_M)
+    crop = paper_view(history, tip, TIP_CROP_HALF_EXTENT_M, environment_state=environment_state)
+    return {OVERHEAD_KEY: image_tensor_layout(overhead), TIP_CROP_KEY: image_tensor_layout(crop)}
+
+
+def load_history(dataset_root) -> tuple[np.ndarray, np.ndarray]:
+    """History rows for every frame of a LeRobot dataset, indexed by its global `index`, and each
+    frame's episode start index. (19.8M frames: about 0.6 GB.)"""
+    from pathlib import Path
+
+    import pyarrow.parquet as pq
+
+    files = sorted(Path(dataset_root).glob("data/*/*.parquet"))
+    total = sum(pq.ParquetFile(f).metadata.num_rows for f in files)
+    rows = np.zeros((total, HISTORY_COLUMNS), dtype=np.float32)
+    starts = np.zeros(total, dtype=np.int64)
+    for path in files:  # one file at a time: the full env column is about 3 GB
+        table = pq.read_table(path, columns=["observation.environment_state", "frame_index", "index"])
+        index = table.column("index").to_numpy()
+        env = table.column("observation.environment_state").combine_chunks().flatten().to_numpy()
+        rows[index] = history_rows(env.reshape(len(index), -1))
+        starts[index] = index - table.column("frame_index").to_numpy()
+    return rows, starts

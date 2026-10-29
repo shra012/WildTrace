@@ -235,3 +235,13 @@ training:
   max_action_delta_m: 0.005
   checkpoint_path: outputs/bc_best.pt
   tensorboard_dir: outputs/tensorboard
+
+# SmolVLA paper camera (#46): looks straight down at the drawing area, image +y = world +y.
+# src/vla_features.py renders the same view for training (OVERHEAD_CENTER_XY_M,
+# OVERHEAD_HALF_EXTENT_M); scripts/setup_video_cameras.py places /World/VideoCams/PaperOverhead
+# so the centre square of its 16:9 frame covers view_size_m. Not yet matched to a lab-arm camera.
+vla_camera:
+  center_xy_m: [0.4770, 0.0882]
+  view_size_m: 0.176
+  height_above_paper_m: 0.60
+  image_size_px: 256

@@ -90,3 +90,53 @@ def test_widening_the_state_input_keeps_the_old_outputs():
     assert wide.in_features == 64 and config.max_state_dim == 64
     full = torch.cat([compact[:, :28], torch.randn(4, 36)], dim=1)  # window values land on zero weights
     assert torch.allclose(wide(full), before, atol=1e-6)
+
+
+def _stroke_env(tip_xy, target_xy, pen_down=1.0, tip_z=0.0496, target_z=0.0496) -> np.ndarray:
+    error = (target_xy[0] - tip_xy[0], target_xy[1] - tip_xy[1], target_z - tip_z)
+    env = np.r_[[tip_xy[0], tip_xy[1], tip_z], error, np.zeros(3 * PATH_WINDOW_POINTS), pen_down]
+    env[6 : 6 + 3 * PATH_WINDOW_POINTS] = np.tile(error, PATH_WINDOW_POINTS)
+    return env
+
+
+def test_history_inks_only_with_the_pen_down_on_the_paper():
+    rows = vla_features.history_rows(np.stack([
+        _stroke_env((0.47, 0.08), (0.47, 0.08)),                               # drawing
+        _stroke_env((0.47, 0.08), (0.47, 0.08), tip_z=0.0536),                  # pen down, 4 mm above
+        _stroke_env((0.47, 0.08), (0.48, 0.08), pen_down=0.0, tip_z=0.0836),   # travel
+    ]))
+    assert rows.shape == (3, vla_features.HISTORY_COLUMNS)
+    assert rows[:, 4].tolist() == [1.0, 0.0, 0.0]  # ink
+    assert rows[:, 5].tolist() == [1.0, 1.0, 0.0]  # target is part of the drawing
+    assert np.allclose(rows[2, 2:4], (0.48, 0.08))
+
+
+def test_camera_views_show_ink_where_drawn_and_target_where_missed():
+    cx, cy = vla_features.OVERHEAD_CENTER_XY_M
+    xs = np.linspace(cx - 0.04, cx + 0.04, 200)
+    envs = [_stroke_env((x, cy), (x, cy)) for x in xs]
+    rows = vla_features.history_rows(np.stack(envs))
+    rows[100:, 4] = 0.0  # second half of the line never inked: a gap
+    views = vla_features.camera_views(rows, envs[-1])
+    overhead = (views[vla_features.OVERHEAD_KEY].transpose(1, 2, 0) * 255).astype(int)
+    size = vla_features.CAMERA_IMAGE_SIZE_PX
+    scale = (size / 2) / vla_features.OVERHEAD_HALF_EXTENT_M
+    row = size // 2
+    inked = overhead[row, int(size / 2 - 0.02 * scale)]
+    missed = overhead[row, int(size / 2 + 0.02 * scale)]
+    blank = overhead[int(size / 2 - 0.03 * scale), size // 2]
+    assert inked.max() < 80                                   # black ink
+    assert missed[2] > 200 and missed[0] < 160                # blue target, no ink
+    assert blank.min() == 255                                 # white paper elsewhere
+    crop = views[vla_features.TIP_CROP_KEY]
+    assert crop.shape == (3, size, size) and crop.dtype == np.float32
+
+
+def test_synthetic_overhead_matches_the_twin_camera_config():
+    import yaml
+
+    config = yaml.safe_load((Path(__file__).resolve().parents[1] / "config" / "xarm7_drawing_real.yaml").read_text())
+    camera = config["vla_camera"]
+    assert np.allclose(camera["center_xy_m"], vla_features.OVERHEAD_CENTER_XY_M)
+    assert np.isclose(camera["view_size_m"], 2 * vla_features.OVERHEAD_HALF_EXTENT_M)
+    assert camera["image_size_px"] == vla_features.CAMERA_IMAGE_SIZE_PX

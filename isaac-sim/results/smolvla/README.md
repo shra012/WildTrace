@@ -82,11 +82,11 @@ which steps the policy at 60 Hz with half-size steps): compare within one runner
 replaced by two synthetic camera views of the paper (`src/vla_features.py`, `train_smolvla.py --view camera`):
 
 - **overhead:** a fixed top-down camera over the 176 mm drawing area, the same framing as the twin's `vla_camera`
-  in `config/xarm7_drawing_real.yaml`;
+  in `config/xarm7_drawing_real.yaml` (`camera/cat_323bd30d_overhead_isaac_vs_synthetic.png`);
 - **tip crop:** the same paper zoomed to 45 mm around the pen tip, with the upcoming path drawn over it.
 
 Both show the target traced so far in light blue under the ink drawn so far in black, rendered from the episode's
-earlier frames in training and from the ticks since reset in the policy server.
+earlier frames in training and from the ticks since reset in the policy server (`camera/bird_training_views.png`).
 40k steps from `smolvla_stage2`, batch 64, lr 1e-4 with warmup and cosine decay, about 5.5 h on the same GPU.
 
 Offline, same 1,024 held-out frames:
@@ -131,4 +131,4 @@ was added; the robot and placement are unchanged.
 For the camera to matter, the training data has to contain mistakes and their corrections: states where the pen
 missed or drifted, labelled by a teacher that goes back to fill the gap. That is the next step.
 
-**Files:** `<drawing>_<id>_smolvla_camera_v1_{comparison.png,run_metrics.json}`.
+**Files:** `<drawing>_<id>_smolvla_camera_v1_{comparison.png,run_metrics.json}`, `camera/`.

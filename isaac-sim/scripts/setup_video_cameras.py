@@ -46,10 +46,12 @@ importlib.reload(mcp_scene)
 from mcp_scene import paper_surface_z, pen_protrusion_m, scene_config_path  # noqa: E402
 from project_config import load_config  # noqa: E402
 
-DRAWING = load_config(scene_config_path(PROJECT_ROOT), PROJECT_ROOT)["drawing"]
+CONFIG = load_config(scene_config_path(PROJECT_ROOT), PROJECT_ROOT)
+DRAWING = CONFIG["drawing"]
+HORIZONTAL_APERTURE_MM = 20.955  # USD camera default
 
 
-def _camera(stage, path, eye, target, focal_length_mm):
+def _camera(stage, path, eye, target, focal_length_mm, up=(0.0, 0.0, 1.0)):
     from pxr import Gf, UsdGeom
 
     camera = UsdGeom.Camera.Define(stage, path)
@@ -57,7 +59,7 @@ def _camera(stage, path, eye, target, focal_length_mm):
     camera.CreateClippingRangeAttr().Set(Gf.Vec2f(0.01, 100.0))
     # A USD camera looks down its -Z axis with +Y up; the inverse of a
     # look-at view matrix is exactly that pose in the world.
-    view = Gf.Matrix4d().SetLookAt(Gf.Vec3d(*eye), Gf.Vec3d(*target), Gf.Vec3d(0.0, 0.0, 1.0))
+    view = Gf.Matrix4d().SetLookAt(Gf.Vec3d(*eye), Gf.Vec3d(*target), Gf.Vec3d(*up))
     xform = UsdGeom.Xformable(camera)
     xform.ClearXformOpOrder()
     xform.AddTransformOp().Set(view.GetInverse())
@@ -73,6 +75,15 @@ def main():
     _camera(stage, "/World/VideoCams/WideFront", (cx + 0.75, cy - 0.55, paper_z + 0.55), (cx - 0.12, cy, paper_z + 0.12), 18.0)
     # Low and to the side: straight above, the wrist hides the sheet.
     _camera(stage, "/World/VideoCams/PaperTop", (cx + 0.30, cy - 0.24, paper_z + 0.20), (cx - 0.01, cy + 0.01, paper_z), 24.0)
+    vla_camera = CONFIG.get("vla_camera")
+    if vla_camera:
+        # Straight down, image up = world +y, as src/vla_features.py renders it. The 16:9 frame fits
+        # the horizontal aperture, so the vertical one (and the centre square) spans view_size_m.
+        vx, vy = (float(v) for v in vla_camera["center_xy_m"])
+        height = float(vla_camera["height_above_paper_m"])
+        focal = HORIZONTAL_APERTURE_MM * 9.0 / 16.0 * height / float(vla_camera["view_size_m"])
+        _camera(stage, "/World/VideoCams/PaperOverhead", (vx, vy, paper_z + height), (vx, vy, paper_z), focal,
+                up=(0.0, 1.0, 0.0))
     print(f"[VideoCams] cameras placed around paper centre ({cx:.3f}, {cy:.3f}, {paper_z:.3f})")
 
 

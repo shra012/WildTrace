@@ -43,6 +43,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
 import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -138,6 +139,9 @@ class SmolVlaRunner:
         self.noise_shape = (self.samples, config.chunk_size, config.max_action_dim)
         # Checkpoints trained with --state full take the path window as numbers too.
         self.full_state = config.input_features["observation.state"].shape[0] == vla_features.FULL_STATE_DIM
+        # Checkpoints trained with --view camera see the paper; they render it from the ticks since reset.
+        self.camera = vla_features.OVERHEAD_KEY in config.input_features
+        self.history: list[np.ndarray] = []
         self.queue: list[list[float]] = []
         self.async_chunks = async_chunks
         self.ticks_per_action = max(1, ticks_per_action)
@@ -153,18 +157,26 @@ class SmolVlaRunner:
             self._pending[0].result()  # let an in-flight chunk finish before clearing state
         self._pending = None
         self.policy.reset()
+        self.history = []
         self.queue = []
         self.tick = 0
         self.underruns = 0
         self.holds = 0
 
     @torch.no_grad()
-    def chunk(self, state, env) -> torch.Tensor:
-        """The next (chunk_size, 7) actions, unnormalized, averaged over `samples` sampled chunks."""
-        image = self.features.path_view(env)
+    def chunk(self, state, env, history: np.ndarray | None = None) -> torch.Tensor:
+        """The next (chunk_size, 7) actions, unnormalized, averaged over `samples` sampled chunks.
+        Camera checkpoints render the paper from `history` (rows up to and including this tick;
+        default: the ticks since reset)."""
+        if self.camera:
+            if history is None:
+                history = np.concatenate(self.history) if self.history else self.features.history_rows(env)
+            images = self.features.camera_views(history, env)
+        else:
+            images = {self.features.IMAGE_KEY: self.features.image_tensor_layout(self.features.path_view(env))}
         observation = {
             "observation.state": torch.from_numpy(self.features.vla_state(state, env, self.full_state)[0]),
-            self.features.IMAGE_KEY: torch.from_numpy(self.features.image_tensor_layout(image)),
+            **{key: torch.from_numpy(image) for key, image in images.items()},
             "task": self.features.TASK,
         }
         batch = self.preprocessor(observation)
@@ -178,6 +190,8 @@ class SmolVlaRunner:
         return self.postprocessor(actions)[0].float().cpu()
 
     def act(self, state, env) -> list[float]:
+        if self.camera:
+            self.history.append(self.features.history_rows(env))
         if not self.async_chunks:
             if not self.queue:
                 self.queue = self.chunk(state, env)[: self.replan_every].tolist()
@@ -200,7 +214,8 @@ class SmolVlaRunner:
         else:
             self.holds += 1
             action = [0.0] * 7
-        self._pending = self._pending or (self._executor.submit(self.chunk, list(state), list(env)), self.tick)
+        self._pending = self._pending or (self._executor.submit(
+            self.chunk, list(state), list(env), np.concatenate(self.history) if self.camera else None), self.tick)
         self.tick += 1
         return action
 
