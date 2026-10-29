@@ -132,3 +132,31 @@ For the camera to matter, the training data has to contain mistakes and their co
 missed or drifted, labelled by a teacher that goes back to fill the gap. That is the next step.
 
 **Files:** `<drawing>_<id>_smolvla_camera_v1_{comparison.png,run_metrics.json}`, `camera/`.
+
+## Re-planning after every action (stage 2, 2026-10-29)
+
+Same `smolvla_stage2` checkpoint and runner settings as above (zero noise, 10 flow steps), but each chunk's first
+action only, re-planning every control tick (`act_policy_server.py --replan-every 1`) instead of executing 3 actions
+per chunk. No retraining. Path RMSE / p95 / max error in mm:
+
+| Drawing | Finished | Every action | Every 3 actions | ACT | Sim time s (every action) |
+|---|---|---|---|---|---|
+| Cat `323bd30d` | yes | 0.240 / 0.449 / 1.154 | 0.315 / 0.605 / 1.618 | **0.209 / 0.355 / 1.019** | 45.9 |
+| Bird `1a5733d2` | yes | 0.223 / 0.433 / 0.877 | 0.343 / 0.630 / 1.234 | **0.207 / 0.356 / 0.641** | 40.7 |
+| Dog `07379e95` | yes | 0.225 / 0.375 / 0.959 | 0.329 / 0.552 / 1.398 | **0.205 / 0.362 / 0.736** | 37.8 |
+| Fish `a7cbe5e2` | yes | 0.222 / 0.394 / 1.332 | 0.307 / 0.541 / 1.530 | **0.204 / 0.312 / 1.186** | 84.5 |
+| Frog `3f221bad` | yes | 0.219 / 0.363 / 0.843 | 0.337 / 0.551 / 1.108 | **0.197 / 0.313 / 0.790** | 32.8 |
+| Horse `165c1709` | yes | 0.251 / 0.448 / 0.839 | 0.333 / 0.607 / 1.313 | **0.214 / 0.380 / 0.781** | 45.4 |
+| **Mean** | 6/6 | 0.230 / 0.410 / 1.001 | 0.327 / 0.581 / 1.367 | **0.206 / 0.346 / 0.859** | |
+
+Most of stage 2's gap to ACT was execution, not prediction: playing 3 actions blind per chunk. Re-planning every
+tick cuts the mean path RMSE by 30% and leaves SmolVLA about 12% behind ACT (it was 59%). The cost is serving: every
+tick needs a full chunk (about 220 ms with 10 flow steps on this GPU), so each drawing took 15 to 40 minutes of wall
+time on the twin, and the real arm would need asynchronous chunks to keep 30 Hz.
+
+The face portrait sketch (`studio_live/portrait_sketch_trajectory.json`, 21 strokes, not like anything in training)
+with the same settings: 0.278 / 0.467 / 1.304 mm in 121.3 s, finished (ACT 0.242 / 0.397 / 1.261 mm). That is 21%
+above SmolVLA's animal mean, so face sketches were added to the next training set.
+
+**Files:** `<drawing>_<id>_smolvla_stage2_replan1_{comparison.png,run_metrics.json}`,
+`portrait_sketch_smolvla_stage2_replan1_{comparison.png,run_metrics.json}`.
