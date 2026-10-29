@@ -75,3 +75,60 @@ which steps the policy at 60 Hz with half-size steps): compare within one runner
 - Train longer: the last validation check (0.65 at 20k) was the best one, though the checks are noisy.
 - Replace the rendered path image with a real camera view, which is what a VLA is built for, and is the case where
   ACT's hand-made path window is not available.
+
+## Camera views of the paper (#46, 2026-10-29)
+
+`camera_v1` (local checkpoint, not in `models/`): stage 2's model and full state, with the rendered path image
+replaced by two synthetic camera views of the paper (`src/vla_features.py`, `train_smolvla.py --view camera`):
+
+- **overhead:** a fixed top-down camera over the 176 mm drawing area, the same framing as the twin's `vla_camera`
+  in `config/xarm7_drawing_real.yaml`;
+- **tip crop:** the same paper zoomed to 45 mm around the pen tip, with the upcoming path drawn over it.
+
+Both show the target traced so far in light blue under the ink drawn so far in black, rendered from the episode's
+earlier frames in training and from the ticks since reset in the policy server.
+40k steps from `smolvla_stage2`, batch 64, lr 1e-4 with warmup and cosine decay, about 5.5 h on the same GPU.
+
+Offline, same 1,024 held-out frames:
+
+| Policy | First-action error | Mean error | Median direction cosine | ms per chunk |
+|---|---|---|---|---|
+| ACT | **0.277** | **0.42 mrad** | **0.986** | |
+| SmolVLA camera_v1, zero noise, 3 flow steps | 0.306 | 0.46 mrad | 0.981 | 107 |
+| SmolVLA camera_v1, zero noise, 10 flow steps | 0.303 | 0.45 mrad | 0.982 | 241 |
+| SmolVLA stage 2, zero noise, 3 flow steps | 0.366 | 0.55 mrad | 0.97 | 95 |
+
+Does it use the camera? The same frames with the views changed (3 flow steps):
+
+| Views | First-action error |
+|---|---|
+| True views | 0.306 |
+| Empty page (no history, only the current tip and upcoming path) | 0.306 |
+| Ink dropped (every segment drawn so far looks missed) | 0.307 |
+
+The model ignores what is on the page. In the training data the IK teacher always follows the path, whatever was
+inked before, so the history never changes the label and there is nothing to learn from it. The offline gain over
+stage 2 comes from the 40k extra steps (a fresh learning-rate decay) or the upcoming path in the tip crop; a stage 2
+run continued without the camera would separate the two.
+
+Closed loop on the lab-arm twin, same six drawings and runner settings as stage 2 (zero noise, 3 actions per chunk,
+10 flow steps). Path RMSE / p95 / max error in mm:
+
+| Drawing | Finished | SmolVLA camera_v1 | SmolVLA stage 2 | ACT | Sim time s (camera_v1) |
+|---|---|---|---|---|---|
+| Cat `323bd30d` | yes | 0.315 / 0.584 / 1.502 | 0.315 / 0.605 / 1.618 | **0.209 / 0.355 / 1.019** | 46.7 |
+| Bird `1a5733d2` | yes | 0.319 / 0.570 / 1.415 | 0.343 / 0.630 / 1.234 | **0.207 / 0.356 / 0.641** | 42.4 |
+| Dog `07379e95` | yes | 0.312 / 0.595 / 1.513 | 0.329 / 0.552 / 1.398 | **0.205 / 0.362 / 0.736** | 39.9 |
+| Fish `a7cbe5e2` | yes | 0.306 / 0.557 / 1.614 | 0.307 / 0.541 / 1.530 | **0.204 / 0.312 / 1.186** | 87.0 |
+| Frog `3f221bad` | yes | 0.347 / 0.574 / 1.182 | 0.337 / 0.551 / 1.108 | **0.197 / 0.313 / 0.790** | 34.6 |
+| Horse `165c1709` | yes | 0.348 / 0.647 / 1.276 | 0.333 / 0.607 / 1.313 | **0.214 / 0.380 / 0.781** | 48.4 |
+| **Mean** | 6/6 | 0.324 / 0.588 / 1.417 | 0.327 / 0.581 / 1.367 | **0.206 / 0.346 / 0.859** | |
+
+The offline gain does not carry over: on the twin camera_v1 draws like stage 2, and ACT is still about 1.6 times more
+accurate. The scene config hash changed from `4dc272edd730` to `61a50cf4c384` only because the `vla_camera` section
+was added; the robot and placement are unchanged.
+
+For the camera to matter, the training data has to contain mistakes and their corrections: states where the pen
+missed or drifted, labelled by a teacher that goes back to fill the gap. That is the next step.
+
+**Files:** `<drawing>_<id>_smolvla_camera_v1_{comparison.png,run_metrics.json}`.
