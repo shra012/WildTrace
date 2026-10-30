@@ -20,6 +20,11 @@ PATH_WINDOW_POINTS = 10
 # travel per 30 fps tick.
 PROJECTION_AHEAD_M = 0.0015
 PATH_WINDOW_SPACING_M = 0.002
+# The pen inks while pen_down and the tip is within this of the target height. The
+# twin's pen-down height is the calibrated contact height; the labeller's joint
+# noise moves the tip about +-1 mm in z (10th-90th percentile), which a sprung pen
+# rides out, so a 0.5 mm band marked 19% of pen-down frames as not inked (1.5 mm: 6%).
+INK_CONTACT_M = 0.0015
 # Enough raw targets to cover the window even after corner densification.
 _MAX_TARGETS_SCANNED = 256
 
@@ -257,3 +262,114 @@ class PathProgress:
         self.releases += 1
         self._since = float(now_s)
         return ahead + 1
+
+
+def distance_to_path_behind(
+    targets: np.ndarray, arc: np.ndarray, index: int, tip: Sequence[float], behind_m: float
+) -> float:
+    """Distance from the tip to the path between `behind_m` of arc before waypoint `index` and that waypoint.
+
+    The policy safety check measures against this instead of the current target alone, so a
+    pen that goes back along the line to redraw a gap is still known to be on the drawing.
+    """
+    positions = np.asarray(targets, dtype=np.float64)
+    point = np.asarray(tip, dtype=np.float64)
+    end = min(int(index), len(positions) - 1)
+    start = max(int(np.searchsorted(arc, float(arc[end]) - float(behind_m), side="left")) - 1, 0)
+    if end <= start:
+        return float(np.linalg.norm(positions[end] - point))
+    a = positions[start:end]
+    segment = positions[start + 1 : end + 1] - a
+    length_sq = np.maximum(np.einsum("ij,ij->i", segment, segment), 1e-18)
+    t = np.clip(np.einsum("ij,ij->i", point - a, segment) / length_sq, 0.0, 1.0)
+    return float(np.min(np.linalg.norm(a + t[:, None] * segment - point, axis=1)))
+
+
+class SkipSchedule:
+    """Where the pen fails to ink (#46): stretches of inked travel distance.
+
+    Skips are placed along the distance the pen has travelled while in contact,
+    `spacing_m` apart on average (exponential), each `length_m` long (uniform). The
+    distance keeps growing on a redraw pass, so going back over a skip inks it, like
+    a pen that bounced or ran dry for a moment. The kinematic labeller and the policy
+    server's skip test use this same schedule.
+    """
+
+    def __init__(self, rng: np.random.Generator, spacing_m: float, length_m: tuple[float, float]):
+        self.rng = rng
+        self.spacing_m = float(spacing_m)
+        self.length_m = (float(length_m[0]), float(length_m[1]))
+        self.travel_m = 0.0
+        self._last_xy = None
+        self._skip: tuple[float, float] | None = None
+        self.skips = 0
+        if self.spacing_m > 0:
+            self._schedule(0.0)
+
+    def _schedule(self, after_m: float) -> None:
+        start = after_m + float(self.rng.exponential(self.spacing_m))
+        self._skip = (start, start + float(self.rng.uniform(*self.length_m)))
+
+    def inks(self, contact: bool, tip_xy: Sequence[float]) -> bool:
+        """Advance by one tick; True when this tick leaves ink."""
+        if not contact:
+            self._last_xy = None
+            return False
+        xy = np.asarray(tip_xy, dtype=np.float64)[:2]
+        if self._last_xy is not None:
+            self.travel_m += float(np.linalg.norm(xy - self._last_xy))
+        self._last_xy = xy
+        if self._skip is None:
+            return True
+        start, end = self._skip
+        if self.travel_m >= end:
+            self.skips += 1
+            self._schedule(self.travel_m)
+            start, end = self._skip
+        return not (start <= self.travel_m < end)
+
+
+# A pen behind its target on the path (going back to redraw a gap, #46) is shown the waypoint just
+# ahead of where it is instead of the monotonic target further on. Otherwise the target-tip error of a
+# redraw grows to several mm, which normal drawing never shows, and a policy learns "large error means
+# go back" from the numbers instead of reading the gap off the page; in closed loop a 2 mm tracking lag
+# then turned into a reverse and a stall.
+RETURN_TRIGGER_M = 0.001
+RETURN_BAND_M = 0.002
+RETURN_BEHIND_M = 0.025
+RETURN_MIN_AHEAD_M = 0.0005  # never a target at the pen itself, which a go-to-target policy stalls on
+
+
+def observed_index(
+    targets: np.ndarray,
+    arc: np.ndarray,
+    index: int,
+    tip: Sequence[float],
+    trigger_m: float = RETURN_TRIGGER_M,
+    band_m: float = RETURN_BAND_M,
+    behind_m: float = RETURN_BEHIND_M,
+) -> int:
+    """The waypoint a policy observation should use as its target: `index` itself, unless the tip is more
+    than `trigger_m` from it and lies within `band_m` of the path up to `behind_m` of arc behind it, at
+    least `trigger_m` back; then the first waypoint at least RETURN_MIN_AHEAD_M ahead of the tip's
+    position on that stretch. Only
+    path running the same way as the current segment counts, so at a needle spike the other leg (which
+    runs the opposite way, a fraction of a millimetre beside the pen) is never taken for "behind"."""
+    positions = np.asarray(targets, dtype=np.float64)
+    point = np.asarray(tip, dtype=np.float64)
+    index = min(int(index), len(positions) - 1)
+    if np.linalg.norm(positions[index] - point) < trigger_m or index == 0:
+        return index
+    start = max(int(np.searchsorted(arc, float(arc[index]) - float(behind_m), side="left")) - 1, 0)
+    a = positions[start:index]
+    segment = positions[start + 1 : index + 1] - a
+    length_sq = np.maximum(np.einsum("ij,ij->i", segment, segment), 1e-18)
+    t = np.clip(np.einsum("ij,ij->i", point - a, segment) / length_sq, 0.0, 1.0)
+    distance = np.linalg.norm(a + t[:, None] * segment - point, axis=1)
+    heading = positions[index] - positions[index - 1]
+    distance[np.einsum("ij,j->i", segment, heading) <= 0.0] = np.inf
+    best = int(np.argmin(distance))
+    s = float(arc[start + best] + t[best] * np.sqrt(length_sq[best]))
+    if not np.isfinite(distance[best]) or distance[best] > band_m or s > float(arc[index]) - trigger_m:
+        return index
+    return int(min(np.searchsorted(arc, s + RETURN_MIN_AHEAD_M, side="left"), index))

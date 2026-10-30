@@ -32,6 +32,8 @@ def _runner(latency_s: float, ticks_per_action: int = 1, hold: bool = False) -> 
     runner.replan_every = 1
     runner.camera = False
     runner.history = []
+    runner.skip_test = runner.skips = runner.history_log = None
+    runner.drawings = 0
     runner.policy = type("P", (), {"reset": lambda self: None})()
     seen_ticks = []
     lock = threading.Lock()

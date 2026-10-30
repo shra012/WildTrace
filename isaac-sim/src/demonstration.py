@@ -47,6 +47,8 @@ class DemonstrationRecorder:
         commanded_joint_positions_rad: Sequence[float] | None = None,
         path_window_m: Sequence[Sequence[float]] | None = None,
         previous_command_rad: Sequence[float] | None = None,
+        ink_skip: bool | None = None,
+        teacher_mode: int | None = None,
     ) -> None:
         tip = np.asarray(pen_tip_position_m, dtype=np.float64)
         target = np.asarray(current_target_m, dtype=np.float64)
@@ -68,6 +70,10 @@ class DemonstrationRecorder:
             # Only when the executed command differs from the previous label
             # (noise-injected labels); otherwise it is the shifted command.
             extra["previous_command_rad"] = np.asarray(previous_command_rad, dtype=np.float64)
+        if ink_skip is not None:
+            # Gap labelling (#46): the pen was in contact but left no ink; the teacher's mode.
+            extra["ink_skip"] = bool(ink_skip)
+            extra["teacher_mode"] = int(teacher_mode or 0)
         self.rows.append(
             {
                 **extra,
@@ -115,6 +121,9 @@ class DemonstrationRecorder:
             arrays["path_window_m"] = np.stack([r["path_window_m"] for r in self.rows])
             if all("previous_command_rad" in r for r in self.rows):
                 arrays["previous_command_rad"] = np.stack([r["previous_command_rad"] for r in self.rows])
+            if all("ink_skip" in r for r in self.rows):
+                arrays["ink_skip"] = np.asarray([r["ink_skip"] for r in self.rows], dtype=np.float32)[:, None]
+                arrays["teacher_mode"] = np.asarray([r["teacher_mode"] for r in self.rows], dtype=np.int64)
         features = make_policy_features(arrays)
         metadata = {
             "format_version": version,

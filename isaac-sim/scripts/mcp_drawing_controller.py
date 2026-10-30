@@ -246,8 +246,13 @@ _act_scale = 0.5
 _act_target = None
 _desired_positions = None
 _desired_arc = None
+_desired_pen = None
 _phase_offsets = None
 ACT_MAX_ERROR_M = 0.005
+# A policy may go back along the line to redraw a gap (#46) while its target stays
+# ahead, so the pen-down safety limit applies to the distance from the path over
+# this much arc before the target, not to the target alone.
+POLICY_REDRAW_BEHIND_M = float(CONFIG["drawing"].get("policy_redraw_behind_m", 0.025))
 # Live status for WildTrace Studio (src/live_telemetry.py): written ~10x per
 # simulated second while drawing, and once more on finish/fail.
 LIVE_DIR = live_telemetry.live_dir(OUTPUT_DIR)
@@ -512,7 +517,7 @@ def _live_finish(status, reason=None):
 def _start_act():
     """Connect to scripts/act_policy_server.py and precompute the path the
     policy's observation window and progress tracker read from."""
-    global _policy, _act_target, _desired_positions, _desired_arc, _phase_offsets, _progress
+    global _policy, _act_target, _desired_positions, _desired_arc, _desired_pen, _phase_offsets, _progress
     from act_client import ActPolicyClient
     from act_features import PathProgress, path_arc_length
     from drawing_state_machine import flatten_desired_targets
@@ -522,7 +527,8 @@ def _start_act():
     _phase_offsets = np.r_[0, np.cumsum([len(phase.targets) for phase in _machine.phases])].astype(int)
     _progress = PathProgress(_desired_positions, _desired_arc, stall_s=POLICY_STALL_RELEASE_S)
     _policy = ActPolicyClient(_policy_address)
-    _policy.reset()
+    _desired_pen = np.asarray([float(t.pen_down) for t in flatten_desired_targets(_machine.phases)])
+    _policy.reset(np.c_[_desired_positions[:, :2], _desired_pen])
     _act_target = None
     _log(f"[{_prefix}] ACT controller via {_policy_address} (step scale {_act_scale}, "
          f"stall release {POLICY_STALL_RELEASE_S} s)")
@@ -531,16 +537,19 @@ def _start_act():
 def _act_command(target, tip_position):
     """One ACT tick: the next joint target, stepping from the previous one."""
     global _act_target
-    from act_features import environment_state, observation_state, path_window
+    from act_features import environment_state, observation_state, observed_index, path_window
 
     q = np.asarray(_robot.get_joint_positions(), dtype=np.float64)
     qd = np.asarray(_robot.get_joint_velocities(), dtype=np.float64)
     previous = q if _act_target is None else _act_target
     index = int(_phase_offsets[_machine.phase_index]) + _machine.target_index
-    window = path_window(_desired_positions, index)
+    # The labeller's observation: a pen back on the path behind its target sees the waypoint just ahead
+    # of it (act_features.observed_index); the run's own progress stays where it is.
+    seen = observed_index(_desired_positions, _desired_arc, index, tip_position)
+    window = path_window(_desired_positions, seen)
     step = _policy.act(
         observation_state(q, qd, previous)[0],
-        environment_state(tip_position, target.position, window[None], [[float(target.pen_down)]])[0],
+        environment_state(tip_position, _desired_positions[seen], window[None], [[float(_desired_pen[seen])]])[0],
     )
     if not np.isfinite(step).all():
         return None
@@ -659,13 +668,20 @@ def compute(db=None):
             if target is not None and _controller in POLICY_CONTROLLERS and _policy is not None:
                 from isaacsim.core.utils.types import ArticulationAction
 
+                from act_features import distance_to_path_behind
+
                 is_corner = bool(_phase_corners[_machine.phase_index][_machine.target_index])
                 tip_position, _tip_rot = _solver.compute_end_effector_pose(position_only=False)
                 error = float(np.linalg.norm(np.asarray(tip_position) - target.position))
+                off_path = error
+                if target.pen_down and error > ACT_MAX_ERROR_M:
+                    index = int(_phase_offsets[_machine.phase_index]) + _machine.target_index
+                    off_path = distance_to_path_behind(_desired_positions, _desired_arc, index, tip_position,
+                                                       POLICY_REDRAW_BEHIND_M)
                 command = _act_command(target, tip_position)
                 if command is None:
                     _machine.fail("ACT produced a non-finite joint step")
-                elif target.pen_down and error > ACT_MAX_ERROR_M:
+                elif target.pen_down and off_path > ACT_MAX_ERROR_M:
                     _machine.fail(f"ACT tip error {error * 1e3:.2f} mm in {_machine.state} exceeds the safety limit")
                 else:
                     _robot.get_articulation_controller().apply_action(ArticulationAction(joint_positions=command))

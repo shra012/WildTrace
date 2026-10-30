@@ -13,6 +13,9 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from act_features import (  # noqa: E402
     PATH_WINDOW_POINTS,
+    SkipSchedule,
+    distance_to_path_behind,
+    observed_index,
     act_frames,
     chased_index,
     path_arc_length,
@@ -25,7 +28,7 @@ from act_features import (  # noqa: E402
 )
 from demonstration import DemonstrationRecorder  # noqa: E402
 from drawing_state_machine import build_motion_sequence  # noqa: E402
-from kinematic_labeller import LabelError, label_phases, with_approach_from  # noqa: E402
+from kinematic_labeller import MODE_BACK, MODE_FORWARD, LabelError, label_phases, with_approach_from  # noqa: E402
 
 
 def _row(recorder, **overrides):
@@ -345,3 +348,134 @@ class PathProgressTests(unittest.TestCase):
         for tick in range(40):
             index = self.progress.update(index, [0.0055, 0.005, 0.0], tick / 30)  # 5 mm off
         self.assertEqual(self.progress.releases, 0)
+
+
+class GapRedrawTests(unittest.TestCase):
+    """#46: ink skips and the teacher going back to redraw them."""
+
+    @staticmethod
+    def _label(spacing_m: float, seed: int = 3):
+        solve, forward = _toy_kinematics()
+        strokes = [{"stroke_id": 0, "points": [[0.40, 0.0], [0.46, 0.0], [0.46, 0.03]]}]
+        phases = build_motion_sequence(
+            strokes, pen_down_z=0.201, pen_up_z=0.235, approach_height=0.27, max_cartesian_step=0.0015
+        )
+        home = np.asarray([0.38, 0.0, 0.30, 0.0, 0.0, 0.0, 0.0])
+        phases = with_approach_from(phases, forward(home)[0], 0.0015)
+        recorder = DemonstrationRecorder("toy", 5, 0.005)
+        stats = label_phases(
+            phases, home_q=home, solve_ik=solve, forward=forward, recorder=recorder, dt_s=1 / 30,
+            max_joint_delta_rad=0.07,
+            gaps={"rng": np.random.default_rng(seed), "skip_spacing_m": spacing_m, "skip_length_m": (0.003, 0.005)},
+        )
+        return stats, recorder
+
+    def test_clean_drawing_needs_no_redraw(self):
+        stats, recorder = self._label(0.0)
+        self.assertEqual(stats["redos"], 0)
+        self.assertEqual(stats["uncovered_fraction"], 0.0)
+        self.assertEqual({row["teacher_mode"] for row in recorder.rows}, {0})
+
+    def test_skips_are_redrawn_without_the_numbers_giving_it_away(self):
+        stats, recorder = self._label(0.02)
+        self.assertGreater(stats["skips"], 0)
+        self.assertGreater(stats["redos"], 0)
+        self.assertLess(stats["uncovered_fraction"], 0.1)
+        modes = np.asarray([row["teacher_mode"] for row in recorder.rows])
+        self.assertTrue((modes == MODE_BACK).any() and (modes == MODE_FORWARD).any())
+        targets = np.stack([row["current_target_m"] for row in recorder.rows])
+        tips = np.stack([row["pen_tip_position_m"] for row in recorder.rows])
+        back = np.flatnonzero(modes == MODE_BACK)
+        # The pen really goes back along the line ...
+        self.assertLess(np.diff(tips[back, 0]).min(), 0.0)
+        # ... but the observed target stays as close as in normal drawing (no "large error means redraw").
+        error = np.linalg.norm(tips - targets, axis=1)
+        self.assertLess(np.percentile(error[modes > 0], 99), 0.004)
+        with tempfile.TemporaryDirectory() as tmp:
+            data = dict(np.load(recorder.save(Path(tmp) / "demo.npz")))
+        self.assertEqual(data["ink_skip"].shape, (len(recorder.rows), 1))
+        np.testing.assert_array_equal(data["teacher_mode"], modes)
+
+
+class DaggerTests(unittest.TestCase):
+    def test_policy_drives_while_the_teacher_labels(self):
+        solve, forward = _toy_kinematics()
+        home = np.asarray([0.38, 0.0, 0.30, 0.0, 0.0, 0.0, 0.0])
+        phases = with_approach_from(_phases(), forward(home)[0], 0.0015)
+        recorder = DemonstrationRecorder("toy", 5, 0.005)
+        seen = []
+
+        def act(state, env, ink_skip):
+            seen.append((state.shape, env.shape))
+            # A policy that steers like the teacher would, but 0.3 mm off in y.
+            target = env[0:3] + env[3:6]
+            return np.r_[target - state[0:3] + [0.0, 0.0003, 0.0], np.zeros(4)]
+
+        stats = label_phases(
+            phases, home_q=home, solve_ik=solve, forward=forward, recorder=recorder, dt_s=1 / 30,
+            max_joint_delta_rad=0.07, policy={"act": act, "share": 1.0, "rng": np.random.default_rng(0)},
+        )
+        self.assertEqual(stats["policy_share"], 1.0)
+        self.assertEqual(seen[0], ((21,), (6 + 3 * PATH_WINDOW_POINTS + 1,)))
+        measured = np.stack([r["joint_positions_rad"] for r in recorder.rows])
+        commanded = np.stack([r["commanded_joint_positions_rad"] for r in recorder.rows])
+        # The arm goes where the policy sends it, not where the labels say.
+        self.assertGreater(np.abs(measured[1:, 1] - commanded[:-1, 1]).max(), 2e-4)
+
+
+class SkipScheduleTests(unittest.TestCase):
+    def test_skips_follow_inked_travel_and_a_second_pass_inks(self):
+        schedule = SkipSchedule(np.random.default_rng(0), 0.01, (0.002, 0.002))
+        schedule.spacing_m = 10.0  # the next skip lands far away, out of this test
+        start, end = schedule._skip
+        xs = np.arange(0.0, end + 0.0002, 0.0002)
+        inked = [schedule.inks(True, (x, 0.0)) for x in xs]
+        missed = xs[~np.asarray(inked)]
+        self.assertAlmostEqual(missed.min(), start, delta=0.0003)
+        self.assertAlmostEqual(missed.max(), end, delta=0.0003)
+        # Back over the skipped stretch: the travel keeps growing, so it inks now.
+        back = [schedule.inks(True, (x, 0.0)) for x in xs[::-1] if start <= x <= end]
+        self.assertTrue(all(back[: len(back) // 2]))
+
+    def test_no_contact_never_inks_and_no_spacing_never_skips(self):
+        schedule = SkipSchedule(np.random.default_rng(0), 0.0, (0.002, 0.004))
+        self.assertFalse(schedule.inks(False, (0.0, 0.0)))
+        self.assertTrue(all(schedule.inks(True, (x, 0.0)) for x in np.arange(0.0, 0.2, 0.001)))
+
+
+class PathDistanceTests(unittest.TestCase):
+    def test_pen_back_along_the_line_is_on_the_path(self):
+        targets = np.stack([np.linspace(0.0, 0.03, 31), np.zeros(31), np.zeros(31)], axis=1)
+        arc = path_arc_length(targets)
+        self.assertAlmostEqual(distance_to_path_behind(targets, arc, 20, [0.012, 0.0005, 0.0], 0.025), 0.0005)
+        # Further back than the window (5 mm, plus one segment): no longer counts as on the path.
+        self.assertGreater(distance_to_path_behind(targets, arc, 20, [-0.010, 0.0, 0.0], 0.005), 0.02)
+
+
+class ObservedIndexTests(unittest.TestCase):
+    targets = np.stack([np.linspace(0.0, 0.03, 31), np.zeros(31), np.zeros(31)], axis=1)  # 1 mm apart
+
+    def test_pen_near_its_target_keeps_it(self):
+        arc = path_arc_length(self.targets)
+        self.assertEqual(observed_index(self.targets, arc, 20, [0.0193, 0.0003, 0.0]), 20)
+
+    def test_pen_back_on_the_line_sees_the_waypoint_just_ahead(self):
+        arc = path_arc_length(self.targets)
+        # 12.3 mm along: the first waypoint at least 0.5 mm ahead is the one at 13 mm.
+        self.assertEqual(observed_index(self.targets, arc, 20, [0.0123, 0.0002, 0.0]), 13)
+        self.assertEqual(observed_index(self.targets, arc, 20, [0.0128, 0.0002, 0.0]), 14)
+
+    def test_needle_spike_never_jumps_to_the_other_leg(self):
+        up = np.stack([np.full(11, 0.0), np.linspace(0.0, 0.01, 11), np.zeros(11)], axis=1)
+        down = np.stack([np.full(10, 0.0004), np.linspace(0.009, 0.0, 10), np.zeros(10)], axis=1)
+        spike = np.vstack([up, down])
+        arc = path_arc_length(spike)
+        # Pen on the way down, just past the tip; its target is the next waypoint down. The up leg
+        # lies 0.4 mm away and further back along the path.
+        index = 14  # (0.0004, 0.006)
+        # Back on the down leg it may step back along that leg, never onto the up leg (indices <= 10).
+        self.assertGreaterEqual(observed_index(spike, arc, index, [0.0003, 0.0072, 0.0]), 11)
+
+    def test_pen_off_the_line_keeps_its_target(self):
+        arc = path_arc_length(self.targets)
+        self.assertEqual(observed_index(self.targets, arc, 20, [0.0123, 0.003, 0.0]), 20)

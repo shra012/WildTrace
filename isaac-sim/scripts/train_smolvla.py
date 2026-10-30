@@ -1,8 +1,11 @@
 """Fine-tune SmolVLA (lerobot/smolvla_base) on the ACT drawing datasets.
 
     isaac-sim/.venv-act/bin/python isaac-sim/scripts/train_smolvla.py \
-        --dataset wildtrace_real_kin_v2_train --val-dataset wildtrace_real_kin_v2_val \
-        --output outputs/smolvla/real_kinematic_v2 --steps 20000
+        --dataset wildtrace_real_kin_gaps_faces_v2_train --val-dataset wildtrace_real_kin_gaps_faces_v2_val \
+        --output isaac-sim/outputs/smolvla/camera_v4 --init isaac-sim/models/smolvla_camera_v3 \
+        --state full --direct-state --vlm-layers 8 --image-size 256 --chunk-size 20 --view camera --steps 20000
+
+(the architecture flags must match the --init checkpoint's; models/README.md lists each one's).
 
 The datasets are the ones ACT trains on (scripts/build_lerobot_dataset.py).
 Each frame's SmolVLA observation is built from them on the fly by
@@ -76,6 +79,22 @@ def _parse_args():
     parser.add_argument("--view", choices=["path", "camera"], default="path",
                         help="path: the rendered upcoming path; camera: an overhead paper view and a tip crop "
                              "with the ink drawn so far (vla_features.camera_views, #46)")
+    parser.add_argument("--window-dropout", type=float, default=0.0,
+                        help="with --state full: zero the 30 path-window values in this share of training frames, "
+                             "so the policy also learns to read the upcoming path from the image")
+    parser.add_argument("--augment", action="store_true",
+                        help="with --view camera: vary ink style and perturb the images like a real camera "
+                             "(vla_features.augment_camera_image)")
+    parser.add_argument("--early-action-weight", type=float, default=1.0,
+                        help="weight the loss of the first --early-actions actions of each chunk this much more "
+                             "(they are the ones executed before the next re-plan)")
+    parser.add_argument("--early-actions", type=int, default=3)
+    parser.add_argument("--redraw-weight", type=float, default=1.0,
+                        help="with gap-labelled data: sample redraw frames (teacher going back to a gap or coming "
+                             "forward again) this many times as often as the rest")
+    parser.add_argument("--template", action="store_true",
+                        help="with --view camera: tracing mode, the whole drawing shown faintly in both views "
+                             "(served from the drawing sent at reset)")
     return parser.parse_args()
 
 
@@ -90,13 +109,22 @@ class VlaFrames(torch.utils.data.Dataset):
     """An ACT LeRobotDataset seen as SmolVLA frames."""
 
     def __init__(self, name: str, chunk_size: int, episodes: int = 0, full_state: bool = False, stride: int = 1,
-                 camera: bool = False):
+                 camera: bool = False, window_dropout: float = 0.0, augment: bool = False, template: bool = False):
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
         self.full_state = full_state
+        self.window_dropout, self.augment = float(window_dropout), bool(augment)
+        # Validation probes (#46): "blank" keeps only the current tick of history (an empty
+        # page), and drop_window zeroes the path-window values, to check what the policy reads.
+        self.blank_page = self.drop_window = False
         root = DATASETS_ROOT / name
         # Camera views need each frame's episode so far: history rows by global index.
         self.history, self.starts = vla_features.load_history(root) if camera else (None, None)
+        self.template = template
+        if template:
+            # Episode ends, for the whole drawing each frame's template comes from.
+            self._episode_starts, counts = np.unique(self.starts, return_counts=True)
+            self._episode_ends = self._episode_starts + counts
         info = json.loads((root / "meta" / "info.json").read_text())
         fps = info["fps"]
         selected = episode_subset(episodes or info["total_episodes"], stride)
@@ -112,14 +140,24 @@ class VlaFrames(torch.utils.data.Dataset):
     def __getitem__(self, index: int) -> dict:
         frame = self.frames[index]
         env = frame[ACT_ENV].numpy()
+        rng = np.random.default_rng() if (self.augment or self.window_dropout > 0) else None
         if self.history is None:
             images = {vla_features.IMAGE_KEY: vla_features.image_tensor_layout(vla_features.path_view(env))}
         else:
             current = int(frame["index"])
-            images = vla_features.camera_views(self.history[self.starts[current] : current + 1], env)
+            first = current if self.blank_page else self.starts[current]
+            template = None
+            if self.template:
+                episode = int(np.searchsorted(self._episode_starts, self.starts[current]))
+                template = vla_features.template_from_history(
+                    self.history[self._episode_starts[episode] : self._episode_ends[episode]])
+            images = vla_features.camera_views(self.history[first : current + 1], env,
+                                               rng if self.augment else None, template)
+        state = vla_features.vla_state(frame[ACT_STATE].numpy(), env, self.full_state)[0]
+        if self.full_state and (self.drop_window or (rng is not None and rng.random() < self.window_dropout)):
+            state[vla_features.STATE_DIM :] = 0.0
         return {
-            "observation.state": torch.from_numpy(
-                vla_features.vla_state(frame[ACT_STATE].numpy(), env, self.full_state)[0]),
+            "observation.state": torch.from_numpy(state),
             **{key: torch.from_numpy(image) for key, image in images.items()},
             ACTION: frame[ACTION],
             "action_is_pad": frame["action_is_pad"],
@@ -218,12 +256,95 @@ def first_action_error(policy, preprocessor, batch: dict) -> float:
     return float((predicted - true).abs().mean() / true.abs().mean().clamp_min(1e-6))
 
 
-def save(policy, preprocessor, postprocessor, output: Path, step: int) -> None:
+class WeightedFrames(torch.utils.data.Sampler):
+    """Frames drawn with replacement in proportion to `weights` (numpy, so past torch.multinomial's
+    2**24-category limit; the datasets hold over 20M frames)."""
+
+    def __init__(self, weights: np.ndarray, seed: int):
+        self.p = np.asarray(weights, dtype=np.float64) / float(np.sum(weights))
+        self.rng = np.random.default_rng(seed)
+
+    def __len__(self) -> int:
+        return len(self.p)
+
+    def __iter__(self):
+        for _ in range(0, len(self.p), 1 << 20):
+            yield from self.rng.choice(len(self.p), size=1 << 20, p=self.p).tolist()
+
+
+def teacher_modes(frames) -> np.ndarray:
+    """Per-frame teacher mode straight from Arrow: indexing the column through the dataset
+    runs lerobot's torch transform row by row, which takes tens of GB on 23M frames."""
+    hf = frames.hf_dataset
+    modes = hf.data.column("teacher_mode").to_numpy().reshape(-1)
+    if len(modes) != len(hf):
+        raise ValueError(f"teacher_mode has {len(modes)} rows for {len(hf)} frames")
+    return modes
+
+
+def probe_indices(dataset: VlaFrames, count: int, seed: int) -> dict[str, list[int]]:
+    """Fixed validation frames: random ones, and with gap-labelled data the redraw frames
+    (teacher going back to a gap or coming forward again), which only the camera explains."""
+    rng = np.random.default_rng(seed)
+    probes = {"all": rng.choice(len(dataset), count, replace=False).tolist()}
+    if "teacher_mode" in dataset.frames.hf_dataset.column_names:
+        modes = teacher_modes(dataset.frames)
+        redraw = np.flatnonzero(modes > 0)
+        if len(redraw):
+            probes["redraw"] = rng.choice(redraw, min(count, len(redraw)), replace=False).tolist()
+    return probes
+
+
+def probe_errors(policy, preprocessor, dataset: VlaFrames, probes: dict[str, list[int]]) -> dict[str, float]:
+    """First-action error on each probe set, as seen (true views, full state) and, for camera
+    policies, with an empty page and with the path window zeroed."""
+    from torch.utils.data import default_collate
+
+    variants = {"": {}}
+    if dataset.history is not None:
+        variants["_blank_page"] = {"blank_page": True}
+    if dataset.full_state:
+        variants["_no_window"] = {"drop_window": True}
+    errors = {}
+    saved = (dataset.augment, dataset.window_dropout)
+    dataset.augment, dataset.window_dropout = False, 0.0
+    try:
+        for probe, indices in probes.items():
+            for suffix, flags in variants.items():
+                dataset.blank_page = flags.get("blank_page", False)
+                dataset.drop_window = flags.get("drop_window", False)
+                batch = default_collate([dataset[i] for i in indices])
+                errors[f"val_{probe}{suffix}"] = first_action_error(policy, preprocessor, batch)
+    finally:
+        dataset.blank_page = dataset.drop_window = False
+        dataset.augment, dataset.window_dropout = saved
+    return errors
+
+
+def weight_early_actions(policy, weight: float, count: int) -> None:
+    """Scale the per-timestep flow-matching loss so the first `count` actions of each chunk weigh
+    `weight` times the rest (renormalised to mean 1)."""
+    chunk = policy.config.chunk_size
+    weights = torch.ones(chunk)
+    weights[: min(count, chunk)] = weight
+    weights = weights / weights.mean()
+    inner = policy.model.forward
+
+    def forward(*args, **kwargs):
+        losses = inner(*args, **kwargs)
+        return losses * weights.to(losses.device, losses.dtype)[None, :, None]
+
+    policy.model.forward = forward
+
+
+def save(policy, preprocessor, postprocessor, output: Path, step: int, views: dict | None = None) -> None:
     target = output / "checkpoints" / f"{step:06d}" / "pretrained_model"
     target.mkdir(parents=True, exist_ok=True)
     policy.save_pretrained(target)
     if hasattr(policy.model, "state_to_expert"):
         smolvla_direct_state.mark_checkpoint(target)
+    if views:
+        (target / vla_features.VIEWS_FILE).write_text(json.dumps(views))
     preprocessor.save_pretrained(target)
     postprocessor.save_pretrained(target)
     (target.parent / "training_state.json").write_text(json.dumps({"step": step}))
@@ -245,7 +366,8 @@ def main() -> int:
 
     full_state = args.state == "full"
     camera = args.view == "camera"
-    train = VlaFrames(args.dataset, args.chunk_size, args.episodes, full_state, args.episode_stride, camera)
+    train = VlaFrames(args.dataset, args.chunk_size, args.episodes, full_state, args.episode_stride, camera,
+                      args.window_dropout, args.augment, args.template)
     stats = vla_stats(train.frames.meta.stats, full_state)
     start_step = 0
     if args.resume:
@@ -263,6 +385,8 @@ def main() -> int:
     else:
         preprocessor, postprocessor = make_pre_post_processors(config, dataset_stats=stats)
 
+    if args.early_action_weight != 1.0:
+        weight_early_actions(policy, args.early_action_weight, args.early_actions)
     trainable = [p for p in policy.parameters() if p.requires_grad]
     print(f"[OK] {len(train)} frames; {sum(p.numel() for p in trainable) / 1e6:.1f}M of "
           f"{sum(p.numel() for p in policy.parameters()) / 1e6:.1f}M parameters train", flush=True)
@@ -278,14 +402,20 @@ def main() -> int:
     for group in optimizer.param_groups:  # LambdaLR needs this to start part-way through (--resume)
         group.setdefault("initial_lr", args.lr)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_factor, last_epoch=start_step - 1 if start_step else -1)
-    loader = torch.utils.data.DataLoader(train, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers,
-                                         pin_memory=device == "cuda", drop_last=True, persistent_workers=True)
-    val_batch = None
+    sampler = None
+    if args.redraw_weight != 1.0:
+        modes = teacher_modes(train.frames)
+        sampler = WeightedFrames(np.where(modes > 0, args.redraw_weight, 1.0), args.seed)
+        print(f"[OK] redraw frames {np.mean(modes > 0):.3f} of the data, sampled x{args.redraw_weight}", flush=True)
+    loader = torch.utils.data.DataLoader(train, batch_size=args.batch_size, shuffle=sampler is None, sampler=sampler,
+                                         num_workers=args.num_workers, pin_memory=device == "cuda", drop_last=True,
+                                         persistent_workers=True)
+    val = probes = None
     if args.val_dataset:
         val = train if args.val_dataset == "train" else VlaFrames(args.val_dataset, args.chunk_size,
-                                                                     full_state=full_state, camera=camera)
-        generator = torch.Generator().manual_seed(args.seed)
-        val_batch = next(iter(torch.utils.data.DataLoader(val, batch_size=64, shuffle=True, generator=generator)))
+                                                                     full_state=full_state, camera=camera,
+                                                                     template=args.template)
+        probes = probe_indices(val, 64, args.seed)
 
     log = (output / "train_log.ndjson").open("a")
     policy.train()
@@ -310,15 +440,17 @@ def main() -> int:
                       "lr": scheduler.get_last_lr()[0], "samples_s": args.log_freq * args.batch_size / elapsed,
                       "load_share": load_time / elapsed}
             started, load_time = time.perf_counter(), 0.0
-        if val_batch is not None and (done % args.val_freq == 0 or done == args.steps):
+        if probes is not None and (done % args.val_freq == 0 or done == args.steps):
             record = record or {"step": done}
-            record["val_first_action_rel_error"] = first_action_error(policy, preprocessor, dict(val_batch))
+            errors = probe_errors(policy, preprocessor, val, probes)
+            record["val_first_action_rel_error"] = errors.pop("val_all")
+            record.update(errors)
         if record:
             print(json.dumps(record), flush=True)
             log.write(json.dumps(record) + "\n")
             log.flush()
         if done % args.save_freq == 0 or done == args.steps:
-            save(policy, preprocessor, postprocessor, output, done)
+            save(policy, preprocessor, postprocessor, output, done, {"template": True} if args.template else None)
     return 0
 
 

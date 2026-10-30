@@ -9,6 +9,11 @@ Writes one format-version-2 NPZ per (trajectory, augmentation) to
 <out>/<Category>/<sample_id>_a<k>.npz; a=0 is the canonical placement and
 a>=1 use act_features.sample_augmentation. Existing files are skipped, so a
 run can be resumed. Gold trajectories are excluded so they stay a clean test set.
+
+--gaps (#46) tracks ink, injects skips and labels gap redraws. With
+--policy-ports (DAgger), a policy served by scripts/act_policy_server.py on
+each listed port (one per worker) drives the arm and the IK teacher labels the
+states it reaches; --first-augmentation picks fresh placements for those.
 """
 from __future__ import annotations
 
@@ -30,7 +35,7 @@ import numpy as np  # noqa: E402
 from act_features import reverse_strokes, sample_augmentation, shift_paper_heights  # noqa: E402
 from coordinate_mapper import map_trajectory_to_plane  # noqa: E402
 from demonstration import DemonstrationRecorder  # noqa: E402
-from drawing_state_machine import build_motion_sequence  # noqa: E402
+from drawing_state_machine import build_motion_sequence, flatten_desired_targets  # noqa: E402
 from kinematic_labeller import LabelError, label_phases, with_approach_from  # noqa: E402
 from project_config import load_config  # noqa: E402
 from trajectory_loader import load_trajectory  # noqa: E402
@@ -64,6 +69,29 @@ def _parse_args():
     )
     parser.add_argument("--offset-correlation-s", type=float, default=2.0)
     parser.add_argument(
+        "--noise-sigma-per-augmentation",
+        default="",
+        help="Comma list overriding --noise-sigma-rad per augmentation index (a1, a2, ...), e.g. 0.001,0.0005",
+    )
+    parser.add_argument(
+        "--gaps",
+        action="store_true",
+        help="Track ink and redraw gaps (#46); records ink_skip and teacher_mode per frame",
+    )
+    parser.add_argument(
+        "--skip-spacing-per-augmentation",
+        default="",
+        help="With --gaps: mean inked distance between injected skips per augmentation (a1, a2, ...), 0 = none",
+    )
+    parser.add_argument("--policy-ports", default="",
+                        help="DAgger: comma list of policy server ports, one per worker (sets --workers)")
+    parser.add_argument("--policy-host", default="127.0.0.1")
+    parser.add_argument("--policy-share", type=float, default=1.0, help="DAgger: share of ticks the policy executes")
+    parser.add_argument("--first-augmentation", type=int, default=0,
+                        help="label augmentations first..first+augmentations-1 (fresh placements for DAgger)")
+    parser.add_argument("--gap-cover-tol-m", type=float, default=0.001,
+                        help="With --gaps: a path point counts as drawn with ink this close to it")
+    parser.add_argument(
         "--paper-height-jitter-m",
         type=float,
         default=0.015,
@@ -84,7 +112,12 @@ def _init_worker(
     offset_sigma: float,
     offset_correlation: float,
     paper_height_jitter: float,
+    noise_per_augmentation: tuple = (),
+    gaps: dict | None = None,
+    policy: dict | None = None,
 ) -> None:
+    import multiprocessing
+
     import lula
 
     config = load_config(config_path, PROJECT_ROOT)
@@ -129,7 +162,23 @@ def _init_worker(
         offset_sigma=float(offset_sigma),
         offset_correlation=float(offset_correlation),
         paper_height_jitter=float(paper_height_jitter),
+        noise_per_augmentation=tuple(noise_per_augmentation),
+        gaps=gaps,
+        policy=None,
     )
+    if policy:
+        from act_client import ActPolicyClient
+
+        # One server per worker: each serves one connection at a time.
+        worker = (multiprocessing.current_process()._identity or (1,))[0] - 1
+        port = policy["ports"][worker % len(policy["ports"])]
+        _WORKER["policy"] = {"client": ActPolicyClient(f"{policy['host']}:{port}", timeout_s=120.0),
+                             "share": policy["share"]}
+
+
+def _per_augmentation(values: tuple, augmentation: int, default: float) -> float:
+    """values[k - 1] for augmentation k >= 1, else the default."""
+    return float(values[augmentation - 1]) if 1 <= augmentation <= len(values) else float(default)
 
 
 def _label_one(job):
@@ -138,6 +187,12 @@ def _label_one(job):
     robot_config, drawing, safety = config["robot"], config["drawing"], config["safety"]
     started = time.time()
     record = {"path": path, "category": category, "augmentation": augmentation, "output": destination}
+    noise_sigma = _per_augmentation(_WORKER["noise_per_augmentation"], augmentation, _WORKER["noise_sigma"])
+    gap_config = recorder = None
+    if _WORKER["gaps"] is not None:
+        spacing = _per_augmentation(_WORKER["gaps"]["skip_spacing_per_augmentation"], augmentation, 0.0)
+        gap_config = {"cover_tol_m": _WORKER["gaps"]["cover_tol_m"],
+                      "skip_spacing_m": spacing if augmentation > 0 else 0.0}
     try:
         trajectory = load_trajectory(path)
         center, size = drawing["surface_center_xy_m"], drawing["surface_size_xy_m"]
@@ -195,20 +250,28 @@ def _label_one(job):
                 "surface_center_xy_m": list(map(float, center)),
                 "surface_size_xy_m": list(map(float, size)),
                 "label_dt_s": _WORKER["dt"],
-                "noise_sigma_rad": _WORKER["noise_sigma"] if augmentation > 0 else 0.0,
+                "noise_sigma_rad": noise_sigma if augmentation > 0 else 0.0,
+                "gaps": gap_config,
                 "noise_correlation_s": _WORKER["noise_correlation"],
                 "offset_sigma_rad": _WORKER["offset_sigma"] if augmentation > 0 else 0.0,
             },
         )
         noise = None
-        if augmentation > 0 and _WORKER["noise_sigma"] > 0:
+        if augmentation > 0 and noise_sigma > 0:
             noise = {
                 "rng": np.random.default_rng(_seed(mapped["drawing_id"], 1000 + augmentation)),
-                "sigma_rad": _WORKER["noise_sigma"],
+                "sigma_rad": noise_sigma,
                 "correlation_s": _WORKER["noise_correlation"],
                 "offset_sigma_rad": _WORKER["offset_sigma"],
                 "offset_correlation_s": _WORKER["offset_correlation"],
             }
+        policy = None
+        if _WORKER["policy"]:
+            client = _WORKER["policy"]["client"]
+            flat = flatten_desired_targets(phases)
+            client.reset(np.asarray([[t.position[0], t.position[1], float(t.pen_down)] for t in flat]))
+            policy = {"act": client.act, "share": _WORKER["policy"]["share"],
+                      "rng": np.random.default_rng(_seed(mapped["drawing_id"], 3000 + augmentation))}
         stats = label_phases(
             phases,
             home_q=home,
@@ -218,15 +281,26 @@ def _label_one(job):
             dt_s=_WORKER["dt"],
             max_joint_delta_rad=_WORKER["max_joint_delta"],
             noise=noise,
+            gaps=None if gap_config is None else {
+                **gap_config, "rng": np.random.default_rng(_seed(mapped["drawing_id"], 2000 + augmentation))},
+            policy=policy,
         )
         recorder.save(destination)
         record.update(status="ok", sample_id=mapped["drawing_id"], **stats)
     except LabelError as exc:
         record.update(status="dropped", reason=str(exc))
+        if _WORKER["policy"] and recorder is not None and len(recorder.rows) > 300:
+            # A policy-driven episode that went wrong still shows the teacher's corrections up to there.
+            recorder.save(destination)
+            record.update(status="partial", frames=len(recorder.rows))
     except Exception as exc:  # noqa: BLE001 - a bad file must not stop the batch
         record.update(status="error", reason=repr(exc), traceback=traceback.format_exc(limit=3))
     record["seconds"] = round(time.time() - started, 3)
     return record
+
+
+def _floats(text: str) -> tuple:
+    return tuple(float(v) for v in text.split(",") if v.strip())
 
 
 def main() -> int:
@@ -238,14 +312,19 @@ def main() -> int:
     out = Path(args.out)
     jobs = []
     for path in sources:
-        for augmentation in range(args.augmentations):
+        for augmentation in range(args.first_augmentation, args.first_augmentation + args.augmentations):
             destination = out / path.parent.name / f"{path.stem}_a{augmentation}.npz"
             if not destination.exists():
                 jobs.append((str(path), path.parent.name, augmentation, str(destination)))
     print(f"[OK] {len(sources)} trajectories ({len(excluded)} gold excluded); {len(jobs)} episodes to label")
     out.mkdir(parents=True, exist_ok=True)
+    policy = None
+    if args.policy_ports:
+        ports = [int(v) for v in args.policy_ports.split(",") if v.strip()]
+        policy = {"ports": ports, "host": args.policy_host, "share": args.policy_share}
+        args.workers = len(ports)
     manifest = out / "labels.ndjson"
-    counts = {"ok": 0, "dropped": 0, "error": 0}
+    counts = {"ok": 0, "dropped": 0, "partial": 0, "error": 0}
     started = time.time()
     with Pool(args.workers, initializer=_init_worker, initargs=(
             args.config,
@@ -255,6 +334,10 @@ def main() -> int:
             args.offset_sigma_rad,
             args.offset_correlation_s,
             args.paper_height_jitter_m,
+            _floats(args.noise_sigma_per_augmentation),
+            {"cover_tol_m": args.gap_cover_tol_m,
+             "skip_spacing_per_augmentation": _floats(args.skip_spacing_per_augmentation)} if args.gaps else None,
+            policy,
         )) as pool, manifest.open(
         "a", encoding="utf-8"
     ) as log:

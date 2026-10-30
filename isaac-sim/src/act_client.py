@@ -23,11 +23,19 @@ class ActPolicyClient:
             raise ConnectionError("ACT policy server closed the connection")
         return json.loads(line)
 
-    def reset(self) -> None:
-        self._call({"reset": True})
+    def reset(self, drawing=None) -> None:
+        """`drawing`: optional (M, 3) x, y, pen_down of the whole path (tracing-mode camera policies)."""
+        payload = {"reset": True}
+        if drawing is not None:
+            payload["drawing"] = [[float(v) for v in row] for row in np.asarray(drawing).reshape(-1, 3)]
+        self._call(payload)
 
-    def act(self, state: Sequence[float], env: Sequence[float]) -> np.ndarray:
-        reply = self._call({"state": [float(v) for v in state], "env": [float(v) for v in env]})
+    def act(self, state: Sequence[float], env: Sequence[float], ink_skip: bool | None = None) -> np.ndarray:
+        """One joint step. `ink_skip` (camera policies, #46) tells the server this tick left no ink."""
+        payload = {"state": [float(v) for v in state], "env": [float(v) for v in env]}
+        if ink_skip is not None:
+            payload["ink_skip"] = bool(ink_skip)
+        reply = self._call(payload)
         self.latencies_ms.append(float(reply.get("ms", 0.0)))
         return np.asarray(reply["action"], dtype=np.float64)
 

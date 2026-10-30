@@ -33,6 +33,11 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from act_features import ACTION_NAMES, STATE_NAMES, act_frames, environment_state_names  # noqa: E402
 
 TASK = "trace the upcoming pen path"
+# Gap-labelled recordings (#46) also carry these per frame. They are not
+# observations: the SmolVLA camera views read ink_skip to leave skipped stretches
+# blank, and teacher_mode (0 drawing, 1 going back to a gap, 2 coming forward)
+# lets evaluation score the redraw frames on their own.
+GAP_COLUMNS = {"ink_skip": "float32", "teacher_mode": "int64"}
 
 
 def _parse_args():
@@ -49,8 +54,10 @@ def _parse_args():
     return parser.parse_args()
 
 
-def _features(env_dim: int) -> dict:
+def _features(env_dim: int, gap_columns: bool = False) -> dict:
+    gaps = {name: {"dtype": dtype, "shape": (1,), "names": [name]} for name, dtype in GAP_COLUMNS.items()}
     return {
+        **(gaps if gap_columns else {}),
         "observation.state": {"dtype": "float32", "shape": (len(STATE_NAMES),), "names": STATE_NAMES},
         "observation.environment_state": {
             "dtype": "float32",
@@ -102,6 +109,15 @@ def _subsample(data: dict, fps: int) -> dict:
             for key, value in data.items()}
 
 
+def _frames(path: str, fps: int) -> dict:
+    data = _subsample(dict(np.load(path)), fps)
+    frames = act_frames(data)
+    for name, dtype in GAP_COLUMNS.items():
+        if name in data:
+            frames[name] = np.asarray(data[name], dtype=dtype).reshape(-1, 1)
+    return frames
+
+
 def _write(dataset_root: Path, repo_id: str, episodes: list[dict], fps: int) -> dict:
     from lerobot.datasets import dataset_writer
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -111,11 +127,12 @@ def _write(dataset_root: Path, repo_id: str, episodes: list[dict], fps: int) -> 
     # datasets are state-only by construction, so it is a no-op here.
     dataset_writer.embed_images = lambda dataset: dataset
 
-    first = act_frames(_subsample(dict(np.load(episodes[0]["path"])), fps))
+    first = _frames(episodes[0]["path"], fps)
+    gap_columns = all(name in first for name in GAP_COLUMNS)
     dataset = LeRobotDataset.create(
         repo_id=repo_id,
         fps=fps,
-        features=_features(first["observation.environment_state"].shape[1]),
+        features=_features(first["observation.environment_state"].shape[1], gap_columns),
         root=dataset_root,
         robot_type="xarm7_pen",
         use_videos=False,
@@ -123,7 +140,10 @@ def _write(dataset_root: Path, repo_id: str, episodes: list[dict], fps: int) -> 
     frames_total = 0
     started = time.time()
     for number, episode in enumerate(episodes, start=1):
-        frames = act_frames(_subsample(dict(np.load(episode["path"])), fps))
+        frames = _frames(episode["path"], fps)
+        if gap_columns and not all(name in frames for name in GAP_COLUMNS):
+            raise SystemExit(f"{episode['path']} has no gap columns; mixed gap and plain recordings")
+        frames = {key: value for key, value in frames.items() if gap_columns or key not in GAP_COLUMNS}
         size = len(frames["action"])
         dataset.save_episode(
             episode_data={

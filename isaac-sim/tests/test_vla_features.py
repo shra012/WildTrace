@@ -140,3 +140,36 @@ def test_synthetic_overhead_matches_the_twin_camera_config():
     assert np.allclose(camera["center_xy_m"], vla_features.OVERHEAD_CENTER_XY_M)
     assert np.isclose(camera["view_size_m"], 2 * vla_features.OVERHEAD_HALF_EXTENT_M)
     assert camera["image_size_px"] == vla_features.CAMERA_IMAGE_SIZE_PX
+
+
+def test_skipped_frames_leave_no_ink():
+    envs = np.stack([_stroke_env((0.47 + i * 0.001, 0.08), (0.47 + i * 0.001, 0.08)) for i in range(4)])
+    rows = vla_features.history_rows(envs, ink_skip=np.asarray([0, 1, 1, 0], dtype=np.float32))
+    assert rows[:, 4].tolist() == [1.0, 0.0, 0.0, 1.0]
+    assert rows[:, 5].tolist() == [1.0, 1.0, 1.0, 1.0]
+
+
+def test_augmented_views_keep_their_layout_and_change_the_pixels():
+    cx, cy = vla_features.OVERHEAD_CENTER_XY_M
+    envs = [_stroke_env((x, cy), (x, cy)) for x in np.linspace(cx - 0.02, cx + 0.02, 50)]
+    rows = vla_features.history_rows(np.stack(envs))
+    plain = vla_features.camera_views(rows, envs[-1])
+    noisy = vla_features.camera_views(rows, envs[-1], np.random.default_rng(1))
+    for key in (vla_features.OVERHEAD_KEY, vla_features.TIP_CROP_KEY):
+        assert noisy[key].shape == plain[key].shape and noisy[key].dtype == np.float32
+        assert 0.0 <= noisy[key].min() and noisy[key].max() <= 1.0
+        assert np.abs(noisy[key] - plain[key]).mean() > 0.005
+
+
+def test_tracing_template_shows_the_undrawn_drawing_faintly():
+    cx, cy = vla_features.OVERHEAD_CENTER_XY_M
+    xs = np.linspace(cx - 0.04, cx + 0.04, 200)
+    envs = [_stroke_env((x, cy), (x, cy)) for x in xs]
+    rows = vla_features.history_rows(np.stack(envs))
+    template = vla_features.template_from_history(rows)
+    views = vla_features.camera_views(rows[:50], envs[49], template=template)
+    overhead = (views[vla_features.OVERHEAD_KEY].transpose(1, 2, 0) * 255).astype(int)
+    size = vla_features.CAMERA_IMAGE_SIZE_PX
+    scale = (size / 2) / vla_features.OVERHEAD_HALF_EXTENT_M
+    ahead = overhead[size // 2, int(size / 2 + 0.03 * scale)]
+    assert 150 < ahead.min() and ahead.max() < 240 and np.ptp(ahead) < 10  # faint grey, not yet drawn

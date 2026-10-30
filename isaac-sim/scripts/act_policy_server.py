@@ -75,6 +75,13 @@ def _parse_args():
                         help="smolvla --async-chunks: control ticks each chunk action is played for")
     parser.add_argument("--hold-on-underrun", action="store_true",
                         help="smolvla --async-chunks: return a zero step instead of waiting for a chunk")
+    parser.add_argument("--skip-test-spacing-m", type=float, default=0.0,
+                        help="smolvla camera: inject ink skips into the rendered page every this many mm of inked "
+                             "travel on average (act_features.SkipSchedule), to test gap redraws (#46); 0 = off")
+    parser.add_argument("--skip-test-length-m", default="0.003,0.008", help="skip length range, min,max")
+    parser.add_argument("--skip-test-seed", type=int, default=0)
+    parser.add_argument("--history-log", default="",
+                        help="smolvla camera: directory to save each drawing's page history (history_<n>.npz)")
     return parser.parse_args()
 
 
@@ -113,7 +120,7 @@ class ActRunner:
 class SmolVlaRunner:
     def __init__(self, checkpoint: Path, device: str, replan_every: int, noise: str = "random", samples: int = 1,
                  flow_steps: int = 0, async_chunks: bool = False, ticks_per_action: int = 1,
-                 hold_on_underrun: bool = False):
+                 hold_on_underrun: bool = False, skip_test: dict | None = None, history_log: str = ""):
         import sys
 
         from lerobot.configs.policies import PreTrainedConfig
@@ -141,6 +148,9 @@ class SmolVlaRunner:
         self.full_state = config.input_features["observation.state"].shape[0] == vla_features.FULL_STATE_DIM
         # Checkpoints trained with --view camera see the paper; they render it from the ticks since reset.
         self.camera = vla_features.OVERHEAD_KEY in config.input_features
+        # Tracing-mode checkpoints also show the whole drawing, sent with the reset.
+        self.uses_template = bool(vla_features.read_views(checkpoint).get("template"))
+        self.template = None
         self.history: list[np.ndarray] = []
         self.queue: list[list[float]] = []
         self.async_chunks = async_chunks
@@ -151,12 +161,38 @@ class SmolVlaRunner:
         self.tick = 0
         self.underruns = 0
         self.holds = 0
+        # Skip test (#46): the page leaves out ink where a SkipSchedule says the pen skipped.
+        self.skip_test = skip_test
+        self.skips = None
+        self.history_log = Path(history_log) if history_log else None
+        self.drawings = 0
 
-    def reset(self) -> None:
+    def _new_skips(self):
+        from act_features import SkipSchedule
+
+        if not self.skip_test:
+            return None
+        rng = np.random.default_rng(self.skip_test["seed"] + self.drawings)
+        return SkipSchedule(rng, self.skip_test["spacing_m"], self.skip_test["length_m"])
+
+    def save_history(self) -> None:
+        if self.history_log is None or not self.history:
+            return
+        self.history_log.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(self.history_log / f"history_{self.drawings:03d}.npz", rows=np.concatenate(self.history),
+                            skip_test=json.dumps(self.skip_test or {}))
+
+    def reset(self, drawing=None) -> None:
+        """`drawing`: (M, 3) x, y, pen_down of the whole path, for tracing-mode checkpoints."""
         if self._pending is not None:
             self._pending[0].result()  # let an in-flight chunk finish before clearing state
+        self.template = None if drawing is None else np.asarray(drawing, dtype=np.float64).reshape(-1, 3)
         self._pending = None
         self.policy.reset()
+        if self.history:
+            self.save_history()
+            self.drawings += 1
+        self.skips = self._new_skips()
         self.history = []
         self.queue = []
         self.tick = 0
@@ -171,7 +207,9 @@ class SmolVlaRunner:
         if self.camera:
             if history is None:
                 history = np.concatenate(self.history) if self.history else self.features.history_rows(env)
-            images = self.features.camera_views(history, env)
+            if self.uses_template and self.template is None:
+                raise RuntimeError("this checkpoint was trained in tracing mode; send the drawing with the reset")
+            images = self.features.camera_views(history, env, template=self.template if self.uses_template else None)
         else:
             images = {self.features.IMAGE_KEY: self.features.image_tensor_layout(self.features.path_view(env))}
         observation = {
@@ -189,9 +227,16 @@ class SmolVlaRunner:
         actions = self.policy.predict_action_chunk(batch, noise=noise).mean(dim=0, keepdim=True)
         return self.postprocessor(actions)[0].float().cpu()
 
-    def act(self, state, env) -> list[float]:
+    def act(self, state, env, ink_skip: bool = False) -> list[float]:
         if self.camera:
-            self.history.append(self.features.history_rows(env))
+            row = self.features.history_rows(env, np.asarray([float(ink_skip)]))
+            if self.skips is not None:
+                contact = bool(row[0, 4] > 0.5)
+                if not self.skips.inks(contact, row[0, 0:2]) and contact:
+                    row[0, 4] = 0.0
+            self.history.append(row)
+            if self.history_log is not None and len(self.history) % 300 == 0:
+                self.save_history()
         if not self.async_chunks:
             if not self.queue:
                 self.queue = self.chunk(state, env)[: self.replan_every].tolist()
@@ -235,12 +280,16 @@ def _serve(runner, host: str, port: int) -> None:
                 for line in stream:
                     request = json.loads(line)
                     if request.get("reset"):
-                        runner.reset()
+                        if "drawing" in request and isinstance(runner, SmolVlaRunner):
+                            runner.reset(request["drawing"])
+                        else:
+                            runner.reset()
                         reply = {"ok": True}
                     else:
                         started = time.perf_counter()
                         reply = {
-                            "action": runner.act(request["state"], request["env"]),
+                            "action": runner.act(request["state"], request["env"],
+                                                 **({"ink_skip": request["ink_skip"]} if "ink_skip" in request else {})),
                             "ms": (time.perf_counter() - started) * 1e3,
                         }
                     stream.write((json.dumps(reply) + "\n").encode())
@@ -255,8 +304,12 @@ def main() -> int:
     args = _parse_args()
     checkpoint = Path(args.checkpoint).resolve()
     if args.policy == "smolvla":
+        lengths = tuple(float(v) for v in args.skip_test_length_m.split(","))
+        skip_test = {"spacing_m": args.skip_test_spacing_m, "length_m": lengths, "seed": args.skip_test_seed} \
+            if args.skip_test_spacing_m > 0 else None
         runner = SmolVlaRunner(checkpoint, args.device, args.replan_every, args.noise, args.samples, args.flow_steps,
-                               args.async_chunks, args.ticks_per_action, args.hold_on_underrun)
+                               args.async_chunks, args.ticks_per_action, args.hold_on_underrun, skip_test,
+                               args.history_log)
         print(f"[OK] SmolVLA, executing {runner.replan_every} action(s) per chunk, noise {args.noise}, "
               f"{runner.samples} sample(s) per chunk, {runner.policy.config.num_steps} flow steps", flush=True)
     else:
