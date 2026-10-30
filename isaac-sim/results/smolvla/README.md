@@ -36,7 +36,7 @@ serve: about 0.6 s per chunk on this GPU, so the 42 s drawing took about 13 minu
 
 `models/smolvla_stage2`: the full 58-value state (ACT state plus the 30-value path window) fed through a direct-state
 MLP, 8 VLM layers, 256 px images, 20-action chunks, all three recordings of each drawing (19.8M frames), 60k steps
-from `smolvla_stage1`, batch 64, lr 1e-4 (51M of 323M parameters train), about 5.5 h on the same GPU.
+from stage 1 (local checkpoint, not in `models/`), batch 64, lr 1e-4 (51M of 323M parameters train), about 5.5 h on the same GPU.
 
 Offline, same 1,024 held-out frames:
 

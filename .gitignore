@@ -11,3 +11,6 @@ __pycache__/
 # Pipeline outputs
 outputs/
 !isaac-sim/outputs/
+
+# Superseded SmolVLA checkpoint, kept locally (models/README.md)
+isaac-sim/models/smolvla_stage1/
