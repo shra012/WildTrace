@@ -47,7 +47,7 @@ def act_preds():
 def vla_preds(noise="random", samples=1, flow_steps=0, checkpoint=None):
     sys.path.insert(0, str(ROOT / "scripts"))
     from act_policy_server import SmolVlaRunner
-    ck = Path(checkpoint) if checkpoint else ROOT / "outputs/smolvla/real_kinematic_v2/checkpoints/last/pretrained_model"
+    ck = Path(checkpoint) if checkpoint else ROOT / "models/smolvla_camera_v3"
     runner = SmolVlaRunner(ck, "cuda", 1, noise, samples, flow_steps)
     # Camera checkpoints draw the paper from the frame's episode so far.
     history, starts = vla_features.load_history(ds.root) if runner.camera else (None, None)

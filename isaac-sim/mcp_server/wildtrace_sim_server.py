@@ -75,13 +75,14 @@ ACT_CHECKPOINTS = {
 }
 # SmolVLA checkpoints (scripts/train_smolvla.py), served by the same script with --policy smolvla.
 SMOLVLA_CHECKPOINTS = {
-    TWIN_CONFIG: ISAAC_SIM_PROJECT / "models" / "smolvla_stage2",
+    TWIN_CONFIG: ISAAC_SIM_PROJECT / "models" / "smolvla_camera_v3",
 }
 # How the SmolVLA server samples: actions executed per chunk, starting noise ("zero" removes the
 # chunk-to-chunk wobble of fresh noise), and flow-matching steps per chunk (0 = the checkpoint's).
-SMOLVLA_REPLAN_EVERY = int(os.environ.get("WILDTRACE_SMOLVLA_REPLAN_EVERY", "3"))
+# Defaults are smolvla_camera_v3's: a new chunk every action, 3 flow steps to keep that fast.
+SMOLVLA_REPLAN_EVERY = int(os.environ.get("WILDTRACE_SMOLVLA_REPLAN_EVERY", "1"))
 SMOLVLA_NOISE = os.environ.get("WILDTRACE_SMOLVLA_NOISE", "zero")
-SMOLVLA_FLOW_STEPS = int(os.environ.get("WILDTRACE_SMOLVLA_FLOW_STEPS", "0"))
+SMOLVLA_FLOW_STEPS = int(os.environ.get("WILDTRACE_SMOLVLA_FLOW_STEPS", "3"))
 if os.environ.get("WILDTRACE_SMOLVLA_CHECKPOINT"):
     SMOLVLA_CHECKPOINTS[TWIN_CONFIG] = Path(os.environ["WILDTRACE_SMOLVLA_CHECKPOINT"])
 POLICY_CONTROLLERS = ("act", "smolvla")
@@ -820,8 +821,8 @@ def draw_trajectory(
 
     trajectory_path: WSL path (absolute, or relative to the repo or isaac-sim/)
     or a \\\\wsl.localhost UNC path.
-    controller: "act" (default), "ik", or "smolvla" (twin config only, once
-    scripts/train_smolvla.py has a checkpoint). config: scene config; empty keeps the
+    controller: "act" (default), "ik", or "smolvla" (twin config only,
+    models/smolvla_camera_v3). config: scene config; empty keeps the
     current scene's. record_video: capture both cameras (live JPEG frames under
     C:\\wildtrace\\videos\\<prefix>\\<Camera>\\) and assemble MP4s at the end.
     wait_s: 0 returns at once with {"status": "started", "prefix", ...} while

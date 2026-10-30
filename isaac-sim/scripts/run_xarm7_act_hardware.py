@@ -18,10 +18,11 @@ close each joint gets to its limit. Do that first. --dry-lift-mm raises the whol
 the pen never touches the paper. A real run needs the arm at the policy's start pose
 (act_start_joints_deg); the script joint-moves there first after a tip-height check.
 
---policy smolvla --checkpoint <train_smolvla pretrained_model> runs a SmolVLA checkpoint
-instead. It cannot sample a chunk inside one 60 Hz tick, so it samples the next chunk in
-the background while the current one plays, two ticks per action; a tick with no action
-ready holds still, and the run log counts those holds.
+--policy smolvla --checkpoint isaac-sim/models/smolvla_camera_v3 (or any train_smolvla
+pretrained_model) runs a SmolVLA checkpoint instead. It cannot sample a chunk inside one
+60 Hz tick, so it samples the next chunk in the background while the current one plays,
+two ticks per action; a tick with no action ready holds still, and the run log counts
+those holds.
 """
 from __future__ import annotations
 
