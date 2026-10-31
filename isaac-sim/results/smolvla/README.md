@@ -187,3 +187,73 @@ robot and placement before the `vla_camera` section was added.
 
 **Files:** `face_<id>_{smolvla_stage2,act}_{comparison.png,run_metrics.json}`; the portrait sketch rows are
 `portrait_sketch_smolvla_stage2_replan1_*` here and `studio_live/portrait_sketch_act_*`.
+
+## Camera SmolVLA camera_v2 to camera_v6 and the hybrid controller (#46, 2026-10-31)
+
+Goal: a camera SmolVLA that sees the page and redraws its own gaps, which ACT's numeric path window cannot. Each
+try fine-tunes the one before with `train_smolvla.py --view camera`. Closed loop is cat `323bd30d` on the lab-arm
+twin through the MCP `draw_trajectory` runner; path RMSE / p95 / max error in mm. ACT on the same runner:
+0.211 / 0.348 / 1.019 in 49.1 s.
+
+| Try | Change | Offline first-action error | Twin, cat |
+|---|---|---|---|
+| camera_v2 | Gap-labelled data: ink skips, the IK teacher goes back over the gap and forward again; face sketches added | 0.309; redraw frames 0.754, page blanked 0.751 | Still ignores the page; cat and bird stall |
+| camera_v3 | The target follows the pen back over a gap; the VLM trains; redraw frames x4 | 0.280; redraw 0.657, page blanked 0.760 | Reads the camera, but stalls at the cheek notch (index 94 to 221) |
+| camera_v4 | + DAgger round 1 | 0.266 | Stalls at 96; with the page blanked it gets to 311, so the view causes the stall |
+| camera_v5 | + targeted DAgger round 2 on the failed drawings, retrace frames (ink already at the target) x3 | 0.260; retrace 0.238 | Stalls at 231: waypoint timeout in `DRAW_STROKE_0`, failed |
+| camera_v6 | + the teacher's redraw mode (back / forward) in the state (`--mode-state`) | 0.277; redraw 0.651 | Redraws by itself: backs up 3 to 8 mm but never gets within 0.6 mm of the line, 8/8 redraws given up |
+
+**Why the redraws fail.** Validation frames of `wildtrace_real_kin_gaps_faces_v2` by teacher mode (384 frames per
+mode; in the data 90.9% are normal, 4.6% back to the gap, 4.5% forward again). First-action error, with the median
+direction cosine and the share pointing the opposite way where measured:
+
+| Policy | Normal | Back to the gap | Forward again |
+|---|---|---|---|
+| Nearest normal-frame label | 0.639 | 1.80 (cos -0.12, 60% opposite) | 1.28 |
+| ACT | 0.318 | 1.618 (38% opposite) | 1.02 |
+| SmolVLA stage 2 | 0.399 | 1.63 (44% opposite) | 1.087 |
+| SmolVLA camera_v5 | **0.284** | **0.627** (cos 0.876, 2% opposite) | **0.644** (cos 0.908) |
+
+A redraw label points away from the normal drawing direction, and the policies that cannot see the ink (ACT, stage
+2) get it about as wrong as the nearest normal label. camera_v5 reads the direction off the page (2% opposite), but
+its step size is off: error 0.63 on redraw frames against 0.28 on normal ones. Right idea, imprecise motion, and a
+stall wherever the path runs over ink it already drew.
+
+**Serving speed.** `act_policy_server.py --cuda-graph` (`src/smolvla_cuda_graph.py`) captures sampling once and
+replays it: about 30 ms per chunk instead of about 225 ms with 3 flow steps, same first-action error. Stage 2 on the
+cat with it (3 flow steps, re-planning every action): 0.252 / 0.465 / 1.180 in 49.8 s, finished.
+
+**Hybrid control.** The policy draws and a supervisor (`src/policy_assist.py`) watches the run's own bookkeeping.
+After a 1.5 s stall IK drives the next 5 mm and hands back. When at least 1.5 mm of path behind the pen has no ink
+within 1 mm (the labeller's coverage rule), IK goes back past the gap and forward again while the run's progress
+stays put. The skip test (`skip_test_spacing_m` 0.06) injects 3 to 8 mm ink skips every 60 mm of inked travel on
+average (seed 0).
+
+| Cat `323bd30d` | Finished | Path RMSE / p95 / max | Sim time | Supervisor |
+|---|---|---|---|---|
+| ACT | yes | 0.211 / 0.348 / 1.019 | 49.1 s | - |
+| **ACT + hybrid, skip test** | yes | **0.212 / 0.357 / 1.021** | **49.5 s** | 6 skips, 4 IK redraws, 0 given up, 0.19% uninked |
+| SmolVLA stage 2, CUDA graph | yes | 0.252 / 0.465 / 1.180 | 49.8 s | - |
+| SmolVLA camera_v5 | no, stalled at 231 | - | 43.2 s | - |
+| SmolVLA camera_v5 + hybrid | yes | 0.290 / 0.590 / 1.696 | 91.3 s | 5 stall take-overs, 1 redraw, 1.0% uninked |
+| SmolVLA camera_v6 redrawing itself, skip test | yes | 0.302 / 0.598 / 1.693 | 139.8 s | 9 stall take-overs, 8/8 redraws given up, 1.7% uninked |
+
+Two of ACT's six skips needed no redraw: one fell during the first redraw's pass over line it had just re-inked,
+and one 3.0 mm skip in a tight curve of stroke 3 left only 0.5 mm without ink within 1 mm, under the 1.5 mm gap
+threshold.
+
+**Decision:** ACT + the hybrid supervisor is the drawing controller. It repairs skipped ink at no accuracy cost
+and about 1% extra sim time. Camera SmolVLA stays experimental: with the supervisor it is about 40% less accurate
+than ACT and nearly 2 times slower. The camera only pays off for mistakes the run's bookkeeping cannot see (a paper
+offset, skips on the real arm). A full twin evaluation of the hybrid controller is in [`../hybrid/`](../hybrid/).
+
+**What did not work:** gap-labelled data alone (camera_v2 ignored the page); more DAgger and retrace weighting
+(camera_v4, camera_v5 still stall at ink they already drew, and the stall moved but did not go away); telling the
+policy the redraw mode (camera_v6 turns back but never lands on the line). None of camera_v2 to camera_v5 finishes
+the cat on its own, and camera_v6 was only run with the supervisor.
+
+Checkpoints: `models/smolvla_camera_v3` (Git LFS); camera_v2, camera_v4, camera_v5 and camera_v6 are local only.
+Scene config hash `61a50cf4c384` for the stage 2 and camera_v5 runs, `4926204b8a89` for the hybrid runs (only the
+`vla_camera` height changed, 0.60 to 0.835 m; robot and placement unchanged).
+
+**Files:** `cat_323bd30d_{act_hybrid_skip60,smolvla_camera_v5_hybrid,smolvla_camera_v6_policy_redraw_skip60,smolvla_stage2_graph,smolvla_camera_v5}_{comparison.png,run_metrics.json}`.

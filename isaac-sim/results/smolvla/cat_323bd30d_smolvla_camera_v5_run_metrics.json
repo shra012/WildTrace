@@ -1,0 +1,43 @@
+{
+  "config_hash": "61a50cf4c384",
+  "config_path": "isaac-sim\\config\\xarm7_drawing_real.yaml",
+  "controller": "smolvla",
+  "desired_pen_down_points": 797,
+  "desired_to_executed_nearest_path_error": {
+    "max_error_m": 0.05583027045235502,
+    "mean_error_m": 0.01730895139086503,
+    "p95_error_m": 0.04014929883705008,
+    "rmse_m": 0.021679348033904602,
+    "sample_count": 797
+  },
+  "drawing_id": "323bd30d42ee2cf3",
+  "executed_pen_down_samples": 2342,
+  "executed_sample_count": 2564,
+  "executed_to_desired_nearest_path_error": {
+    "max_error_m": 0.0006723539403882921,
+    "mean_error_m": 0.00035698175559142334,
+    "p95_error_m": 0.000581375519685961,
+    "rmse_m": 0.0003808421273286484,
+    "sample_count": 2342
+  },
+  "failure_reason": "Waypoint timeout in DRAW_STROKE_0 at index 231",
+  "git_sha": "unknown",
+  "simulation_duration_s": 43.23333341979934,
+  "stall_releases": 6,
+  "status": "failed",
+  "stroke_count": 5,
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "LOWER_PEN_STROKE_0",
+    "DRAW_STROKE_0",
+    "FAILED"
+  ],
+  "waypoint_reach_error": {
+    "max_error_m": 0.001199108957133685,
+    "mean_error_m": 0.000992616054210145,
+    "p95_error_m": 0.0011867218078649114,
+    "rmse_m": 0.0010076089000080812,
+    "sample_count": 302
+  }
+}
