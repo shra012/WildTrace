@@ -1,0 +1,122 @@
+{
+ "label": "as_is",
+ "time": "2026-10-30T17:09:30",
+ "arm": {
+  "tcp_mm_deg": [
+   489.137,
+   90.172,
+   275.147,
+   -179.572,
+   -2.605,
+   -0.032
+  ],
+  "joints_deg": [
+   340.875,
+   1.548,
+   29.769,
+   75.723,
+   -0.701,
+   71.75,
+   -348.982
+  ],
+  "tcp_offset": [
+   0.0,
+   0.0,
+   172.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "errors": [
+   0,
+   0
+  ]
+ },
+ "paper_touch_z_mm": 52.339,
+ "cameras": {
+  "wrist": {
+   "camera": "wrist",
+   "serial": "109622070191",
+   "height_above_paper_mm": 433.2,
+   "distance_along_optical_axis_mm": 433.5,
+   "tilt_from_vertical_deg": 2.13,
+   "paper_normal_in_camera_frame": [
+    -0.0182,
+    -0.0323,
+    -0.9993
+   ],
+   "plane_fit_rms_mm": 0.72,
+   "paper_points": 60000,
+   "inlier_fraction": 0.972,
+   "table_plane": {
+    "height_mm": 432.8,
+    "tilt_deg": 2.54,
+    "fit_rms_mm": 1.33,
+    "inlier_fraction": 0.969
+   },
+   "paper_vs_table": {
+    "angle_deg": 0.45,
+    "height_difference_mm": 0.3
+   },
+   "depth_at_image_centre_mm": 434.0,
+   "paper_depth_median_mm": 432.0,
+   "intrinsics": {
+    "width": 848,
+    "height": 480,
+    "fx": 606.838623046875,
+    "fy": 606.8736572265625,
+    "ppx": 419.8121032714844,
+    "ppy": 232.21202087402344,
+    "coeffs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "overhead": {
+   "camera": "overhead",
+   "serial": "134322070512",
+   "height_above_paper_mm": 853.1,
+   "distance_along_optical_axis_mm": 869.8,
+   "tilt_from_vertical_deg": 11.26,
+   "paper_normal_in_camera_frame": [
+    -0.0998,
+    -0.1678,
+    -0.9808
+   ],
+   "plane_fit_rms_mm": 1.62,
+   "paper_points": 60000,
+   "inlier_fraction": 0.329,
+   "table_plane": {
+    "height_mm": 837.0,
+    "tilt_deg": 11.11,
+    "fit_rms_mm": 2.55,
+    "inlier_fraction": 0.495
+   },
+   "paper_vs_table": {
+    "angle_deg": 2.16,
+    "height_difference_mm": 16.1
+   },
+   "depth_at_image_centre_mm": 850.0,
+   "paper_depth_median_mm": 817.5,
+   "intrinsics": {
+    "width": 848,
+    "height": 480,
+    "fx": 603.7427978515625,
+    "fy": 602.578125,
+    "ppx": 428.01470947265625,
+    "ppy": 238.6211700439453,
+    "coeffs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  }
+ }
+}
