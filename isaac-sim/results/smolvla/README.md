@@ -160,3 +160,30 @@ above SmolVLA's animal mean, so face sketches were added to the next training se
 
 **Files:** `<drawing>_<id>_smolvla_stage2_replan1_{comparison.png,run_metrics.json}`,
 `portrait_sketch_smolvla_stage2_replan1_{comparison.png,run_metrics.json}`.
+
+## Face portraits (stage 2 vs ACT, 2026-10-30/31)
+
+`smolvla_stage2` (zero noise, re-planning every action, 10 flow steps) against ACT `act_real_kinematic_v2`,
+both through the MCP `draw_trajectory` runner on the lab-arm twin (`config/xarm7_drawing_real.yaml`), the same
+runner and settings as the animal tables above. Five face sketches from the validation split of
+`wildtrace_real_kin_gaps_faces_v2` that are not in the DAgger recordings, plus the Studio portrait sketch
+(`studio_live/portrait_sketch_trajectory.json`). Neither policy was trained on faces, so all six are new
+to both. Path RMSE / p95 / max error in mm:
+
+| Face | Finished | SmolVLA stage 2 | ACT | Sim time s (SmolVLA / ACT) |
+|---|---|---|---|---|
+| `04369443` | both | 0.301 / 0.526 / 1.309 | **0.267 / 0.455 / 1.173** | 94.8 / 90.2 |
+| `1710ea61` | both | 0.277 / 0.459 / 1.079 | **0.246 / 0.400 / 0.988** | 79.9 / 78.5 |
+| `26870728` | both | 0.297 / 0.454 / 1.387 | **0.261 / 0.395 / 1.177** | 93.8 / 92.6 |
+| `3572f3a5` | both | 0.278 / 0.463 / 1.425 | **0.247 / 0.411 / 1.237** | 127.7 / 123.0 |
+| `4f1c49dc` | both | 0.296 / 0.470 / 1.203 | **0.250 / 0.408 / 1.048** | 107.2 / 104.1 |
+| Portrait sketch (Studio) | both | 0.278 / 0.467 / 1.304 | **0.242 / 0.397 / 1.261** | 121.3 / 110.8 |
+| **Mean** | 6/6 both | 0.288 / 0.473 / 1.284 | 0.252 / 0.411 / 1.147 | |
+
+On faces SmolVLA stage 2 averages 0.288 mm path RMSE and ACT 0.252 mm (+14% for SmolVLA; on the six animals it was +12%). Against their own animal means (0.230 and 0.206 mm), SmolVLA is +25% on faces and ACT +22%.
+
+Scene config hash `61a50cf4c384` for the five faces; the portrait sketch rows ran at `4dc272edd730`, the same
+robot and placement before the `vla_camera` section was added.
+
+**Files:** `face_<id>_{smolvla_stage2,act}_{comparison.png,run_metrics.json}`; the portrait sketch rows are
+`portrait_sketch_smolvla_stage2_replan1_*` here and `studio_live/portrait_sketch_act_*`.
