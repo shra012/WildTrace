@@ -71,6 +71,9 @@ def _parse_args():
                         help="smolvla: sample the next chunk in the background while the current one runs")
     parser.add_argument("--flow-steps", type=int, default=0,
                         help="smolvla: flow-matching steps per chunk (0 = the checkpoint's, 10); fewer is faster")
+    parser.add_argument("--cuda-graph", action="store_true",
+                        help="smolvla: sample each chunk by replaying a CUDA graph (src/smolvla_cuda_graph.py), "
+                             "about 7x faster per chunk under WSL")
     parser.add_argument("--ticks-per-action", type=int, default=1,
                         help="smolvla --async-chunks: control ticks each chunk action is played for")
     parser.add_argument("--hold-on-underrun", action="store_true",
@@ -107,7 +110,8 @@ class ActRunner:
         self.policy.reset()
 
     @torch.no_grad()
-    def act(self, state, env) -> list[float]:
+    def act(self, state, env, ink_skip: bool = False, mode: int = 0) -> list[float]:
+        """`ink_skip` and `mode` are for camera policies (#46); ACT has no page or mode state."""
         observation = {
             "observation.state": torch.as_tensor(state, dtype=torch.float32),
             "observation.environment_state": torch.as_tensor(env, dtype=torch.float32),
@@ -120,7 +124,8 @@ class ActRunner:
 class SmolVlaRunner:
     def __init__(self, checkpoint: Path, device: str, replan_every: int, noise: str = "random", samples: int = 1,
                  flow_steps: int = 0, async_chunks: bool = False, ticks_per_action: int = 1,
-                 hold_on_underrun: bool = False, skip_test: dict | None = None, history_log: str = ""):
+                 hold_on_underrun: bool = False, skip_test: dict | None = None, history_log: str = "",
+                 cuda_graph: bool = False):
         import sys
 
         from lerobot.configs.policies import PreTrainedConfig
@@ -140,12 +145,20 @@ class SmolVlaRunner:
 
         smolvla_direct_state.load_direct_state(self.policy, checkpoint)
         self.policy.to(device).eval()
+        if cuda_graph:
+            import smolvla_cuda_graph
+
+            smolvla_cuda_graph.use_cuda_graph(self.policy)
         self.preprocessor, self.postprocessor = make_pre_post_processors(config, pretrained_path=str(checkpoint))
         self.replan_every = max(1, min(replan_every, config.chunk_size))
         self.noise, self.samples, self.device = noise, max(1, samples), device
         self.noise_shape = (self.samples, config.chunk_size, config.max_action_dim)
-        # Checkpoints trained with --state full take the path window as numbers too.
-        self.full_state = config.input_features["observation.state"].shape[0] == vla_features.FULL_STATE_DIM
+        # Checkpoints trained with --state full take the path window as numbers too, and with
+        # --mode-state the redraw mode (sent by the drawing controller's supervisor) after it.
+        state_dim = config.input_features["observation.state"].shape[0]
+        self.full_state = state_dim >= vla_features.FULL_STATE_DIM
+        self.mode_state = state_dim == vla_features.FULL_STATE_DIM + vla_features.MODE_STATE_DIM
+        self.mode = 0
         # Checkpoints trained with --view camera see the paper; they render it from the ticks since reset.
         self.camera = vla_features.OVERHEAD_KEY in config.input_features
         # Tracing-mode checkpoints also show the whole drawing, sent with the reset.
@@ -194,6 +207,7 @@ class SmolVlaRunner:
             self.drawings += 1
         self.skips = self._new_skips()
         self.history = []
+        self.mode = 0
         self.queue = []
         self.tick = 0
         self.underruns = 0
@@ -213,7 +227,8 @@ class SmolVlaRunner:
         else:
             images = {self.features.IMAGE_KEY: self.features.image_tensor_layout(self.features.path_view(env))}
         observation = {
-            "observation.state": torch.from_numpy(self.features.vla_state(state, env, self.full_state)[0]),
+            "observation.state": torch.from_numpy(
+                self.features.vla_state(state, env, self.full_state, self.mode if self.mode_state else None)[0]),
             **{key: torch.from_numpy(image) for key, image in images.items()},
             "task": self.features.TASK,
         }
@@ -227,7 +242,9 @@ class SmolVlaRunner:
         actions = self.policy.predict_action_chunk(batch, noise=noise).mean(dim=0, keepdim=True)
         return self.postprocessor(actions)[0].float().cpu()
 
-    def act(self, state, env, ink_skip: bool = False) -> list[float]:
+    def act(self, state, env, ink_skip: bool = False, mode: int = 0) -> list[float]:
+        """`mode`: the redraw supervisor's teacher mode (0 normal, 1 back, 2 forward), for --mode-state checkpoints."""
+        self.mode = int(mode)
         if self.camera:
             row = self.features.history_rows(env, np.asarray([float(ink_skip)]))
             if self.skips is not None:
@@ -289,7 +306,7 @@ def _serve(runner, host: str, port: int) -> None:
                         started = time.perf_counter()
                         reply = {
                             "action": runner.act(request["state"], request["env"],
-                                                 **({"ink_skip": request["ink_skip"]} if "ink_skip" in request else {})),
+                                                 **{key: request[key] for key in ("ink_skip", "mode") if key in request}),
                             "ms": (time.perf_counter() - started) * 1e3,
                         }
                     stream.write((json.dumps(reply) + "\n").encode())
@@ -309,9 +326,10 @@ def main() -> int:
             if args.skip_test_spacing_m > 0 else None
         runner = SmolVlaRunner(checkpoint, args.device, args.replan_every, args.noise, args.samples, args.flow_steps,
                                args.async_chunks, args.ticks_per_action, args.hold_on_underrun, skip_test,
-                               args.history_log)
+                               args.history_log, args.cuda_graph)
         print(f"[OK] SmolVLA, executing {runner.replan_every} action(s) per chunk, noise {args.noise}, "
-              f"{runner.samples} sample(s) per chunk, {runner.policy.config.num_steps} flow steps", flush=True)
+              f"{runner.samples} sample(s) per chunk, {runner.policy.config.num_steps} flow steps"
+              + (", CUDA graph" if args.cuda_graph else ""), flush=True)
     else:
         runner = ActRunner(checkpoint, args.device, args.execution, args.temporal_ensemble_coeff)
         print(f"[OK] Execution mode: {args.execution}", flush=True)

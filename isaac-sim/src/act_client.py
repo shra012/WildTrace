@@ -30,11 +30,15 @@ class ActPolicyClient:
             payload["drawing"] = [[float(v) for v in row] for row in np.asarray(drawing).reshape(-1, 3)]
         self._call(payload)
 
-    def act(self, state: Sequence[float], env: Sequence[float], ink_skip: bool | None = None) -> np.ndarray:
-        """One joint step. `ink_skip` (camera policies, #46) tells the server this tick left no ink."""
+    def act(self, state: Sequence[float], env: Sequence[float], ink_skip: bool | None = None,
+            mode: int | None = None) -> np.ndarray:
+        """One joint step. `ink_skip` (camera policies, #46) tells the server this tick left no ink;
+        `mode` is the redraw supervisor's teacher mode (0 normal, 1 back, 2 forward)."""
         payload = {"state": [float(v) for v in state], "env": [float(v) for v in env]}
         if ink_skip is not None:
             payload["ink_skip"] = bool(ink_skip)
+        if mode is not None:
+            payload["mode"] = int(mode)
         reply = self._call(payload)
         self.latencies_ms.append(float(reply.get("ms", 0.0)))
         return np.asarray(reply["action"], dtype=np.float64)
