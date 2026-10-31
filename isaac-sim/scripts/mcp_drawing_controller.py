@@ -57,11 +57,15 @@ import importlib  # noqa: E402
 
 import act_features  # noqa: E402
 import drawing_state_machine  # noqa: E402
+import kinematic_labeller  # noqa: E402
+import policy_assist  # noqa: E402
 
 # Kit keeps src modules imported across graph rebuilds; reload the ones the
 # policy and motion code use so their edits apply without restarting Isaac Sim.
 importlib.reload(act_features)
 importlib.reload(drawing_state_machine)
+importlib.reload(kinematic_labeller)
+importlib.reload(policy_assist)
 
 from coordinate_mapper import interpolate_segment, map_trajectory_to_plane
 from drawing_state_machine import MotionTarget, MultiStrokeStateMachine, Phase, build_motion_sequence
@@ -258,6 +262,15 @@ POLICY_REDRAW_BEHIND_M = float(CONFIG["drawing"].get("policy_redraw_behind_m", 0
 LIVE_DIR = live_telemetry.live_dir(OUTPUT_DIR)
 _live = None
 _live_progress = None
+# Hybrid control (job.json "policy_assist", src/policy_assist.py): IK takes over where the policy
+# stalls or leaves a gap. "skip_test" ({"spacing_m", "length_m": [min, max], "seed"}) injects ink
+# skips so there are gaps to redraw; the policy server is told which ticks left no ink. With
+# "policy_redraw" the policy does the redraw itself, told the teacher mode (--mode-state checkpoints).
+_assist_enabled = False
+_policy_redraw = False
+_skip_test = None
+_assist = None
+_driver = "policy"
 
 
 def _log(msg):
@@ -275,7 +288,7 @@ def _reset(_event=None):
     global _state, _frame, _sim_time, _world, _robot, _solver, _machine, _mapped, _prefix
     global _home_action, _executed_rows, _reached_errors, _report_written
     global _phase_corners, _previous_tip_xy, _policy, _act_target, _desired_positions, _desired_arc, _phase_offsets
-    global _live, _live_progress, _progress
+    global _live, _live_progress, _progress, _assist, _driver
     # A Stop mid-run leaves no report; say so instead of "drawing" forever.
     _live_finish("failed", "timeline stopped before the run finished")
     _live = _live_progress = None
@@ -302,6 +315,8 @@ def _reset(_event=None):
     _report_written = False
     _previous_tip_xy = None
     _progress = None
+    _assist = None
+    _driver = "policy"
     if _world is not None:
         _world.clear_instance()
         _world = None
@@ -323,7 +338,7 @@ def setup(db=None):
 
 def _load_job():
     """Trajectory, report prefix and controller settings for this run."""
-    global _controller, _policy_address, _act_scale
+    global _controller, _policy_address, _act_scale, _assist_enabled, _skip_test, _policy_redraw
     try:
         job = json.loads(JOB_FILE.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
@@ -331,6 +346,9 @@ def _load_job():
     _controller = str(job.get("controller", "ik")).lower()
     _policy_address = str(job.get("policy_address", "127.0.0.1:8790"))
     _act_scale = float(job.get("act_action_scale", 0.5))
+    _assist_enabled = bool(job.get("policy_assist", False))
+    _skip_test = job.get("skip_test") or None
+    _policy_redraw = bool(job.get("policy_redraw", False))
     return str(job.get("trajectory_path", DEFAULT_TRAJECTORY_PATH)), str(job.get("prefix", DEFAULT_PREFIX))
 
 
@@ -431,7 +449,7 @@ def _write_report():
     fields = [
         "simulation_time_s", "state", "stroke_id", "waypoint_index", "pen_down",
         "target_x_m", "target_y_m", "target_z_m", "tip_x_m", "tip_y_m", "tip_z_m", "tracking_error_m",
-        "is_corner", "tip_speed_mm_s",
+        "is_corner", "tip_speed_mm_s", "driver",
     ]
     write_csv(OUTPUT_DIR / f"{_prefix}_executed_path.csv", _executed_rows, fields)
     try:
@@ -455,6 +473,7 @@ def _write_report():
         "config_path": str(_CONFIG_PATH),
         "controller": _controller,
         "stall_releases": int(_progress.releases) if _progress is not None else 0,
+        **({"policy_assist": _assist.stats(), "skip_test": _skip_test} if _assist is not None else {}),
         "drawing_id": _mapped["drawing_id"] if _mapped else None,
         "stroke_count": len(_mapped["strokes"]) if _mapped else 0,
         "visited_states": _machine.visited_states,
@@ -517,7 +536,7 @@ def _live_finish(status, reason=None):
 def _start_act():
     """Connect to scripts/act_policy_server.py and precompute the path the
     policy's observation window and progress tracker read from."""
-    global _policy, _act_target, _desired_positions, _desired_arc, _desired_pen, _phase_offsets, _progress
+    global _policy, _act_target, _desired_positions, _desired_arc, _desired_pen, _phase_offsets, _progress, _assist
     from act_client import ActPolicyClient
     from act_features import PathProgress, path_arc_length
     from drawing_state_machine import flatten_desired_targets
@@ -530,12 +549,25 @@ def _start_act():
     _desired_pen = np.asarray([float(t.pen_down) for t in flatten_desired_targets(_machine.phases)])
     _policy.reset(np.c_[_desired_positions[:, :2], _desired_pen])
     _act_target = None
+    if _assist_enabled:
+        from act_features import SkipSchedule
+
+        skips = None
+        if _skip_test:
+            skips = SkipSchedule(np.random.default_rng(int(_skip_test.get("seed", 0))), float(_skip_test["spacing_m"]),
+                                 tuple(_skip_test.get("length_m", (0.003, 0.008))))
+        _assist = policy_assist.PolicyAssist(flatten_desired_targets(_machine.phases), _desired_positions, _desired_arc,
+                                             skips=skips)
     _log(f"[{_prefix}] ACT controller via {_policy_address} (step scale {_act_scale}, "
-         f"stall release {POLICY_STALL_RELEASE_S} s)")
+         f"stall release {POLICY_STALL_RELEASE_S} s{', IK assist' if _assist is not None else ''}"
+         f"{', policy redraws' if _assist is not None and _policy_redraw else ''}"
+         f"{f', skip test {_skip_test}' if _skip_test else ''})")
 
 
-def _act_command(target, tip_position):
-    """One ACT tick: the next joint target, stepping from the previous one."""
+def _act_command(target, tip_position, ink_skip=None):
+    """One ACT tick: the next joint target, stepping from the previous one. `ink_skip`: this tick
+    touched the paper but left no ink (skip test), for camera policies' page; with hybrid control the
+    supervisor's teacher mode goes along too."""
     global _act_target
     from act_features import environment_state, observation_state, observed_index, path_window
 
@@ -550,6 +582,8 @@ def _act_command(target, tip_position):
     step = _policy.act(
         observation_state(q, qd, previous)[0],
         environment_state(tip_position, _desired_positions[seen], window[None], [[float(_desired_pen[seen])]])[0],
+        ink_skip,
+        _assist.teacher_mode if _assist is not None else None,
     )
     if not np.isfinite(step).all():
         return None
@@ -557,9 +591,55 @@ def _act_command(target, tip_position):
     return _act_target
 
 
+def _redraw_tick(target, point):
+    """One IK tick of a gap redraw (src/policy_assist.py): drive the pen to `point` on the line while the
+    state machine's progress stays where it is. Returns the tip position."""
+    global _previous_tip_xy
+    action, success = _solver.compute_inverse_kinematics(
+        point, ORIENTATION_WXYZ, position_tolerance=NORMAL_IK_TOLERANCE_M,
+        orientation_tolerance=ORIENTATION_TOLERANCE_RAD,
+    )
+    proposed = None if not success or action.joint_positions is None else np.asarray(action.joint_positions, dtype=np.float64)
+    if proposed is None or not np.isfinite(proposed).all() or np.any(proposed < JOINT_LOWER) or np.any(proposed > JOINT_UPPER):
+        _machine.fail(f"IK failed or out of limits redrawing a gap in {_machine.state}")
+        return
+    if MAX_JOINT_DELTA_RAD:
+        measured_q = np.asarray(_robot.get_joint_positions(), dtype=np.float64)
+        indices = getattr(action, "joint_indices", None)
+        base_q = measured_q[np.asarray(indices, dtype=int)] if indices is not None else measured_q
+        action.joint_positions = limit_joint_delta(base_q, proposed, MAX_JOINT_DELTA_RAD)
+    _robot.get_articulation_controller().apply_action(action)
+    tip_position, _tip_rot = _solver.compute_end_effector_pose(position_only=False)
+    error = float(np.linalg.norm(np.asarray(tip_position) - point))
+    tip_xy = np.asarray(tip_position, dtype=np.float64)[:2]
+    tip_speed_mm_s = 0.0 if _previous_tip_xy is None else \
+        float(np.linalg.norm(tip_xy - _previous_tip_xy)) / PHYSICS_DT_S * 1000.0
+    _previous_tip_xy = tip_xy
+    _executed_rows.append(
+        {
+            "simulation_time_s": _sim_time,
+            "state": _machine.state,
+            "stroke_id": target.stroke_id,
+            "waypoint_index": target.waypoint_index,
+            "pen_down": 1,
+            "target_x_m": float(point[0]),
+            "target_y_m": float(point[1]),
+            "target_z_m": float(point[2]),
+            "tip_x_m": float(tip_position[0]),
+            "tip_y_m": float(tip_position[1]),
+            "tip_z_m": float(tip_position[2]),
+            "tracking_error_m": error,
+            "is_corner": 0,
+            "tip_speed_mm_s": tip_speed_mm_s,
+            "driver": "redraw",
+        }
+    )
+    _live_sample(tip_position, error, target)
+
+
 def compute(db=None):
     global _state, _frame, _sim_time, _world, _robot, _solver, _machine, _mapped, _prefix, _home_action
-    global _phase_corners, _previous_tip_xy
+    global _phase_corners, _previous_tip_xy, _act_target, _driver
 
     if _state == WARMUP:
         _frame += 1
@@ -664,8 +744,28 @@ def compute(db=None):
                 current = int(_phase_offsets[_machine.phase_index]) + _machine.target_index
                 for _ in range(_progress.update(current, tip_now, _sim_time) - current):
                     _machine.update(_sim_time, True)
+            ink_skip = redraw_point = None
+            if _assist is not None and _machine.current_target is not None:
+                # Hybrid control: who drives this tick (src/policy_assist.py).
+                current = int(_phase_offsets[_machine.phase_index]) + _machine.target_index
+                ink_skip = _assist.ink(current, tip_now)
+                driver, redraw_point = _assist.mode(_sim_time, current, tip_now)
+                if driver != _driver:
+                    _log(f"{_driver} -> {driver} at waypoint {current} ({_machine.state})")
+                    if driver == policy_assist.POLICY and not (_policy_redraw and _driver == policy_assist.REDRAW):
+                        _act_target = None  # the policy steps on from the pose IK left
+                    _driver = driver
+                if driver == policy_assist.REDRAW:
+                    _machine.target_started_s = _sim_time  # progress stands still during a redraw
+                ik_drives = driver == policy_assist.IK or (driver == policy_assist.REDRAW and not _policy_redraw)
+                if ik_drives:
+                    # Keep the policy server's page in step with the ink IK lays down (camera policies).
+                    _act_command(_machine.current_target, tip_now, ink_skip)
             target = _machine.current_target
-            if target is not None and _controller in POLICY_CONTROLLERS and _policy is not None:
+            if target is not None and redraw_point is not None and not _policy_redraw:
+                _redraw_tick(target, redraw_point)
+            elif target is not None and _controller in POLICY_CONTROLLERS and _policy is not None \
+                    and (_driver == policy_assist.POLICY or (_driver == policy_assist.REDRAW and _policy_redraw)):
                 from isaacsim.core.utils.types import ArticulationAction
 
                 from act_features import distance_to_path_behind
@@ -678,7 +778,7 @@ def compute(db=None):
                     index = int(_phase_offsets[_machine.phase_index]) + _machine.target_index
                     off_path = distance_to_path_behind(_desired_positions, _desired_arc, index, tip_position,
                                                        POLICY_REDRAW_BEHIND_M)
-                command = _act_command(target, tip_position)
+                command = _act_command(target, tip_position, ink_skip)
                 if command is None:
                     _machine.fail("ACT produced a non-finite joint step")
                 elif target.pen_down and off_path > ACT_MAX_ERROR_M:
@@ -706,6 +806,7 @@ def compute(db=None):
                             "tracking_error_m": error,
                             "is_corner": int(is_corner),
                             "tip_speed_mm_s": tip_speed_mm_s,
+                            "driver": "policy",
                         }
                     )
                     _live_sample(tip_position, error, target)
@@ -771,6 +872,7 @@ def compute(db=None):
                                 "tracking_error_m": error,
                                 "is_corner": int(is_corner),
                                 "tip_speed_mm_s": tip_speed_mm_s,
+                                "driver": "ik",
                             }
                         )
                         _live_sample(tip_position, error, target)

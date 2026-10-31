@@ -814,6 +814,10 @@ def draw_trajectory(
     record_video: bool = True,
     wait_s: int = 0,
     title: str = "",
+    action_scale: float = 0.0,
+    policy_assist: bool = False,
+    skip_test_spacing_m: float = 0.0,
+    policy_redraw: bool = False,
 ) -> str:
     """Draw any trajectory JSON (the pipeline schema: strokes of {x, y} points
     in normalized canvas units) with the xArm7 in Isaac Sim, the same way
@@ -829,7 +833,16 @@ def draw_trajectory(
     the launch and run continue in the background (poll run_status(prefix) or
     the live status file); > 0 waits like `draw` and returns its result fields,
     or {"status": "running"} if the wait runs out. Only one run at a time:
-    a second call while one is active returns {"status": "busy"}."""
+    a second call while one is active returns {"status": "busy"}.
+    action_scale: act/smolvla only, the share of each predicted joint step
+    executed per 60 Hz tick (0 = the controller's 0.5, the teacher's pace);
+    larger draws faster (speed and accuracy sweeps, #16).
+    policy_assist: act/smolvla only, hybrid control (src/policy_assist.py): IK
+    takes over where the policy stalls and redraws gaps in the ink.
+    skip_test_spacing_m: with policy_assist, inject ink skips 3-8 mm long about
+    this far apart along the inked path (0 = off), to test gap redraws (#46).
+    policy_redraw: with policy_assist, the policy redraws gaps itself, told the
+    teacher mode (smolvla --mode-state checkpoints), instead of IK."""
     controller = controller.lower()
     if controller not in ("ik", *POLICY_CONTROLLERS):
         return json.dumps({"status": "failed", "reason": f"unknown controller {controller!r}"})
@@ -849,6 +862,13 @@ def draw_trajectory(
     prefix = f"studio_{uuid.uuid4().hex[:8]}"
     title = title.strip() or trajectory.stem
     job_data = {"trajectory_path": _unc(trajectory), "prefix": prefix, "title": title, "source": "studio"}
+    if action_scale > 0:
+        job_data["act_action_scale"] = float(action_scale)
+    if policy_assist:
+        job_data["policy_assist"] = True
+        job_data["policy_redraw"] = bool(policy_redraw)
+        if skip_test_spacing_m > 0:
+            job_data["skip_test"] = {"spacing_m": float(skip_test_spacing_m), "length_m": [0.003, 0.008], "seed": 0}
     info = {
         "prefix": prefix,
         "title": title,
@@ -857,6 +877,9 @@ def draw_trajectory(
         "controller": controller,
         "config": config or _scene_config(),
         "record_video": record_video,
+        **({"action_scale": float(action_scale)} if action_scale > 0 else {}),
+        **({"policy_assist": True, "skip_test_spacing_m": float(skip_test_spacing_m),
+            "policy_redraw": bool(policy_redraw)} if policy_assist else {}),
         "stroke_count": len(loaded["strokes"]),
         "point_count": sum(len(stroke["points"]) for stroke in loaded["strokes"]),
         "telemetry_file": str(live_telemetry.status_path(_live_dir(), prefix)),
