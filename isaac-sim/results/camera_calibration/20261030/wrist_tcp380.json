@@ -1,0 +1,80 @@
+{
+ "label": "depth_tcp380",
+ "time": "2026-10-30T17:57:54",
+ "arm": {
+  "tcp_mm_deg": [
+   426.9,
+   58.0,
+   380.0,
+   180.0,
+   -0.0,
+   -0.0
+  ],
+  "joints_deg": [
+   187.786,
+   6.979,
+   179.315,
+   84.357,
+   0.259,
+   91.396,
+   -352.71
+  ],
+  "tcp_offset": [
+   0.0,
+   0.0,
+   172.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "errors": [
+   0,
+   0
+  ]
+ },
+ "paper_touch_z_mm": 50.439,
+ "cameras": {
+  "wrist": {
+   "camera": "wrist",
+   "serial": "109622070191",
+   "height_above_paper_mm": 540.1,
+   "distance_along_optical_axis_mm": 540.1,
+   "tilt_from_vertical_deg": 0.22,
+   "paper_normal_in_camera_frame": [
+    -0.0025,
+    0.0029,
+    -1.0
+   ],
+   "plane_fit_rms_mm": 0.81,
+   "paper_points": 60000,
+   "inlier_fraction": 0.997,
+   "table_plane": {
+    "height_mm": 538.7,
+    "tilt_deg": 0.48,
+    "fit_rms_mm": 1.88,
+    "inlier_fraction": 0.93
+   },
+   "paper_vs_table": {
+    "angle_deg": 0.3,
+    "height_difference_mm": 1.3
+   },
+   "depth_at_image_centre_mm": 540.0,
+   "paper_depth_median_mm": 540.0,
+   "intrinsics": {
+    "width": 848,
+    "height": 480,
+    "fx": 606.838623046875,
+    "fy": 606.8736572265625,
+    "ppx": 419.8121032714844,
+    "ppy": 232.21202087402344,
+    "coeffs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  }
+ }
+}
