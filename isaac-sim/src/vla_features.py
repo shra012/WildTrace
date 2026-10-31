@@ -23,6 +23,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+import act_features
 from act_features import INK_CONTACT_M, PATH_WINDOW_POINTS
 
 IMAGE_KEY = "observation.images.path_view"
@@ -262,6 +263,73 @@ def load_history(dataset_root) -> tuple[np.ndarray, np.ndarray]:
     return rows, starts
 
 
+def load_modes(dataset_root) -> np.ndarray:
+    """Per-frame teacher mode of a gap-labelled LeRobot dataset by global `index` (zeros without the column)."""
+    from pathlib import Path
+
+    import pyarrow.parquet as pq
+
+    files = sorted(Path(dataset_root).glob("data/*/*.parquet"))
+    modes = np.zeros(sum(pq.ParquetFile(f).metadata.num_rows for f in files), dtype=np.int8)
+    for path in files:
+        if "teacher_mode" not in pq.ParquetFile(path).schema_arrow.names:
+            continue
+        table = pq.read_table(path, columns=["teacher_mode", "index"])
+        column = table.column("teacher_mode").combine_chunks()
+        modes[table.column("index").to_numpy()] = (column.flatten() if hasattr(column, "flatten") else column).to_numpy()
+    return modes
+
+
+# Redraw route (#46): while the teacher goes back to a gap (mode 1), the recorded observation still shows
+# the path ahead of the pen (act_features.observed_index), so the numbers point forward while the pen moves
+# back. redraw_route_env shows the route instead: the path the pen traced on this stroke, reversed, as the
+# target and path window, so going back is path following like any other. It is built only from the
+# history rows and the modes since the episode (or the server's reset) began, so training and the policy
+# server compute the same values. Coming forward again (mode 2) the recorded window already runs along the
+# line from the pen and is left as it is.
+ROUTE_MAX_AHEAD_M = 0.003
+
+
+def _traced_stroke(history: np.ndarray, modes: np.ndarray, start: int) -> np.ndarray:
+    """(M, 2) targets the pen followed in normal mode on the pen-down run that ends at row start - 1."""
+    down = history[:start, 5] > 0.5
+    if not len(down) or not down[-1]:
+        return np.zeros((0, 2))
+    lifts = np.flatnonzero(~down)
+    first = int(lifts[-1]) + 1 if len(lifts) else 0
+    xy = history[first:start, 2:4][modes[first:start] == 0].astype(np.float64)
+    if len(xy) < 2:
+        return xy
+    keep = np.r_[True, np.linalg.norm(np.diff(xy, axis=0), axis=1) > 1e-6]
+    return xy[keep]
+
+
+def redraw_route_env(history: np.ndarray, modes: np.ndarray, environment_state: np.ndarray) -> np.ndarray:
+    """This frame's env (`history` and `modes` end with its row) with, while going back to a gap, the target
+    and path window along the reversed traced stroke from the pen; unchanged in other modes."""
+    env = np.asarray(environment_state, dtype=np.float32).reshape(-1)
+    history = np.asarray(history).reshape(-1, HISTORY_COLUMNS)
+    modes = np.asarray(modes).reshape(-1)
+    if not len(modes) or modes[-1] != 1:
+        return env
+    normal = np.flatnonzero(modes != 1)
+    start = int(normal[-1]) + 1 if len(normal) else 0
+    if start == 0:
+        return env
+    route_xy = _traced_stroke(history, modes, start)[::-1]
+    if len(route_xy) < 2:
+        return env
+    arc = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(route_xy, axis=0), axis=1))]
+    index = 0
+    for tip in history[start:, 0:2]:  # monotone progress along the route, as the labeller tracks the path
+        index = act_features.project_on_path(route_xy, arc, index, tip, ROUTE_MAX_AHEAD_M)[1]
+    tip = env[0:3].astype(np.float64)
+    height = float(tip[2] + env[5])  # the current target's height: one pen-down stroke on the paper
+    route = np.c_[route_xy, np.full(len(route_xy), height)]
+    return act_features.environment_state(tip, route[index], act_features.path_window(route, index)[None],
+                                         [[env[-1]]])[0]
+
+
 def template_from_history(history: np.ndarray) -> np.ndarray:
     """(M, 3) template (target x, y, pen_down) from a whole episode's history rows; in training
     the drawing is the path the targets traced, at drawing time it is the planned path."""
@@ -270,7 +338,7 @@ def template_from_history(history: np.ndarray) -> np.ndarray:
 
 
 def read_views(pretrained_dir) -> dict:
-    """The camera extras a checkpoint was trained with ({"template": bool}); {} for older ones."""
+    """The camera extras a checkpoint was trained with ({"template": bool, "redraw_route": bool}); {} for older ones."""
     import json
     from pathlib import Path
 

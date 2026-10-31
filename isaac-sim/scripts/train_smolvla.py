@@ -107,6 +107,10 @@ def _parse_args():
     parser.add_argument("--template", action="store_true",
                         help="with --view camera: tracing mode, the whole drawing shown faintly in both views "
                              "(served from the drawing sent at reset)")
+    parser.add_argument("--redraw-route", action="store_true",
+                        help="with --view camera and gap-labelled data: while the teacher goes back to a gap, show "
+                             "the reversed traced stroke as the target and path window instead of the path ahead "
+                             "(vla_features.redraw_route_env; the policy server does the same from its page history)")
     return parser.parse_args()
 
 
@@ -122,7 +126,7 @@ class VlaFrames(torch.utils.data.Dataset):
 
     def __init__(self, name: str, chunk_size: int, episodes: int = 0, full_state: bool = False, stride: int = 1,
                  camera: bool = False, window_dropout: float = 0.0, augment: bool = False, template: bool = False,
-                 mode_state: bool = False):
+                 mode_state: bool = False, redraw_route: bool = False):
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
         self.full_state = full_state
@@ -134,6 +138,8 @@ class VlaFrames(torch.utils.data.Dataset):
         root = DATASETS_ROOT / name
         # Camera views need each frame's episode so far: history rows by global index.
         self.history, self.starts = vla_features.load_history(root) if camera else (None, None)
+        # The redraw route is built from the episode's history rows and teacher modes so far.
+        self.modes = vla_features.load_modes(root) if camera and redraw_route else None
         self.template = template
         if template:
             # Episode ends, for the whole drawing each frame's template comes from.
@@ -154,6 +160,10 @@ class VlaFrames(torch.utils.data.Dataset):
     def __getitem__(self, index: int) -> dict:
         frame = self.frames[index]
         env = frame[ACT_ENV].numpy()
+        if self.modes is not None:
+            current = int(frame["index"])
+            env = vla_features.redraw_route_env(self.history[self.starts[current] : current + 1],
+                                                self.modes[self.starts[current] : current + 1], env)
         rng = np.random.default_rng() if (self.augment or self.window_dropout > 0) else None
         if self.history is None:
             images = {vla_features.IMAGE_KEY: vla_features.image_tensor_layout(vla_features.path_view(env))}
@@ -438,8 +448,10 @@ def main() -> int:
     camera = args.view == "camera"
     if args.mode_state and not full_state:
         raise SystemExit("--mode-state needs --state full")
+    if args.redraw_route and not camera:
+        raise SystemExit("--redraw-route needs --view camera")
     train = VlaFrames(args.dataset, args.chunk_size, args.episodes, full_state, args.episode_stride, camera,
-                      args.window_dropout, args.augment, args.template, args.mode_state)
+                      args.window_dropout, args.augment, args.template, args.mode_state, args.redraw_route)
     stats = vla_stats(train.frames.meta.stats, full_state, args.mode_state)
     start_step = 0
     if args.resume:
@@ -483,7 +495,7 @@ def main() -> int:
     parts = [train]
     for extra in args.extra_dataset:
         parts.append(VlaFrames(extra, args.chunk_size, 0, full_state, 1, camera,
-                               args.window_dropout, args.augment, args.template, args.mode_state))
+                               args.window_dropout, args.augment, args.template, args.mode_state, args.redraw_route))
     if args.redraw_weight != 1.0 or args.extra_dataset:
         shares = sample_shares(args.extra_share, [len(part) for part in parts])
         weights = []
@@ -508,9 +520,11 @@ def main() -> int:
         val = train if args.val_dataset == "train" else VlaFrames(args.val_dataset, args.chunk_size,
                                                                      full_state=full_state, camera=camera,
                                                                      template=args.template,
-                                                                     mode_state=args.mode_state)
+                                                                     mode_state=args.mode_state,
+                                                                     redraw_route=args.redraw_route)
         probes = probe_indices(val, 64, args.seed)
 
+    views = {key: True for key, on in (("template", args.template), ("redraw_route", args.redraw_route)) if on}
     log = (output / "train_log.ndjson").open("a")
     policy.train()
     batches = _batches(loader)
@@ -544,7 +558,7 @@ def main() -> int:
             log.write(json.dumps(record) + "\n")
             log.flush()
         if done % args.save_freq == 0 or done == args.steps:
-            save(policy, preprocessor, postprocessor, output, done, {"template": True} if args.template else None)
+            save(policy, preprocessor, postprocessor, output, done, views or None)
     return 0
 
 

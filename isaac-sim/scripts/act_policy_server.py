@@ -162,9 +162,14 @@ class SmolVlaRunner:
         # Checkpoints trained with --view camera see the paper; they render it from the ticks since reset.
         self.camera = vla_features.OVERHEAD_KEY in config.input_features
         # Tracing-mode checkpoints also show the whole drawing, sent with the reset.
-        self.uses_template = bool(vla_features.read_views(checkpoint).get("template"))
+        views = vla_features.read_views(checkpoint)
+        self.uses_template = bool(views.get("template"))
         self.template = None
+        # Checkpoints trained with --redraw-route see, while going back to a gap, the reversed traced stroke as
+        # target and path window (vla_features.redraw_route_env), built from the page history and the mode per tick.
+        self.redraw_route = self.camera and bool(views.get("redraw_route"))
         self.history: list[np.ndarray] = []
+        self.modes: list[int] = []
         self.queue: list[list[float]] = []
         self.async_chunks = async_chunks
         self.ticks_per_action = max(1, ticks_per_action)
@@ -193,7 +198,7 @@ class SmolVlaRunner:
             return
         self.history_log.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(self.history_log / f"history_{self.drawings:03d}.npz", rows=np.concatenate(self.history),
-                            skip_test=json.dumps(self.skip_test or {}))
+                            modes=np.asarray(self.modes, dtype=np.int8), skip_test=json.dumps(self.skip_test or {}))
 
     def reset(self, drawing=None) -> None:
         """`drawing`: (M, 3) x, y, pen_down of the whole path, for tracing-mode checkpoints."""
@@ -207,6 +212,7 @@ class SmolVlaRunner:
             self.drawings += 1
         self.skips = self._new_skips()
         self.history = []
+        self.modes = []
         self.mode = 0
         self.queue = []
         self.tick = 0
@@ -214,13 +220,16 @@ class SmolVlaRunner:
         self.holds = 0
 
     @torch.no_grad()
-    def chunk(self, state, env, history: np.ndarray | None = None) -> torch.Tensor:
+    def chunk(self, state, env, history: np.ndarray | None = None, modes: np.ndarray | None = None) -> torch.Tensor:
         """The next (chunk_size, 7) actions, unnormalized, averaged over `samples` sampled chunks.
         Camera checkpoints render the paper from `history` (rows up to and including this tick;
-        default: the ticks since reset)."""
+        default: the ticks since reset), redraw-route ones also take each row's teacher mode (`modes`)."""
         if self.camera:
             if history is None:
                 history = np.concatenate(self.history) if self.history else self.features.history_rows(env)
+                modes = np.asarray(self.modes if self.history else [self.mode])
+            if self.redraw_route and modes is not None:
+                env = self.features.redraw_route_env(history, modes, env)
             if self.uses_template and self.template is None:
                 raise RuntimeError("this checkpoint was trained in tracing mode; send the drawing with the reset")
             images = self.features.camera_views(history, env, template=self.template if self.uses_template else None)
@@ -252,6 +261,7 @@ class SmolVlaRunner:
                 if not self.skips.inks(contact, row[0, 0:2]) and contact:
                     row[0, 4] = 0.0
             self.history.append(row)
+            self.modes.append(self.mode)
             if self.history_log is not None and len(self.history) % 300 == 0:
                 self.save_history()
         if not self.async_chunks:
@@ -277,7 +287,8 @@ class SmolVlaRunner:
             self.holds += 1
             action = [0.0] * 7
         self._pending = self._pending or (self._executor.submit(
-            self.chunk, list(state), list(env), np.concatenate(self.history) if self.camera else None), self.tick)
+            self.chunk, list(state), list(env), np.concatenate(self.history) if self.camera else None,
+            np.asarray(self.modes) if self.camera else None), self.tick)
         self.tick += 1
         return action
 

@@ -184,3 +184,43 @@ def test_tracing_template_shows_the_undrawn_drawing_faintly():
     scale = (size / 2) / vla_features.OVERHEAD_HALF_EXTENT_M
     ahead = overhead[size // 2, int(size / 2 + 0.03 * scale)]
     assert 150 < ahead.min() and ahead.max() < 240 and np.ptp(ahead) < 10  # faint grey, not yet drawn
+
+
+def _redraw_episode():
+    """History rows, modes and envs of a pen drawing +x along y = 0.08 for 20 ticks, then going back (mode 1)
+    for 4 ticks: the recorded target stays the waypoint just ahead of the pen, as act_features.observed_index."""
+    xs = 0.47 + 0.0005 * np.r_[np.arange(20), 19 - np.arange(1, 5)]
+    modes = np.r_[np.zeros(20, int), np.ones(4, int)]
+    envs = []
+    for k, x in enumerate(xs):
+        target = (x + 0.0005, 0.08)
+        env = _stroke_env((x, 0.08), target)
+        env[6 : 6 + 3 * PATH_WINDOW_POINTS] = np.c_[target[0] - x + 0.002 * np.arange(PATH_WINDOW_POINTS),
+                                                    np.zeros(PATH_WINDOW_POINTS),
+                                                    np.zeros(PATH_WINDOW_POINTS)].reshape(-1)
+        envs.append(env)
+    lift = _stroke_env((0.46, 0.08), (0.465, 0.08), pen_down=0.0, tip_z=0.0836)
+    envs = np.stack([lift] + envs)
+    return vla_features.history_rows(envs), np.r_[0, modes], envs
+
+
+def test_redraw_route_runs_back_along_the_traced_stroke_while_going_back():
+    rows, modes, envs = _redraw_episode()
+    back = vla_features.redraw_route_env(rows, modes, envs[-1])
+    assert back.shape == envs[-1].shape
+    assert back[3] < 0 and abs(back[4]) < 1e-9 and abs(back[5]) < 1e-9  # target behind the pen, on the line
+    window = back[6 : 6 + 3 * PATH_WINDOW_POINTS].reshape(PATH_WINDOW_POINTS, 3)
+    assert np.all(np.diff(window[:, 0]) <= 1e-9)  # running back (-x) ...
+    first_target_x = rows[1, 2]
+    assert np.isclose(window[-1, 0] + back[0], first_target_x)  # ... and stopping at the stroke start
+    assert np.allclose(back[[0, 1, 2, -1]], envs[-1][[0, 1, 2, -1]])  # tip and pen unchanged
+
+
+def test_redraw_route_leaves_other_modes_alone():
+    rows, modes, envs = _redraw_episode()
+    for k in (5, 20):
+        assert np.array_equal(vla_features.redraw_route_env(rows[: k + 1], modes[: k + 1], envs[k]),
+                              envs[k].astype(np.float32))
+    forward = modes.copy()
+    forward[-4:] = 2
+    assert np.array_equal(vla_features.redraw_route_env(rows, forward, envs[-1]), envs[-1].astype(np.float32))
