@@ -1,0 +1,58 @@
+{
+  "config_hash": "4926204b8a89",
+  "config_path": "isaac-sim\\config\\xarm7_drawing_real.yaml",
+  "controller": "smolvla",
+  "desired_pen_down_points": 797,
+  "desired_to_executed_nearest_path_error": {
+    "max_error_m": 0.04016058422558353,
+    "mean_error_m": 0.012898789501419441,
+    "p95_error_m": 0.032588169351008237,
+    "rmse_m": 0.01697646726610019,
+    "sample_count": 797
+  },
+  "drawing_id": "323bd30d42ee2cf3",
+  "executed_pen_down_samples": 4727,
+  "executed_sample_count": 4954,
+  "executed_to_desired_nearest_path_error": {
+    "max_error_m": 0.0006865935792330746,
+    "mean_error_m": 0.00026915483871316816,
+    "p95_error_m": 0.00048268540231688706,
+    "rmse_m": 0.0002860545691414639,
+    "sample_count": 4727
+  },
+  "failure_reason": "ACT tip error 22.27 mm in DRAW_STROKE_0 exceeds the safety limit",
+  "git_sha": "unknown",
+  "policy_assist": {
+    "redraws": 9,
+    "redraws_given_up": 8,
+    "skips": 5,
+    "stall_assists": 0,
+    "uncovered_fraction": 0.5075757575757576
+  },
+  "simulation_duration_s": 83.08333349950097,
+  "skip_test": {
+    "length_m": [
+      0.003,
+      0.008
+    ],
+    "seed": 0,
+    "spacing_m": 0.06
+  },
+  "stall_releases": 9,
+  "status": "failed",
+  "stroke_count": 5,
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "LOWER_PEN_STROKE_0",
+    "DRAW_STROKE_0",
+    "FAILED"
+  ],
+  "waypoint_reach_error": {
+    "max_error_m": 0.0011989422153912868,
+    "mean_error_m": 0.0009313541091500912,
+    "p95_error_m": 0.0011676154854741274,
+    "rmse_m": 0.0009484402790821336,
+    "sample_count": 486
+  }
+}

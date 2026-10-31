@@ -257,3 +257,30 @@ Scene config hash `61a50cf4c384` for the stage 2 and camera_v5 runs, `4926204b8a
 `vla_camera` height changed, 0.60 to 0.835 m; robot and placement unchanged).
 
 **Files:** `cat_323bd30d_{act_hybrid_skip60,smolvla_camera_v5_hybrid,smolvla_camera_v6_policy_redraw_skip60,smolvla_stage2_graph,smolvla_camera_v5}_{comparison.png,run_metrics.json}`.
+
+### camera_v7_route: redraw as path following (2026-10-31)
+
+While the teacher goes back to a gap, camera_v7 gets the stroke it already drew, reversed, as its target and path
+window (`vla_features.redraw_route_env`, `train_smolvla.py --redraw-route`), built from the page history and the
+mode per tick, so training and serving compute the same thing. The server switches it on from
+`wildtrace_views.json` in the checkpoint. Fine-tuned from camera_v6 for 9k steps (`--mode-state`, same data and
+weights).
+
+Offline (val, 384 frames per mode; first-action error / median cosine): going back 0.531 / 0.939 (camera_v6 0.611 /
+0.887), forward again 0.634 / 0.918 (0.635 / 0.909), normal 0.277 (0.282), retrace 0.231 (0.246). The val curve
+was flat over the last 3k steps.
+
+| Cat `323bd30d` | Finished | Path RMSE / p95 / max | Sim time | Supervisor |
+|---|---|---|---|---|
+| SmolVLA camera_v7 | yes | 0.282 / 0.560 / 1.645 | 58.3 s | - |
+| SmolVLA camera_v7 redrawing itself, skip test | no: tip error 22.27 mm in `DRAW_STROKE_0` exceeds the safety limit, at 51% | - | 83.1 s | 5 skips, 9 redraws, 8 given up, 0 stall take-overs |
+
+camera_v7 is the first camera policy to finish the cat on its own: no stall where camera_v5 stopped at 231, and
+with the hybrid supervisor on (no skips) the run is identical, since the supervisor never steps in. It is still
+34% less accurate than ACT and 19% slower. The redraw route does not carry over to closed loop: the policy spends
+most ticks (3,665 of 4,800) backing up without landing within 0.6 mm of the line, as camera_v6 did, and the ninth
+redraw ran 22 mm off it. Longer training on the same data is not worth it (flat val curve, closed-loop failure
+rather than offline error); the next step would be on-policy data from camera_v7's own redraws (DAgger).
+
+Checkpoint local only. Config hash `4926204b8a89`. **Files:**
+`cat_323bd30d_{smolvla_camera_v7_route,smolvla_camera_v7_route_policy_redraw_skip60}_{comparison.png,run_metrics.json}`.
