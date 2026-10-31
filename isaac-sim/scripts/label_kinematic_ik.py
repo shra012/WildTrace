@@ -54,6 +54,10 @@ def _parse_args():
     parser.add_argument("--fps", type=float, default=30.0)
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--limit", type=int, default=0, help="Only the first N trajectories (0 = all)")
+    parser.add_argument("--every", type=int, default=1,
+                        help="Only every k-th trajectory (a spread over all categories, e.g. for DAgger)")
+    parser.add_argument("--only", default="",
+                        help="Text file of trajectory stems to label, one per line (e.g. for DAgger)")
     parser.add_argument(
         "--noise-sigma-rad",
         type=float,
@@ -299,6 +303,15 @@ def _label_one(job):
     return record
 
 
+def select_sources(sources: list[Path], only: str = "", every: int = 1, limit: int = 0) -> list[Path]:
+    """The trajectories to label: those listed in the `only` file (stems), every k-th, the first `limit`."""
+    if only:
+        wanted = set(Path(only).read_text().split())
+        sources = [p for p in sources if p.stem in wanted]
+    sources = sources[:: max(every, 1)]
+    return sources[:limit] if limit else sources
+
+
 def _floats(text: str) -> tuple:
     return tuple(float(v) for v in text.split(",") if v.strip())
 
@@ -307,8 +320,7 @@ def main() -> int:
     args = _parse_args()
     excluded = {p.stem for p in Path(args.exclude_dir).rglob("*.json")} if args.exclude_dir else set()
     sources = sorted(p for p in Path(args.trajectories).rglob("*.json") if p.stem not in excluded)
-    if args.limit:
-        sources = sources[: args.limit]
+    sources = select_sources(sources, args.only, args.every, args.limit)
     out = Path(args.out)
     jobs = []
     for path in sources:

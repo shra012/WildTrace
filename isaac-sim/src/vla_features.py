@@ -44,14 +44,29 @@ STATE_NAMES = (
 FULL_STATE_NAMES = STATE_NAMES + [f"w{i}_{axis}" for i in range(PATH_WINDOW_POINTS) for axis in "xyz"]
 
 
-def vla_state(act_state: np.ndarray, environment_state: np.ndarray, full: bool = False) -> np.ndarray:
+# With a mode state (#46), after the full state: going back to a gap, coming forward again (one-hot;
+# both zero when drawing normally), so the policy is told a redraw is on instead of guessing it from ink.
+MODE_STATE_DIM = 2
+
+
+def mode_state(teacher_mode) -> np.ndarray:
+    """(N,) teacher modes (kinematic_labeller.MODE_*) -> (N, 2) one-hot back / forward."""
+    mode = np.asarray(teacher_mode).reshape(-1)
+    return np.stack([mode == 1, mode == 2], axis=1).astype(np.float32)
+
+
+def vla_state(act_state: np.ndarray, environment_state: np.ndarray, full: bool = False,
+              mode=None) -> np.ndarray:
     """[q, qd, previous command] from the ACT state + [tip, target - tip, pen_down] from its env state,
-    and with `full` the path window (relative to the tip) after them."""
+    with `full` the path window (relative to the tip) after them, and with `mode` (teacher modes,
+    full state only) the mode state last."""
     state = np.asarray(act_state, dtype=np.float32).reshape(-1, 21)
     env = np.asarray(environment_state, dtype=np.float32).reshape(len(state), -1)
     parts = [state, env[:, :6], env[:, -1:]]
     if full:
         parts.append(env[:, 6 : 6 + 3 * PATH_WINDOW_POINTS])
+    if mode is not None:
+        parts.append(mode_state(np.broadcast_to(np.asarray(mode).reshape(-1), (len(state),))))
     return np.concatenate(parts, axis=1)
 
 

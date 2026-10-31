@@ -71,6 +71,17 @@ def test_full_state_appends_the_path_window_after_the_compact_state():
     assert np.allclose(full[0, vla_features.STATE_DIM :], window.reshape(-1))
 
 
+def test_mode_state_appends_the_teacher_mode_one_hot_after_the_full_state():
+    act_state = np.zeros((3, 21), dtype=np.float32)
+    env = np.tile(_env(np.zeros((PATH_WINDOW_POINTS, 3))), (3, 1))
+    full = vla_features.vla_state(act_state, env, full=True)
+    moded = vla_features.vla_state(act_state, env, full=True, mode=[0, 1, 2])
+    assert moded.shape == (3, vla_features.FULL_STATE_DIM + vla_features.MODE_STATE_DIM)
+    assert np.allclose(moded[:, : vla_features.FULL_STATE_DIM], full)
+    assert moded[:, vla_features.FULL_STATE_DIM :].tolist() == [[0, 0], [1, 0], [0, 1]]
+    assert vla_features.vla_state(act_state[:1], env[:1], full=True, mode=2)[0, -2:].tolist() == [0, 1]
+
+
 def test_widening_the_state_input_keeps_the_old_outputs():
     import types
 

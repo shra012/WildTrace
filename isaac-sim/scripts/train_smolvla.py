@@ -92,6 +92,18 @@ def _parse_args():
     parser.add_argument("--redraw-weight", type=float, default=1.0,
                         help="with gap-labelled data: sample redraw frames (teacher going back to a gap or coming "
                              "forward again) this many times as often as the rest")
+    parser.add_argument("--extra-dataset", nargs="*", default=[],
+                        help="more training datasets (e.g. DAgger recordings) mixed in at --extra-share, split "
+                             "between them by frame count")
+    parser.add_argument("--extra-share", type=float, default=0.3,
+                        help="share of training samples drawn from --extra-dataset, whatever its size")
+    parser.add_argument("--retrace-weight", type=float, default=1.0,
+                        help="with --view camera and --extra-dataset: sample the extra datasets' retrace frames "
+                             "(ink already on the page at the target, as where a path runs back over itself) "
+                             "this many times as often as the rest")
+    parser.add_argument("--mode-state", action="store_true",
+                        help="with --state full: append the teacher mode (going back to a gap, coming forward) to "
+                             "the state, 60 values; the drawing controller's redraw supervisor sends it at run time")
     parser.add_argument("--template", action="store_true",
                         help="with --view camera: tracing mode, the whole drawing shown faintly in both views "
                              "(served from the drawing sent at reset)")
@@ -109,10 +121,12 @@ class VlaFrames(torch.utils.data.Dataset):
     """An ACT LeRobotDataset seen as SmolVLA frames."""
 
     def __init__(self, name: str, chunk_size: int, episodes: int = 0, full_state: bool = False, stride: int = 1,
-                 camera: bool = False, window_dropout: float = 0.0, augment: bool = False, template: bool = False):
+                 camera: bool = False, window_dropout: float = 0.0, augment: bool = False, template: bool = False,
+                 mode_state: bool = False):
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
         self.full_state = full_state
+        self.mode_state = mode_state
         self.window_dropout, self.augment = float(window_dropout), bool(augment)
         # Validation probes (#46): "blank" keeps only the current tick of history (an empty
         # page), and drop_window zeroes the path-window values, to check what the policy reads.
@@ -153,9 +167,10 @@ class VlaFrames(torch.utils.data.Dataset):
                     self.history[self._episode_starts[episode] : self._episode_ends[episode]])
             images = vla_features.camera_views(self.history[first : current + 1], env,
                                                rng if self.augment else None, template)
-        state = vla_features.vla_state(frame[ACT_STATE].numpy(), env, self.full_state)[0]
+        mode = (int(frame["teacher_mode"]) if "teacher_mode" in frame else 0) if self.mode_state else None
+        state = vla_features.vla_state(frame[ACT_STATE].numpy(), env, self.full_state, mode)[0]
         if self.full_state and (self.drop_window or (rng is not None and rng.random() < self.window_dropout)):
-            state[vla_features.STATE_DIM :] = 0.0
+            state[vla_features.STATE_DIM : vla_features.FULL_STATE_DIM] = 0.0
         return {
             "observation.state": torch.from_numpy(state),
             **{key: torch.from_numpy(image) for key, image in images.items()},
@@ -165,15 +180,18 @@ class VlaFrames(torch.utils.data.Dataset):
         }
 
 
-def vla_stats(act_stats: dict, full_state: bool = False) -> dict:
+def vla_stats(act_stats: dict, full_state: bool = False, mode_state: bool = False) -> dict:
     """SmolVLA normalization statistics from the ACT dataset's (state = ACT state + 7 env values,
-    then the path window with `full_state`), in vla_features.vla_state's order."""
+    then the path window with `full_state`), in vla_features.vla_state's order. The mode state's
+    one-hot values pass through unchanged (mean 0, std 1)."""
     pick = list(range(6)) + [-1] + (list(range(6, 36)) if full_state else [])
+    mode = {"mean": 0.0, "std": 1.0, "min": 0.0, "max": 1.0}
     stats = {}
     for key in ("mean", "std", "min", "max"):
         state = np.asarray(act_stats[ACT_STATE][key], dtype=np.float32).reshape(-1)
         env = np.asarray(act_stats[ACT_ENV][key], dtype=np.float32).reshape(-1)[pick]
-        stats.setdefault("observation.state", {})[key] = torch.from_numpy(np.concatenate([state, env]))
+        extra = np.full(vla_features.MODE_STATE_DIM if mode_state else 0, mode[key], dtype=np.float32)
+        stats.setdefault("observation.state", {})[key] = torch.from_numpy(np.concatenate([state, env, extra]))
         stats.setdefault(ACTION, {})[key] = torch.as_tensor(np.asarray(act_stats[ACTION][key], dtype=np.float32))
     return stats
 
@@ -200,8 +218,18 @@ def widen_state_input(policy, max_state_dim: int, keep: int = vla_features.STATE
     policy.model.config.max_state_dim = max_state_dim
 
 
+def start_mode_columns(policy) -> None:
+    """Zero the state projection's and direct-state MLP's weights on the mode-state columns when a
+    checkpoint without them is fine-tuned with --mode-state: those inputs only ever saw zero padding
+    (the direct-state MLP's still hold their random init), so the policy starts out as before."""
+    with torch.no_grad():
+        policy.model.state_proj.weight[:, vla_features.FULL_STATE_DIM :] = 0.0
+        if hasattr(policy.model, "state_to_expert"):
+            policy.model.state_to_expert[0].weight[:, vla_features.FULL_STATE_DIM :] = 0.0
+
+
 def make_policy(init: str, chunk_size: int, device: str, full_state: bool = False, train_vlm: bool = False,
-                vlm_layers: int = 0, image_size: int = 0, camera: bool = False):
+                vlm_layers: int = 0, image_size: int = 0, camera: bool = False, mode_state: bool = False):
     from lerobot.configs.policies import PreTrainedConfig
     from lerobot.configs.types import FeatureType, PolicyFeature
     from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
@@ -216,7 +244,9 @@ def make_policy(init: str, chunk_size: int, device: str, full_state: bool = Fals
         images = {vla_features.IMAGE_KEY: PolicyFeature(type=FeatureType.VISUAL, shape=(3, size, size))}
     config.input_features = {
         "observation.state": PolicyFeature(
-            type=FeatureType.STATE, shape=(vla_features.FULL_STATE_DIM if full_state else vla_features.STATE_DIM,)),
+            type=FeatureType.STATE,
+            shape=(vla_features.FULL_STATE_DIM + (vla_features.MODE_STATE_DIM if mode_state else 0) if full_state
+                   else vla_features.STATE_DIM,)),
         **images,
     }
     config.output_features = {ACTION: PolicyFeature(type=FeatureType.ACTION, shape=(7,))}
@@ -282,16 +312,56 @@ def teacher_modes(frames) -> np.ndarray:
     return modes
 
 
-def probe_indices(dataset: VlaFrames, count: int, seed: int) -> dict[str, list[int]]:
-    """Fixed validation frames: random ones, and with gap-labelled data the redraw frames
-    (teacher going back to a gap or coming forward again), which only the camera explains."""
+def sample_shares(extra_share: float, sizes: list[int]) -> list[float]:
+    """Share of training samples per dataset: the first gets 1 - extra_share, the extra ones
+    split extra_share by frame count."""
+    if len(sizes) == 1:
+        return [1.0]
+    extra_frames = sum(sizes[1:])
+    return [1.0 - extra_share] + [extra_share * size / extra_frames for size in sizes[1:]]
+
+
+def retrace_frames(dataset: VlaFrames, tolerance_m: float = 0.0006, lag: int = 30,
+                   episodes: np.ndarray | None = None) -> np.ndarray:
+    """Frames whose target already has ink within `tolerance_m`, drawn at least `lag` frames earlier
+    in the episode: the page then shows the path ahead as drawn (the cat 323bd30d cheek notch on the
+    twin, where camera_v3 and camera_v4 stop and hover). `episodes` (episode start indices) limits
+    the search; flags are by global index, which is the frame position for a dataset loaded whole."""
+    rows, starts = dataset.history, dataset.starts
+    flags = np.zeros(len(rows), bool)
+    first, counts = np.unique(starts, return_counts=True)
+    keep = np.ones(len(first), bool) if episodes is None else np.isin(first, episodes)
+    for start, count in zip(first[keep], counts[keep]):
+        episode = rows[start : start + int(count)]
+        ink = episode[:, 4] > 0.5
+        for i in range(lag, len(episode)):
+            earlier = episode[: i - lag + 1][ink[: i - lag + 1], 0:2]
+            if len(earlier):
+                flags[start + i] = np.min(np.sum((earlier - episode[i, 2:4]) ** 2, axis=1)) < tolerance_m**2
+    return flags
+
+
+def probe_indices(dataset: VlaFrames, count: int, seed: int, retrace_episodes: int = 60) -> dict[str, list[int]]:
+    """Fixed validation frames: random ones, with gap-labelled data the redraw frames (teacher going
+    back to a gap or coming forward again), which only the camera explains, and with camera history
+    the retrace frames (ink already at the target, retrace_frames) of `retrace_episodes` episodes."""
     rng = np.random.default_rng(seed)
     probes = {"all": rng.choice(len(dataset), count, replace=False).tolist()}
+    modes = None
     if "teacher_mode" in dataset.frames.hf_dataset.column_names:
         modes = teacher_modes(dataset.frames)
         redraw = np.flatnonzero(modes > 0)
         if len(redraw):
             probes["redraw"] = rng.choice(redraw, min(count, len(redraw)), replace=False).tolist()
+    if dataset.history is not None and len(dataset.history) == len(dataset):
+        first = np.unique(dataset.starts)
+        episodes = rng.choice(first, min(retrace_episodes, len(first)), replace=False)
+        retrace = retrace_frames(dataset, episodes=episodes)
+        if modes is not None:
+            retrace &= modes == 0
+        retrace = np.flatnonzero(retrace)
+        if len(retrace):
+            probes["retrace"] = rng.choice(retrace, min(count, len(retrace)), replace=False).tolist()
     return probes
 
 
@@ -366,9 +436,11 @@ def main() -> int:
 
     full_state = args.state == "full"
     camera = args.view == "camera"
+    if args.mode_state and not full_state:
+        raise SystemExit("--mode-state needs --state full")
     train = VlaFrames(args.dataset, args.chunk_size, args.episodes, full_state, args.episode_stride, camera,
-                      args.window_dropout, args.augment, args.template)
-    stats = vla_stats(train.frames.meta.stats, full_state)
+                      args.window_dropout, args.augment, args.template, args.mode_state)
+    stats = vla_stats(train.frames.meta.stats, full_state, args.mode_state)
     start_step = 0
     if args.resume:
         last = output / "checkpoints" / "last"
@@ -376,10 +448,15 @@ def main() -> int:
         start_step = json.loads((last / "training_state.json").read_text())["step"]
     else:
         init = args.init
+    from lerobot.configs.policies import PreTrainedConfig
+
+    init_state_dim = PreTrainedConfig.from_pretrained(init).input_features["observation.state"].shape[0]
     policy, config = make_policy(init, args.chunk_size, device, full_state, args.train_vlm, args.vlm_layers,
-                                 args.image_size, camera)
+                                 args.image_size, camera, args.mode_state)
     if not smolvla_direct_state.load_direct_state(policy, Path(init)) and args.direct_state:
         smolvla_direct_state.add_direct_state(policy)
+    if args.mode_state and init_state_dim == vla_features.FULL_STATE_DIM:
+        start_mode_columns(policy)
     if args.resume:
         preprocessor, postprocessor = make_pre_post_processors(config, pretrained_path=init)
     else:
@@ -403,18 +480,35 @@ def main() -> int:
         group.setdefault("initial_lr", args.lr)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_factor, last_epoch=start_step - 1 if start_step else -1)
     sampler = None
-    if args.redraw_weight != 1.0:
-        modes = teacher_modes(train.frames)
-        sampler = WeightedFrames(np.where(modes > 0, args.redraw_weight, 1.0), args.seed)
-        print(f"[OK] redraw frames {np.mean(modes > 0):.3f} of the data, sampled x{args.redraw_weight}", flush=True)
-    loader = torch.utils.data.DataLoader(train, batch_size=args.batch_size, shuffle=sampler is None, sampler=sampler,
+    parts = [train]
+    for extra in args.extra_dataset:
+        parts.append(VlaFrames(extra, args.chunk_size, 0, full_state, 1, camera,
+                               args.window_dropout, args.augment, args.template, args.mode_state))
+    if args.redraw_weight != 1.0 or args.extra_dataset:
+        shares = sample_shares(args.extra_share, [len(part) for part in parts])
+        weights = []
+        for k, (part, share) in enumerate(zip(parts, shares)):
+            modes = teacher_modes(part.frames)
+            w = np.where(modes > 0, args.redraw_weight, 1.0)
+            note = ""
+            if k and camera and args.retrace_weight != 1.0:
+                retrace = retrace_frames(part)
+                w = np.where(retrace & (modes == 0), args.retrace_weight, w)
+                note = f", retrace frames {np.mean(retrace):.3f} sampled x{args.retrace_weight}"
+            weights.append(w * (share / w.sum()))
+            print(f"[OK] {part.frames.repo_id}: {len(part)} frames, {share:.2f} of samples, redraw frames "
+                  f"{np.mean(modes > 0):.3f} sampled x{args.redraw_weight}{note}", flush=True)
+        sampler = WeightedFrames(np.concatenate(weights), args.seed)
+    dataset = parts[0] if len(parts) == 1 else torch.utils.data.ConcatDataset(parts)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=sampler is None, sampler=sampler,
                                          num_workers=args.num_workers, pin_memory=device == "cuda", drop_last=True,
                                          persistent_workers=True)
     val = probes = None
     if args.val_dataset:
         val = train if args.val_dataset == "train" else VlaFrames(args.val_dataset, args.chunk_size,
                                                                      full_state=full_state, camera=camera,
-                                                                     template=args.template)
+                                                                     template=args.template,
+                                                                     mode_state=args.mode_state)
         probes = probe_indices(val, 64, args.seed)
 
     log = (output / "train_log.ndjson").open("a")
