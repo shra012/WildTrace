@@ -1,0 +1,79 @@
+{
+  "config_hash": "4926204b8a89",
+  "config_path": "isaac-sim\\config\\xarm7_drawing_real.yaml",
+  "controller": "smolvla",
+  "desired_pen_down_points": 955,
+  "desired_to_executed_nearest_path_error": {
+    "max_error_m": 0.0013739746248484866,
+    "mean_error_m": 0.00019171937569086928,
+    "p95_error_m": 0.0004038223619046225,
+    "rmse_m": 0.00024036194429004484,
+    "sample_count": 955
+  },
+  "drawing_id": "a7cbe5e2b0f491bb",
+  "executed_pen_down_samples": 2332,
+  "executed_sample_count": 5308,
+  "executed_to_desired_nearest_path_error": {
+    "max_error_m": 0.0010338166728481799,
+    "mean_error_m": 0.00028924389540901056,
+    "p95_error_m": 0.0005861776412825194,
+    "rmse_m": 0.0003310451636505774,
+    "sample_count": 2332
+  },
+  "failure_reason": "",
+  "git_sha": "unknown",
+  "policy_assist": {
+    "redraws": 6,
+    "redraws_given_up": 0,
+    "skips": 8,
+    "stall_assists": 0,
+    "uncovered_fraction": 0.003971891231286273
+  },
+  "simulation_duration_s": 88.96666684460251,
+  "skip_test": {
+    "length_m": [
+      0.003,
+      0.008
+    ],
+    "seed": 0,
+    "spacing_m": 0.06
+  },
+  "stall_releases": 0,
+  "status": "finished",
+  "stroke_count": 6,
+  "visited_states": [
+    "HOME",
+    "APPROACH_STROKE_0",
+    "LOWER_PEN_STROKE_0",
+    "DRAW_STROKE_0",
+    "LIFT_PEN_STROKE_0",
+    "MOVE_TO_STROKE_1",
+    "LOWER_PEN_STROKE_1",
+    "DRAW_STROKE_1",
+    "LIFT_PEN_STROKE_1",
+    "MOVE_TO_STROKE_2",
+    "LOWER_PEN_STROKE_2",
+    "DRAW_STROKE_2",
+    "LIFT_PEN_STROKE_2",
+    "MOVE_TO_STROKE_3",
+    "LOWER_PEN_STROKE_3",
+    "DRAW_STROKE_3",
+    "LIFT_PEN_STROKE_3",
+    "MOVE_TO_STROKE_4",
+    "LOWER_PEN_STROKE_4",
+    "DRAW_STROKE_4",
+    "LIFT_PEN_STROKE_4",
+    "MOVE_TO_STROKE_5",
+    "LOWER_PEN_STROKE_5",
+    "DRAW_STROKE_5",
+    "LIFT_PEN_STROKE_5",
+    "FINISHED"
+  ],
+  "waypoint_reach_error": {
+    "max_error_m": 0.0011996796694629895,
+    "mean_error_m": 0.0006620179432850776,
+    "p95_error_m": 0.0011550745278044268,
+    "rmse_m": 0.0007531786714156467,
+    "sample_count": 2806
+  }
+}
