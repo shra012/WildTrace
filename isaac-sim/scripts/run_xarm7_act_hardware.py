@@ -56,7 +56,9 @@ LIMIT_MARGIN_DEG = 3.0
 CONTROL_HZ = 60.0
 ACTION_SCALE = 0.5  # a 30 fps policy queried at 60 Hz, as in the Isaac runner
 MAX_STEP_RAD = 0.006  # per 60 Hz tick, about 0.36 rad/s
-MAX_TICK_S = 0.10
+# A late tick only means the arm holds its last command a little longer (steps are relative, so there is
+# no jump after it); single 116-125 ms hiccups ended real drawings at 0.10 s. Long gaps still stop the run.
+MAX_TICK_S = 0.50
 REAL_CHECK_TICKS = 6  # query the real pose at 10 Hz
 MAX_LAG_M = 0.005  # real tip further than this from the commanded tip stops the run
 # Values the SDK's report thread keeps up to date (3-11 Hz); reading them costs no request to the arm.
@@ -398,6 +400,13 @@ def main() -> int:
     )
     parser.add_argument("--start-speed-deg-s", type=float, default=8.0)
     parser.add_argument(
+        "--start-clearance-mm",
+        type=float,
+        default=40.0,
+        help="Minimum TCP height above the pen-down plane along the move to the start pose. A longer tool (a pencil "
+        "sticking out ~30 mm more than the marker) sits only ~38 mm above the paper at the start pose itself.",
+    )
+    parser.add_argument(
         "--floor-below-touch-mm",
         type=float,
         default=0.2,
@@ -481,7 +490,7 @@ def main() -> int:
         else:
             if hardware.get("paper_center_mm") is None:
                 raise SafeStop("paper_center_mm is null; refusing to move")
-            move_to_start(api, log, start_deg, plan["pen_down_z"] + 0.04, args.start_speed_deg_s)
+            move_to_start(api, log, start_deg, plan["pen_down_z"] + args.start_clearance_mm / 1000.0, args.start_speed_deg_s)
             for remaining in range(5, 0, -1):
                 log.event("countdown", seconds_left=remaining)
                 time.sleep(1.0)
