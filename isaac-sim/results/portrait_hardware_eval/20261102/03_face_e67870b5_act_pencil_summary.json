@@ -1,0 +1,50 @@
+{
+  "outcome": "finished",
+  "ticks": 29237,
+  "seconds": 487.3,
+  "pen_down_error_mm": {
+    "rmse": 0.583,
+    "max": 1.514
+  },
+  "tip_z_min_mm": 81.27,
+  "pen_down_plane_mm": 81.6,
+  "joint_min_deg": [
+    341.2,
+    -3.2,
+    20.9,
+    45.7,
+    -13.8,
+    41.8,
+    3.0
+  ],
+  "joint_max_deg": [
+    349.6,
+    21.4,
+    34.1,
+    70.4,
+    1.2,
+    57.7,
+    25.5
+  ],
+  "joint_limit_margin_deg": [
+    10.4,
+    98.6,
+    325.9,
+    56.7,
+    346.2,
+    122.3,
+    334.5
+  ],
+  "max_joint_step_rad_per_tick": 0.00307,
+  "policy_ms_mean": 4.82,
+  "real_tip_lag_mm": {
+    "mean": 0.113,
+    "max": 0.401
+  },
+  "real_pen_down_error_mm": {
+    "rmse": 0.438,
+    "p95": 0.891,
+    "max": 1.262,
+    "samples": 949
+  }
+}
