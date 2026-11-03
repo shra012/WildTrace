@@ -485,6 +485,13 @@ class OpenRouterSemanticValidator(OllamaSemanticValidator):
     def _model_id(self) -> str:
         return self._model_name()
 
+    def _fallback_models(self) -> list[str]:
+        """Models OpenRouter tries in order when the primary is rate limited or down."""
+        fallbacks = self.settings.get("openrouter_fallback_models") or []
+        if isinstance(fallbacks, str):
+            fallbacks = fallbacks.split(",")
+        return [name.strip() for name in fallbacks if name.strip()]
+
     def _api_base(self) -> str:
         return str(self.settings.get("openrouter_api_base", "https://openrouter.ai/api/v1"))
 
@@ -508,6 +515,8 @@ class OpenRouterSemanticValidator(OllamaSemanticValidator):
             "max_tokens": int(self.settings.get("max_tokens", 200)),
             "usage": {"include": True},
         }
+        if self._fallback_models():
+            body["models"] = [self._model_name(), *self._fallback_models()]
         req = request.Request(
             f"{self._api_base().rstrip('/')}/chat/completions",
             data=json.dumps(body).encode("utf-8"),

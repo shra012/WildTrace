@@ -83,6 +83,8 @@ SMOLVLA_CHECKPOINTS = {
 SMOLVLA_REPLAN_EVERY = int(os.environ.get("WILDTRACE_SMOLVLA_REPLAN_EVERY", "1"))
 SMOLVLA_NOISE = os.environ.get("WILDTRACE_SMOLVLA_NOISE", "zero")
 SMOLVLA_FLOW_STEPS = int(os.environ.get("WILDTRACE_SMOLVLA_FLOW_STEPS", "3"))
+# Serve through a captured CUDA graph (src/smolvla_cuda_graph.py): ~30 ms per chunk instead of ~95 ms, same actions.
+SMOLVLA_CUDA_GRAPH = os.environ.get("WILDTRACE_SMOLVLA_CUDA_GRAPH", "1") != "0"
 if os.environ.get("WILDTRACE_SMOLVLA_CHECKPOINT"):
     SMOLVLA_CHECKPOINTS[TWIN_CONFIG] = Path(os.environ["WILDTRACE_SMOLVLA_CHECKPOINT"])
 POLICY_CONTROLLERS = ("act", "smolvla")
@@ -540,7 +542,8 @@ def _launch(job_data: dict, controller: str, config: str, record_video: bool, vi
         if controller == "smolvla":
             checkpoint = SMOLVLA_CHECKPOINTS.get(scene_config)
             policy_args = ("--policy", "smolvla", "--replan-every", str(SMOLVLA_REPLAN_EVERY),
-                           "--noise", SMOLVLA_NOISE, "--flow-steps", str(SMOLVLA_FLOW_STEPS))
+                           "--noise", SMOLVLA_NOISE, "--flow-steps", str(SMOLVLA_FLOW_STEPS),
+                           *(("--cuda-graph",) if SMOLVLA_CUDA_GRAPH else ()))
         else:
             checkpoint, policy_args = ACT_CHECKPOINTS.get(scene_config), ("--execution", "first")
         if checkpoint is None or not checkpoint.exists():

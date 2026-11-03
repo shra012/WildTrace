@@ -47,7 +47,7 @@ export interface Job {
   updated_at: string;
 }
 
-export type Controller = "act" | "ik";
+export type Controller = "act" | "ik" | "smolvla";
 export type RunMode = "live" | "replay";
 export type RunStatus = "starting" | "running" | "finished" | "failed";
 
@@ -146,6 +146,7 @@ export interface TelemetryEvent {
 
 export type StudioEvent =
   | { type: "job"; job: Job }
+  | { type: "job_deleted"; job_id: string }
   | { type: "run"; run: Run }
   | TelemetryEvent
   | { type: "log"; level: LogLevel; message: string; at: string }

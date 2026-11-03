@@ -890,6 +890,13 @@ export const mockApi = {
     return delay(clone(job));
   },
 
+  async deleteJob(id: string): Promise<{ deleted: string }> {
+    ensureStarted();
+    if (!jobs.delete(id)) notFound("Job");
+    emit({ type: "job_deleted", job_id: id });
+    return delay({ deleted: id });
+  },
+
   async chooseFace(id: string, index: number): Promise<Job> {
     ensureStarted();
     const job = jobs.get(id) ?? notFound("Job");

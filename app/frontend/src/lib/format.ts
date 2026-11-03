@@ -46,6 +46,10 @@ export function shortBackend(name: string | undefined): string {
   return name.split(":")[0].replace(/\s*\(.*\)\s*$/, "").trim();
 }
 
+export function controllerLabel(controller: string): string {
+  return controller === "smolvla" ? "SmolVLA" : controller.toUpperCase();
+}
+
 export function phaseLabel(phase: string | undefined): string {
   if (!phase) return "";
   return phase

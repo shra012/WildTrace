@@ -94,6 +94,7 @@ interface CatalogItem {
 | POST | `/api/jobs/image` | multipart: `file`, `kind` = `face` \| `animal` \| `auto`, optional `category` | `Job` |
 | GET | `/api/jobs` | | `Job[]` (newest first) |
 | GET | `/api/jobs/{id}` | | `Job` |
+| DELETE | `/api/jobs/{id}` | | `{deleted: string}` (removes the job, its runs and files; 409 while it runs or is being drawn) |
 | POST | `/api/jobs/{id}/choose` | `{index: number}` | `Job` (continues a job in `awaiting_input` with that face; 409 otherwise) |
 | POST | `/api/jobs/{id}/draw` | `{controller?: "act" \| "ik", mode?: "live" \| "replay"}` | `Run` |
 | GET | `/api/runs` | `?active=true&limit=20` | `Run[]` (newest first; `active` keeps starting/running runs) |
@@ -108,6 +109,7 @@ interface CatalogItem {
 
 ```ts
 { type: "job", job: Job }                                  // any job change
+{ type: "job_deleted", job_id: string }                    // a job was deleted
 { type: "run", run: Run }                                  // any run change
 { type: "telemetry", run_id: string, t: number, phase: string, progress: number,
   tip: [number, number], error_mm: number }               // ~10 Hz while drawing, tip in normalized canvas units

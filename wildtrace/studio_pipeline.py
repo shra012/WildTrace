@@ -521,6 +521,9 @@ def _outline_attempt_main(request_path: Path) -> int:
 
 
 RATE_LIMIT_BACKOFF_S = (3.0, 8.0, 20.0)
+STUDIO_JUDGE_MODEL = os.getenv("WILDTRACE_JUDGE_MODEL", "qwen/qwen3-vl-30b-a3b-instruct")
+STUDIO_JUDGE_FALLBACKS = os.getenv("WILDTRACE_JUDGE_FALLBACKS",
+                                   "qwen/qwen3-vl-235b-a22b-instruct,qwen/qwen3-vl-8b-instruct").split(",")
 
 
 def _transient(exc: BaseException) -> bool:
@@ -597,6 +600,11 @@ def build_studio_validator(runtime: dict[str, Any], backend: str) -> SemanticVal
     if name == "ollama_semantic_validator" and backend != "flux":
         name = "openrouter_semantic_validator" if os.getenv("OPENROUTER_API_KEY") else "anthropic_semantic_validator"
     settings["backend"] = name
+    if name == "openrouter_semantic_validator":
+        # qwen3-vl-8b has a single OpenRouter provider and is often rate limited upstream; the studio
+        # judges with qwen3-vl-30b (three providers) and lets OpenRouter fall back to the other Qwen VL models.
+        settings["openrouter_model_name"] = STUDIO_JUDGE_MODEL
+        settings["openrouter_fallback_models"] = STUDIO_JUDGE_FALLBACKS
     return build_outline_validator(settings)
 
 

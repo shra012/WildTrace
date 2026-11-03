@@ -87,6 +87,8 @@ def _recordings() -> dict[tuple[str, str], dict[str, Any]]:
 
 def recording_for(job: dict[str, Any], controller: str) -> dict[str, Any] | None:
     sample_id = job["request"].get("sample_id")
+    if controller == "smolvla":
+        return None  # past SmolVLA runs mix checkpoints and their metrics do not name one, so animate the plan
     return _recordings().get((sample_id, controller)) if sample_id else None
 
 
@@ -145,7 +147,7 @@ def _start_live(run: dict[str, Any], job: dict[str, Any], controller: str) -> No
         _active[run["id"]] = {"prefix": reply["prefix"], "status_file": Path(reply["telemetry_file"]),
                               "trace_file": Path(reply["trace_file"]), "server": server}
     store.update_run(run["id"], status="starting", phase="LAUNCH", cameras=reply.get("cameras", []), prefix=reply["prefix"])
-    bus.log(f"Isaac Sim is drawing {job['title'].lower()} ({controller.upper()}), prefix {reply['prefix']}")
+    bus.log(f"Isaac Sim is drawing {job['title'].lower()} ({settings.CONTROLLER_LABELS[controller]}), prefix {reply['prefix']}")
 
 
 def _start_replay(run: dict[str, Any], job: dict[str, Any], controller: str) -> None:

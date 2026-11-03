@@ -50,6 +50,7 @@ def test_rule_based_chat_intents():
     assert (generate.action, generate.category, generate.hint) == ("generate", "Dog", "sitting")
     start = chat.parse_rules("draw it with ik", True)
     assert (start.action, start.controller) == ("draw", "ik")
+    assert chat.parse_rules("draw it with smolvla", True).controller == "smolvla"
     assert chat.parse_rules("what can you do?", False).action == "chat"
 
 
@@ -80,6 +81,28 @@ def test_pick_job_then_replay_run(client):
     trace = client.get(f"/api/runs/{run['id']}/trace").json()
     assert len(trace["desired"]) == job["trajectory"]["stroke_count"]
     assert trace["executed"] and all(0.0 <= u <= 1.0 and 0.0 <= v <= 1.0 for line in trace["executed"] for u, v in line)
+
+
+@pytest.mark.skipif(not (REPO_ROOT / "isaac-sim" / "data" / "act_test" / "Cat" / f"{GOLD_CAT}.json").exists(),
+                    reason="gold test set not present")
+def test_smolvla_replay_animates_the_plan(client):
+    job = _wait(client, f"/api/jobs/{client.post('/api/jobs/text', json={'prompt': f'draw Cat {GOLD_CAT}'}).json()['id']}")
+    run = client.post(f"/api/jobs/{job['id']}/draw", json={"mode": "replay", "controller": "smolvla"}).json()
+    assert (run["controller"], run["source"]) == ("smolvla", "planned")
+    assert client.get("/api/health").json()["policy"]["smolvla_checkpoint"] == "smolvla_stage2"
+
+
+@pytest.mark.skipif(not (REPO_ROOT / "isaac-sim" / "data" / "act_test" / "Cat" / f"{GOLD_CAT}.json").exists(),
+                    reason="gold test set not present")
+def test_delete_job_removes_it_and_its_runs(client):
+    job = _wait(client, f"/api/jobs/{client.post('/api/jobs/text', json={'prompt': f'draw Cat {GOLD_CAT}'}).json()['id']}")
+    run = client.post(f"/api/jobs/{job['id']}/draw", json={"mode": "replay"}).json()
+    assert client.delete(f"/api/jobs/{job['id']}").status_code == 409  # still being drawn
+    _wait(client, f"/api/runs/{run['id']}", done=("finished", "failed"))
+    assert client.delete(f"/api/jobs/{job['id']}").json() == {"deleted": job["id"]}
+    assert client.get(f"/api/jobs/{job['id']}").status_code == 404
+    assert client.get(f"/api/runs/{run['id']}").status_code == 404
+    assert client.delete(f"/api/jobs/{job['id']}").status_code == 404
 
 
 def test_chat_draw_without_a_job_explains(client):

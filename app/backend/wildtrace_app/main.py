@@ -92,7 +92,7 @@ def post_chat(body: ChatIn) -> dict[str, Any]:
         else:
             run = runs.start_run(ready, intent.controller or settings.DEFAULT_CONTROLLER, None)
             out["run"] = run
-            out["reply"] = intent.reply or (f"Drawing {ready['title'].lower()} with {run['controller'].upper()} "
+            out["reply"] = intent.reply or (f"Drawing {ready['title'].lower()} with {settings.CONTROLLER_LABELS[run['controller']]} "
                                             f"({'live in Isaac Sim' if run['mode'] == 'live' else 'replay'}).")
     elif intent.action in ("pick", "generate"):
         job = jobs.job_for_intent(intent, body.message)
@@ -164,13 +164,24 @@ def post_draw(job_id: str, body: DrawIn | None = None) -> dict[str, Any]:
     if job["status"] != "ready":
         raise HTTPException(409, f"Job is {job['status']}, not ready to draw")
     body = body or DrawIn()
-    controller = body.controller if body.controller in ("act", "ik") else settings.DEFAULT_CONTROLLER
+    controller = body.controller if body.controller in settings.CONTROLLERS else settings.DEFAULT_CONTROLLER
     mode = body.mode if body.mode in ("live", "replay") else None
     return runs.start_run(job, controller, mode)
 
 
 class ChooseIn(BaseModel):
     index: int
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_job(job_id: str) -> dict[str, Any]:
+    job = _job_or_404(job_id)
+    if job["status"] in ("queued", "running"):
+        raise HTTPException(409, "This job is still running")
+    if any(r["job_id"] == job_id and r["status"] in ("starting", "running") for r in store.list_runs()):
+        raise HTTPException(409, "This job is being drawn")
+    store.delete_job(job_id)
+    return {"deleted": job_id}
 
 
 @app.post("/api/jobs/{job_id}/choose")

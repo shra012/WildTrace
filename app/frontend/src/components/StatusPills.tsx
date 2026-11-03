@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { SHOW_BACKEND_BADGES } from "@/lib/config";
 import { cx } from "@/lib/cx";
 import { shortBackend } from "@/lib/format";
 import { useStudio } from "@/lib/studio";
@@ -69,13 +70,13 @@ export default function StatusPills({ vertical = false }: { vertical?: boolean }
           Isaac {isaac.running ? (isaac.scene_ready ? "ready" : "running") : "stopped"}
         </Pill>
       )}
-      {image && (
+      {SHOW_BACKEND_BADGES && image && (
         <Pill tip={`Image backend: ${image}`} className={flux ? "badge-accent badge-soft" : "badge-secondary badge-soft"}>
           <SparklesIcon size={13} />
           {shortBackend(image)}
         </Pill>
       )}
-      {health?.backends.chat && (
+      {SHOW_BACKEND_BADGES && health?.backends.chat && (
         <Pill tip={`Chat backend: ${health.backends.chat}${health.backends.face ? `. Face: ${health.backends.face}` : ""}`} className="badge-ghost">
           <ChatIcon size={13} />
           {shortBackend(health.backends.chat)}

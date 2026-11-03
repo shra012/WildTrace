@@ -86,7 +86,8 @@ def image_backend() -> str:
 
 def policy() -> dict[str, Any]:
     checkpoint = "act_real_kinematic_v2" if "real" in Path(settings.DRAW_CONFIG).name else "act_kinematic_v4"
-    return {"checkpoint": checkpoint, "device": "cpu" if gpu().get("busy") else "cuda"}
+    return {"checkpoint": checkpoint, "smolvla_checkpoint": Path(os.environ["WILDTRACE_SMOLVLA_CHECKPOINT"]).name,
+            "device": "cpu" if gpu().get("busy") else "cuda"}
 
 
 def snapshot() -> dict[str, Any]:

@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { fileUrl } from "@/lib/config";
 import { cx } from "@/lib/cx";
-import { duration, formatNumber, phaseLabel } from "@/lib/format";
+import { controllerLabel, duration, formatNumber, phaseLabel } from "@/lib/format";
 import FacePicker from "../cards/FacePicker";
 import { drawJob, setController, setFocus, setGalleryOpen, setMode, useStudio, useTelemetry } from "@/lib/studio";
 import type { Job, Run, Trace } from "@/lib/types";
@@ -59,8 +59,9 @@ function RunControls({ job }: { job?: Job }) {
           value={controller}
           onChange={setController}
           options={[
-            { value: "act", label: "ACT", title: "Learned ACT policy" },
             { value: "ik", label: "IK", title: "Inverse kinematics baseline" },
+            { value: "act", label: "ACT", title: "Learned ACT policy" },
+            { value: "smolvla", label: "SmolVLA", title: "SmolVLA vision-language-action policy (stage 2)" },
           ]}
         />
         <Segmented
@@ -124,7 +125,7 @@ function RunStatus({ run, job }: { run: Run; job?: Job }) {
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{job ? job.title : "Robot run"}</div>
           <div className="text-xs text-base-content/55">
-            {run.controller.toUpperCase()}, {run.mode}
+            {controllerLabel(run.controller)}, {run.mode}
             {run.mode === "replay" && run.source ? ` (${run.source === "recorded" ? "recorded twin run" : "planned path"})` : ""}
           </div>
         </div>

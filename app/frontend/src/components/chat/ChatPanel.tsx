@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type DragEvent } from "react";
+import { SHOW_BACKEND_BADGES } from "@/lib/config";
 import { cx } from "@/lib/cx";
 import { shortBackend } from "@/lib/format";
 import { clearChat, sendChat, useStudio } from "@/lib/studio";
@@ -94,7 +95,7 @@ export default function ChatPanel({ className }: { className?: string }) {
       <div className="panel-header">
         <ChatIcon size={16} className="text-primary" />
         <h2 className="panel-title">Assistant</h2>
-        {chatBackend && <span className="badge badge-ghost badge-xs font-mono" title={chatBackend}>{shortBackend(chatBackend)}</span>}
+        {SHOW_BACKEND_BADGES && chatBackend && <span className="badge badge-ghost badge-xs font-mono" title={chatBackend}>{shortBackend(chatBackend)}</span>}
         <div className="flex-1" />
         {messages.length > 0 && (
           <button type="button" className="btn btn-ghost btn-xs gap-1 text-base-content/60" onClick={clearChat} title="Clear conversation">

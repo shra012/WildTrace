@@ -1,6 +1,6 @@
 "use client";
 
-import { formatNumber, phaseLabel } from "@/lib/format";
+import { controllerLabel, formatNumber, phaseLabel } from "@/lib/format";
 import { setActiveRun, useStudio } from "@/lib/studio";
 import { RunStatusBadge } from "../badges";
 import { RobotIcon, VideoIcon } from "../icons";
@@ -19,7 +19,7 @@ export default function RunCard({ runId }: { runId: string }) {
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{job?.title ?? "Robot run"}</div>
           <div className="text-xs text-base-content/60">
-            {`${run.controller.toUpperCase()}, ${run.mode}${run.phase ? `, ${phaseLabel(run.phase)}` : ""}`}
+            {`${controllerLabel(run.controller)}, ${run.mode}${run.phase ? `, ${phaseLabel(run.phase)}` : ""}`}
           </div>
         </div>
         <RunStatusBadge status={run.status} />

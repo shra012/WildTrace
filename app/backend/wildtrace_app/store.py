@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import threading
 import uuid
 from copy import deepcopy
@@ -179,6 +180,17 @@ class Store:
 
     def latest_ready_job(self) -> dict[str, Any] | None:
         return next((j for j in self.list_jobs() if j["status"] == "ready"), None)
+
+    def delete_job(self, job_id: str) -> None:
+        """Remove a finished job, its runs and their files. Callers check it is not in flight."""
+        with self._lock:
+            self.jobs.pop(job_id, None)
+            run_ids = [run_id for run_id, run in self.runs.items() if run["job_id"] == job_id]
+            for run_id in run_ids:
+                del self.runs[run_id]
+        for directory in (settings.JOBS_DIR / job_id, *(settings.RUNS_DIR / run_id for run_id in run_ids)):
+            shutil.rmtree(directory, ignore_errors=True)
+        bus.publish({"type": "job_deleted", "job_id": job_id})
 
     # Runs ---------------------------------------------------------------------------------
     def create_run(self, job_id: str, controller: str, mode: str) -> dict[str, Any]:

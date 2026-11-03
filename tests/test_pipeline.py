@@ -755,6 +755,12 @@ def test_openrouter_validator_parses_chat_completion(monkeypatch, tmp_path: Path
     assert sent["model"] == "qwen/qwen3-vl-8b-instruct"
     assert sent["auth"] == "Bearer test-key"
     assert sent["messages"][0]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert "models" not in sent
+
+    validator.settings["openrouter_fallback_models"] = "qwen/qwen3-vl-30b-a3b-instruct, qwen/qwen3-vl-235b-a22b-instruct"
+    validator.validate({"category": "Dog"}, diagram_path, OpenCVValidationResult(passed=True, score=0.8, flags=[], metrics={}))
+    assert sent["models"] == ["qwen/qwen3-vl-8b-instruct", "qwen/qwen3-vl-30b-a3b-instruct",
+                              "qwen/qwen3-vl-235b-a22b-instruct"]
 
 
 def test_ollama_validator_skips_failed_opencv(tmp_path: Path) -> None:

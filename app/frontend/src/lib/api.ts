@@ -17,7 +17,7 @@ import type {
 } from "./types";
 
 interface RequestOptions {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "DELETE";
   json?: unknown;
   form?: FormData;
   timeoutMs?: number;
@@ -112,6 +112,11 @@ export const api = {
   getJob(id: string, signal?: AbortSignal): Promise<Job> {
     if (isMockMode()) return mockApi.getJob(id);
     return request<Job>(`/api/jobs/${enc(id)}`, { signal });
+  },
+
+  deleteJob(id: string): Promise<{ deleted: string }> {
+    if (isMockMode()) return mockApi.deleteJob(id);
+    return request<{ deleted: string }>(`/api/jobs/${enc(id)}`, { method: "DELETE" });
   },
 
   chooseFace(id: string, index: number): Promise<Job> {

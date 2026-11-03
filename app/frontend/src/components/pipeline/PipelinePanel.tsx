@@ -2,8 +2,8 @@
 
 import { fileUrl } from "@/lib/config";
 import { cx } from "@/lib/cx";
-import { clockTime, duration, relativeTime, stageDuration } from "@/lib/format";
-import { drawJob, openPreview, selectJob, setFocus, useStudio } from "@/lib/studio";
+import { clockTime, controllerLabel, duration, relativeTime, stageDuration } from "@/lib/format";
+import { deleteJob, drawJob, openPreview, selectJob, setFocus, useStudio } from "@/lib/studio";
 import type { Job, Stage, StageStatus } from "@/lib/types";
 import { useNow } from "@/hooks/useNow";
 import { BackendBadge, JobStatusBadge, KindBadge, KindIcon } from "../badges";
@@ -19,6 +19,7 @@ import {
   LayersIcon,
   MinusIcon,
   PlayIcon,
+  TrashIcon,
   VideoIcon,
   XIcon,
 } from "../icons";
@@ -256,7 +257,7 @@ function JobDetail({ job }: { job: Job }) {
             onClick={() => drawJob(job.id)}
           >
             {drawing ? <span className="loading loading-spinner loading-xs" /> : <PlayIcon size={13} />}
-            {job.status === "ready" ? `Draw with ${controller.toUpperCase()} (${mode})` : job.status === "awaiting_input" ? "Pick a face first" : job.status === "failed" ? "Cannot draw a failed job" : "Waiting for the trajectory"}
+            {job.status === "ready" ? `Draw with ${controllerLabel(controller)} (${mode})` : job.status === "awaiting_input" ? "Pick a face first" : job.status === "failed" ? "Cannot draw a failed job" : "Waiting for the trajectory"}
           </button>
         )}
       </div>
@@ -266,24 +267,37 @@ function JobDetail({ job }: { job: Job }) {
 
 function JobRow({ job, selected, now, onPick }: { job: Job; selected: boolean; now: number; onPick: () => void }) {
   const thumb = jobThumb(job);
+  const busy = job.status === "queued" || job.status === "running";
   return (
-    <button
-      type="button"
-      onClick={onPick}
+    <div
       className={cx(
-        "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors",
+        "group flex items-center rounded-lg transition-colors",
         selected ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-base-200",
       )}
     >
-      <span className="checker grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-md ring-1 ring-base-content/10">
-        {thumb ? <img src={thumb} alt="" className="h-full w-full object-contain" loading="lazy" /> : <KindIcon kind={job.kind} size={14} />}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{job.title}</span>
-        <span className="block truncate text-[11px] text-base-content/50">{relativeTime(job.created_at, now) || job.kind}</span>
-      </span>
-      <JobStatusBadge status={job.status} size="xs" />
-    </button>
+      <button type="button" onClick={onPick} className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-1.5 text-left">
+        <span className="checker grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-md ring-1 ring-base-content/10">
+          {thumb ? <img src={thumb} alt="" className="h-full w-full object-contain" loading="lazy" /> : <KindIcon kind={job.kind} size={14} />}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{job.title}</span>
+          <span className="block truncate text-[11px] text-base-content/50">{relativeTime(job.created_at, now) || job.kind}</span>
+        </span>
+        <JobStatusBadge status={job.status} size="xs" />
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          if (window.confirm(`Delete "${job.title}"? This removes its files and runs.`)) void deleteJob(job.id);
+        }}
+        disabled={busy}
+        className="btn btn-ghost btn-xs btn-square mr-1 text-base-content/40 opacity-0 hover:text-error group-hover:opacity-100 focus-visible:opacity-100 disabled:invisible"
+        title={busy ? "Wait for the job to finish" : "Delete this job"}
+        aria-label={`Delete ${job.title}`}
+      >
+        <TrashIcon size={13} />
+      </button>
+    </div>
   );
 }
 

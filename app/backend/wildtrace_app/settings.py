@@ -14,6 +14,8 @@ RUNS_DIR = STUDIO_DIR / "runs"
 # Robot side defaults: the lab-arm twin and the ACT policy trained for it.
 DRAW_CONFIG = os.environ.get("WILDTRACE_DRAW_CONFIG", "config/xarm7_drawing_real.yaml")
 DEFAULT_CONTROLLER = os.environ.get("WILDTRACE_CONTROLLER", "act")
+CONTROLLERS = ("act", "ik", "smolvla")
+CONTROLLER_LABELS = {"act": "ACT", "ik": "IK", "smolvla": "SmolVLA"}
 
 # OpenRouter model used to understand chat messages (any chat model works).
 CHAT_MODEL = os.environ.get("WILDTRACE_CHAT_MODEL", "openai/gpt-4o-mini")
@@ -39,3 +41,6 @@ def load_dotenv() -> None:
 
 
 load_dotenv()
+
+# "smolvla" runs use the path-image stage 2 checkpoint; the MCP server reads this when it is imported.
+os.environ.setdefault("WILDTRACE_SMOLVLA_CHECKPOINT", str(ISAAC_ROOT / "models" / "smolvla_stage2"))

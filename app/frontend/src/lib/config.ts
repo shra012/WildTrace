@@ -18,6 +18,9 @@ let mockCache: boolean | null = null;
  * Mock mode is on when NEXT_PUBLIC_MOCK=1 at build time, or when the page is opened with
  * `?mock=1` (handy for demos of a production build). Only meaningful in the browser.
  */
+// Show which image and chat backends (e.g. OpenRouter) are in use; hidden for demos for now.
+export const SHOW_BACKEND_BADGES = false;
+
 export function isMockMode(): boolean {
   if (mockCache !== null) return mockCache;
   let fromUrl = false;

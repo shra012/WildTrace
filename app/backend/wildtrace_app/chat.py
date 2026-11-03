@@ -50,14 +50,16 @@ def _category(text: str) -> str | None:
 def _hint(text: str, category: str | None) -> str | None:
     stop = {"a", "an", "the", "new", "me", "please", "draw", "make", "generate", "create", "show", "of", "one",
             "another", "fresh", "some", "can", "you", "i", "want", "would", "like", "to", "let's", "lets", "and",
-            "with", "using", "ik", "act"}
+            "with", "using", "ik", "act", "smolvla", "vla"}
     words = [w for w in re.findall(r"[a-z0-9/']+", text.lower()) if w not in stop and ANIMALS.get(w) != category]
     return " ".join(words) or None
 
 
 def parse_rules(message: str, has_ready_job: bool) -> Intent:
     text = message.strip().lower()
-    controller = "ik" if re.search(r"\bik\b|inverse kinematics", text) else ("act" if re.search(r"\bact\b", text) else None)
+    controller = ("ik" if re.search(r"\bik\b|inverse kinematics", text) else
+                  "smolvla" if re.search(r"\b(smol ?vla|vla)\b", text) else
+                  "act" if re.search(r"\bact\b", text) else None)
     category = _category(text)
     starts = re.search(r"\b(draw|start|go|run)\s+(it|this|that|now)\b", text) or re.fullmatch(r"(start|go|run|draw)[.!]*", text)
     if starts and not category:
@@ -76,7 +78,7 @@ def parse_rules(message: str, has_ready_job: bool) -> Intent:
 _SYSTEM = """You route requests for WildTrace Studio, where a simulated xArm 7 robot draws line art with a pen.
 Reply with one JSON object only: {"action": "pick"|"generate"|"draw"|"chat", "category": one of
 ["Bird","Cat","Dog","Fish","Frog","Horse"] or null, "hint": short breed/pose/view words or null,
-"controller": "act"|"ik"|null, "reply": one or two short friendly sentences for the user}.
+"controller": "act"|"ik"|"smolvla"|null, "reply": one or two short friendly sentences for the user}.
 pick = draw an existing drawing of a named animal ("draw a cat", "show me a horse"). generate = make a NEW drawing from a fresh photo (words like new,
 generate, create, make). draw = start drawing the current drawing, only when no animal is named (draw it, start, go, yes). chat = anything else;
 for faces tell the user to attach a photo. Only these six animals exist; for others pick chat and say which exist."""
@@ -108,7 +110,7 @@ def parse_llm(message: str, history: list[dict[str, str]], has_ready_job: bool) 
         data["reply"] = None  # written for the wrong action
     if action in ("pick", "generate") and not category:
         action = "chat"
-    controller = data.get("controller") if data.get("controller") in ("act", "ik") else None
+    controller = data.get("controller") if data.get("controller") in settings.CONTROLLERS else None
     return Intent(action, category=category, hint=data.get("hint") or None, controller=controller,
                   reply=data.get("reply") or None, backend=f"openrouter: {settings.CHAT_MODEL}")
 

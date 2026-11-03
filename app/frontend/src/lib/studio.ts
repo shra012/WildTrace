@@ -4,6 +4,7 @@
 import { api } from "./api";
 import { isMockMode } from "./config";
 import { ApiError, errorMessage } from "./errors";
+import { controllerLabel } from "./format";
 import { createStore, useStore } from "./store";
 import type {
   CatalogItem,
@@ -180,7 +181,7 @@ function loadPersisted(mock: boolean): Partial<Persisted> {
       messages: Array.isArray(data.messages) ? data.messages.filter((m) => !m.pending).slice(-60) : undefined,
       selectedJobId: typeof data.selectedJobId === "string" ? data.selectedJobId : null,
       activeRunId: typeof data.activeRunId === "string" ? data.activeRunId : null,
-      controller: data.controller === "ik" ? "ik" : "act",
+      controller: data.controller === "ik" || data.controller === "smolvla" ? data.controller : "act",
       mode: data.mode === "replay" ? "replay" : "live",
     };
   } catch {
@@ -292,6 +293,33 @@ export function upsertRun(run: Run, makeActive = false) {
     else if (isLive(run) && run.id !== active.id && (!isLive(active) || run.started_at > active.started_at)) activeRunId = run.id;
     return { runs, activeRunId };
   });
+}
+
+function removeJob(id: string) {
+  studio.set((s) => {
+    if (!s.jobs[id]) return {};
+    const jobs = { ...s.jobs };
+    delete jobs[id];
+    const jobList = sortJobs(jobs);
+    return {
+      jobs,
+      jobList,
+      selectedJobId: s.selectedJobId === id ? (jobList[0]?.id ?? null) : s.selectedJobId,
+      messages: s.messages.filter((m) => m.jobId !== id),
+    };
+  });
+  schedulePersist();
+}
+
+export async function deleteJob(id: string) {
+  const job = studio.get().jobs[id];
+  try {
+    await api.deleteJob(id);
+    removeJob(id);
+    pushToast("info", `Deleted "${job?.title ?? id}"`, 3000);
+  } catch (err) {
+    pushToast("error", `Could not delete "${job?.title ?? id}": ${errorMessage(err)}`);
+  }
 }
 
 export function selectJob(id: string | null, focusPipeline = false) {
@@ -429,7 +457,7 @@ export async function drawJob(jobId: string) {
     schedulePersist();
     addMessage({
       role: "assistant",
-      text: `Drawing ${job ? `"${job.title}"` : "the trajectory"} with ${run.controller.toUpperCase()} (${run.mode}).`,
+      text: `Drawing ${job ? `"${job.title}"` : "the trajectory"} with ${controllerLabel(run.controller)} (${run.mode}).`,
       runId: run.id,
       jobId,
     });
@@ -555,6 +583,9 @@ export function handleEvent(event: StudioEvent) {
   switch (event.type) {
     case "job":
       upsertJob(event.job);
+      break;
+    case "job_deleted":
+      removeJob(event.job_id);
       break;
     case "run":
       upsertRun(event.run);
