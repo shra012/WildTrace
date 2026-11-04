@@ -204,6 +204,7 @@ def setup_settings(setup: dict[str, Any], models: dict[str, Any]) -> tuple[dict[
     rectifier = {**models["outline_rectifier"], **{k: v for k, v in entry.items() if k not in ("name", "reference")},
                  **setup.get("rectifier_overrides", {})}
     validator = {**models["outline_validator"], **setup["validator"]}
+    validator.setdefault("openrouter_max_retries", 4)
     return rectifier, validator
 
 
@@ -215,7 +216,8 @@ def cmd_pipeline_one(args: argparse.Namespace) -> None:
     rectifier_cfg, validator_cfg = setup_settings(setup, models)
     subjects = list(subjects_by_id().values())[: args.limit or None]
     if args.resume:
-        done = {r["sample_id"] for r in read_ndjson(out_dir() / "pipeline.ndjson") if r["setup"] == setup["name"]}
+        done = {r["sample_id"] for r in final_rows() if r["setup"] == setup["name"]
+                and "error" not in r and r.get("output_path") and (REPO_ROOT / r["output_path"]).is_file()}
         subjects = [s for s in subjects if s["sample_id"] not in done]
     prov = provenance()
     attempts_path = out_dir() / "attempts.ndjson"
@@ -424,7 +426,7 @@ def cmd_referee(args: argparse.Namespace) -> None:
     results_path = out_dir() / "referee.ndjson"
     completed = {
         (r["referee"], r["setup"], r["sample_id"], r["output_path"])
-        for r in read_ndjson(results_path) if "error" not in r and not r.get("parse_failed")
+        for r in referee_rows() if "error" not in r and not r.get("parse_failed")
     } if args.resume else set()
     for name in names:
         pending = [r for r in finals if (name, r["setup"], r["sample_id"], r["output_path"]) not in completed]
@@ -433,6 +435,7 @@ def cmd_referee(args: argparse.Namespace) -> None:
         entry = entry_by_name(comparison()["referees"], name)
         settings = {**models["outline_validator"], "force_semantic": True,
                     **{k: v for k, v in entry.items() if k not in ("name", "strong")}}
+        settings.setdefault("openrouter_max_retries", 4)
         if settings["backend"] == "ollama_semantic_validator":
             ensure_ollama(settings)
         judge = build_outline_validator(settings)
@@ -450,6 +453,28 @@ def cmd_referee(args: argparse.Namespace) -> None:
                 out["error"] = f"{type(exc).__name__}: {exc}"[:500]
             append_ndjson(results_path, out)
             print(json.dumps({k: out.get(k) for k in ("referee", "setup", "sample_id", "passed", "score", "error")}), flush=True)
+
+
+def cmd_probe(args: argparse.Namespace) -> None:
+    """Check the exact hosted judge with a cached drawing before reloading generators."""
+    runtime = load_runtime_config(REPO_ROOT)
+    finals = [r for r in final_rows() if r.get("output_path") and "error" not in r]
+    if not finals:
+        raise SystemExit("No completed drawing available for the API probe")
+    row = finals[0]
+    _, settings = setup_settings(setup_by_name(row["setup"]), runtime["models"])
+    settings.update(force_semantic=True, openrouter_max_retries=0, openrouter_fallback_models=[])
+    path = REPO_ROOT / row["output_path"]
+    judge = build_outline_validator(settings)
+    try:
+        result = judge.validate(subjects_by_id()[row["sample_id"]], path,
+                                validate_with_opencv(path, runtime["models"]["opencv_prescreen"]))
+        if result.metadata.get("parse_failed"):
+            raise RuntimeError("Judge probe returned an unparseable response")
+    except Exception as exc:
+        print(f"JUDGE UNAVAILABLE: {str(exc)[:500]}", flush=True)
+        raise SystemExit(1)
+    print("JUDGE READY", flush=True)
 
 
 # ── report ─────────────────────────────────────────────────────────────────
@@ -477,7 +502,17 @@ def build_summary() -> dict[str, Any]:
     by_path = {m["output_path"]: m for m in metrics}
     attempts = read_ndjson(out_dir() / "attempts.ndjson")
     referee = [r for r in referee_rows() if "error" not in r]
-    runs = {r["setup"]: r for r in read_ndjson(out_dir() / "pipeline_runs.ndjson") if not r.get("limit")}
+    run_records = defaultdict(list)
+    for record in read_ndjson(out_dir() / "pipeline_runs.ndjson"):
+        if not record.get("limit"):
+            run_records[record["setup"]].append(record)
+    runs = {}
+    for setup, records in run_records.items():
+        runs[setup] = {key: max((r.get(key) or 0 for r in records), default=0)
+                       for key in ("sys_ram_gb", "swap_gb", "gpu_gb")}
+        runs[setup].update(wall_s=sum(r.get("wall_s", 0) for r in records),
+                           oom_kills=sum(r.get("oom_kills", 0) for r in records),
+                           oom_killed=any(r.get("oom_killed") for r in records))
     attempt_keys = [m.key for m in em.METRICS if m.level == "attempt" and m.key != "gen_latency_s"]
     referees = [r["name"] for r in comparison()["referees"]]
     strong = next((r["name"] for r in comparison()["referees"] if r.get("strong")), None)
@@ -491,7 +526,7 @@ def build_summary() -> dict[str, Any]:
         judges = [a for a in attempts if a["setup"] == setup and a["kind"] == "judge" and not a.get("skipped")]
         run = runs.get(setup, {})
         out: dict[str, Any] = {
-            "n_subjects": len(rows),
+            "n_subjects": len(rows), "n_final_images": sum(bool(r.get("output_path")) and "error" not in r for r in rows),
             "accepted": _summarize([r.get("accepted") for r in rows], "higher"),
             "first_attempt_pass": _summarize([r.get("accepted") and r.get("attempts") == 1 for r in rows if "error" not in r], "higher"),
             "attempts": _summarize([r.get("attempts") for r in rows], "lower"),
@@ -732,7 +767,7 @@ def clean_tables(summary: dict[str, Any]) -> str:
         warm = summary["setups"][setup]["gen_latency_s"]["p50"]
         gen.append(f"{warm:.1f}" if warm is not None else f"{_pct(calls, 0.5):.1f} (incl. reload)")
     rows.append(["Generation p50 per attempt (s)", "↓", *gen, ""])
-    add("Wall time, 20 subjects (min)", "lower", "wall", [round(d["wall_s"] / 60, 1) if d.get("wall_s") else None for d in data])
+    add("Recorded pipeline wall time, incl. recovery (min)", "lower", "wall", [round(d["wall_s"] / 60, 1) if d.get("wall_s") else None for d in data])
     for key, label in (("peak_vram_gb", "Peak VRAM, generation process (GB)"), ("sys_ram_gb", "Peak system RAM (GB)"),
                        ("swap_gb", "Peak swap (GB, of ~6.3)"), ("oom_kills", "OOM kills"), ("cost_usd", "API cost (USD)")):
         add(label, "lower", key, [d.get(key) for d in data])
@@ -740,9 +775,13 @@ def clean_tables(summary: dict[str, Any]) -> str:
     header = ["Metric", "Better", *[SHORT.get(s, s) for s in setups], "Better setup"]
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     lines += ["| " + " | ".join(row) + " |" for row in rows]
-    out = ["Final drawing per subject, n = 20 per setup. Mean or rate, with bootstrap 95% CI in brackets. "
+    out = ["Final drawing per completed subject. Missing outputs from API failures are excluded from image metrics; "
+           "see subject and final-image counts below. Mean or rate, with bootstrap 95% CI in brackets. "
            "**Bold** = better and CIs don't overlap; \"(CIs overlap)\" = direction only.", "", "\n".join(lines)]
 
+    counts = [{"setup": s, "subjects": summary["setups"][s]["n_subjects"],
+               "final_images": summary["setups"][s]["n_final_images"]} for s in setups]
+    out += ["", md_table(counts, ["setup", "subjects", "final_images"])]
     out += ["", "**Per category** (A = " + names[0] + ", B = " + names[1] + ")", ""]
     cat_header = ["Category", "n", "Accepted A / B", f"Strong-referee pass A / B", "BioCLIP top-1 A / B", "Silhouette IoU A / B"]
     cat_lines = ["| " + " | ".join(cat_header) + " |", "|" + "---|" * len(cat_header)]
@@ -818,6 +857,7 @@ def main() -> None:
         p.add_argument("--limit", type=int, default=None)
         p.add_argument("--resume", action="store_true", help="Skip subjects this setup already finished.")
     sub.add_parser("evaluate")
+    sub.add_parser("probe")
     referee = sub.add_parser("referee")
     referee.add_argument("--referees", nargs="*")
     referee.add_argument("--resume", action="store_true", help="Skip successful verdicts for the same final drawing.")
@@ -825,7 +865,7 @@ def main() -> None:
     args = parser.parse_args()
     {
         "build-evalset": cmd_build_evalset, "pipeline": cmd_pipeline, "_pipeline-one": cmd_pipeline_one,
-        "evaluate": cmd_evaluate, "referee": cmd_referee, "report": cmd_report,
+        "evaluate": cmd_evaluate, "probe": cmd_probe, "referee": cmd_referee, "report": cmd_report,
     }[args.command](args)
 
 

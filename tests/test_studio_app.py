@@ -175,3 +175,16 @@ def test_animal_worker_reports_pipeline_errors(client, tmp_path):
         )
     assert "missing.jpg" in str(failure.value) or "No such file" in str(failure.value)
     assert (jobs.store.job_dir("job_worker_test") / "worker.log").exists()
+
+
+def test_face_glasses_modes(client):
+    jobs = importlib.import_module("wildtrace_app.jobs")
+    assert jobs.face_glasses_settings("on") == {"include_glasses": True}
+    assert jobs.face_glasses_settings("off") == {"include_glasses": False}
+    assert jobs.face_glasses_settings(None) == {"include_glasses": False}
+    assert jobs.face_glasses_settings("auto")["fidelity_check"] is True
+    with pytest.raises(ValueError):
+        jobs.face_glasses_settings("maybe")
+    bad = client.post("/api/jobs/image", files={"file": ("a.jpg", b"x", "image/jpeg")},
+                      data={"kind": "face", "glasses": "maybe"})
+    assert bad.status_code == 422

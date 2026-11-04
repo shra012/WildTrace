@@ -145,3 +145,35 @@ def test_hair_strands_follow_the_outer_hair_edge_away_from_the_face():
     assert distances.min() > 55 and distances.max() < 80
     assert np.linalg.norm(strands[0][0] - strands[0][-1]) > 40  # open, not closed
     assert hair_strands(_mask_contours(hair, 0), face, hair.shape, {**DEFAULT_SETTINGS, "hair_strands": 0}) == []
+
+
+@pytest.mark.parametrize("ears,glasses", [(False, False), (True, False), (False, True), (True, True)])
+def test_ears_and_glasses_work_independently_of_hair_and_shoulders(monkeypatch, ears, glasses):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, Mock
+    import wildtrace.face_lineart as module
+
+    landmarks = [SimpleNamespace(x=0.5, y=0.5) for _ in range(478)]
+    landmarker = MagicMock()
+    landmarker.detect.return_value = SimpleNamespace(face_landmarks=[landmarks])
+    monkeypatch.setattr(module, "_landmarker", lambda *a: (landmarker, "fixture"))
+    outline = np.array([[20., 20.], [80., 20.], [80., 80.], [20., 80.], [20., 20.]])
+    monkeypatch.setattr(module, "_feature_strokes", lambda *a: ([outline], ["face_outline"]))
+    monkeypatch.setattr(module, "_model_path", lambda *a: Path("unused"))
+    segmenter = MagicMock()
+    segmenter.segment.return_value.category_mask.numpy_view.return_value = np.zeros((100, 100), dtype=np.uint8)
+    create = Mock(return_value=(segmenter, "fixture"))
+    monkeypatch.setattr(module, "_create", create)
+    monkeypatch.setattr(module, "_segmentation_strokes", lambda *a: ([], []))
+    ear = Mock(return_value=[np.array([[15., 35.], [10., 50.], [15., 65.]])])
+    frames = Mock(return_value=[np.array([[30., 35.], [50., 25.], [70., 35.]])])
+    monkeypatch.setattr(module, "ear_strokes", ear)
+    monkeypatch.setattr(module, "glasses_strokes", frames)
+    art = module.extract_face_lineart(np.zeros((100, 100, 3), dtype=np.uint8),
+                                     {"include_hair": False, "include_shoulders": False,
+                                      "include_ears": ears, "include_glasses": glasses})
+    assert ("ear" in art.labels) == ears
+    assert ("glasses" in art.labels) == glasses
+    assert create.call_count == int(ears)
+    assert ear.call_count == int(ears)
+    assert frames.call_count == int(glasses)

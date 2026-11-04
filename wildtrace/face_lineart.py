@@ -47,11 +47,21 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # sticks out past the oval, between eye height and the base of the nose.
     "include_ears": True,
     "ear_gap_px": 5.0,
+    # A real ear bulges out of the oval and is tall: the piece must stick out this far (fraction of face
+    # width) and span this much of the face height; a shorter, flatter piece is the cheek edge, not an ear.
+    "ear_min_bulge_faces": 0.09,
+    "ear_min_height_faces": 0.12,
     # Glasses: neither the landmarker nor the segmenter can tell whether a person wears glasses (the
     # segmenter's accessory class catches fragments at best, and image edges confuse frames with skin
     # and lashes), so this is set from outside: by the face fidelity judge or a user toggle. When set,
     # frames are drawn from the eye landmarks: rounded lenses, a bridge and short temple arms.
     "include_glasses": False,
+    # Opt-in: after drawing, a local VLM judge compares photo and drawing; if the photo has glasses and
+    # the drawing does not, the drawing is redone once with include_glasses=True. Local Ollama only
+    # (faces never leave the machine); an unreachable judge keeps the first drawing.
+    "fidelity_check": False,
+    "fidelity_ollama_host": "http://127.0.0.1:11434",
+    "fidelity_model": None,              # None: face_fidelity.LOCAL_MODEL
     "glasses_lens_width": 1.6,           # lens width in eye widths (corner to corner)
     "glasses_lens_height": 1.05,
     "simplify_epsilon_px": 1.2,          # Douglas-Peucker tolerance on the resized photo
@@ -376,9 +386,11 @@ def _segmentation_strokes(category: np.ndarray, face_outline: np.ndarray, settin
 
 
 def ear_strokes(category: np.ndarray, face_outline: np.ndarray, band: tuple[float, float], gap: float,
-                columns: tuple[float, float] | None = None) -> list[np.ndarray]:
+                columns: tuple[float, float] | None = None, min_bulge: float = 0.09,
+                min_height: float = 0.12) -> list[np.ndarray]:
     """Outer edge of each ear: the face-skin contour where it leaves the face oval sideways, inside the
-    vertical band (eye height to nose base) where ears sit."""
+    vertical band (eye height to nose base) where ears sit. Pieces must bulge out of the oval by
+    `min_bulge` face widths and span `min_height` face heights."""
     if len(face_outline) == 0:
         return []
     height, width = category.shape
@@ -387,7 +399,7 @@ def ear_strokes(category: np.ndarray, face_outline: np.ndarray, band: tuple[floa
     skin[:, : max(0, int(np.floor(left)))] = False
     skin[:, min(width, int(np.ceil(right))):] = False
     low, high = face_outline.min(axis=0), face_outline.max(axis=0)
-    face_w = float(high[0] - low[0])
+    face_w, face_h = float(high[0] - low[0]), float(high[1] - low[1])
     closed = np.vstack([face_outline, face_outline[:1]])
     strokes = []
     for contour in _mask_contours(skin, min_area=0.002 * skin.size):
@@ -401,7 +413,10 @@ def ear_strokes(category: np.ndarray, face_outline: np.ndarray, band: tuple[floa
             # _runs joins across small gaps and around the closed contour; clip again so a turned head's
             # jaw and neck line, which also leaves the oval, cannot come along with the ear.
             piece = piece[(piece[:, 1] > band[0]) & (piece[:, 1] < band[1])]
-            if len(piece) > 2 and _length(piece) > 0.12 * face_w and np.ptp(piece[:, 1]) <= band[1] - band[0]:
+            if len(piece) <= 2 or _length(piece) <= 0.12 * face_w or np.ptp(piece[:, 1]) > band[1] - band[0]:
+                continue
+            bulge = float(_distance_to_polylines(piece, [closed]).max())
+            if bulge >= min_bulge * face_w and np.ptp(piece[:, 1]) >= min_height * face_h:
                 strokes.append(_smooth(piece))
     return strokes
 
@@ -714,7 +729,7 @@ def extract_face_lineart(photo: np.ndarray, settings: dict[str, Any] | None = No
     face_outline = next((s for s, l in zip(strokes, labels) if l == "face_outline"), np.zeros((0, 2)))
 
     notes = []
-    if settings["include_hair"] or settings["include_shoulders"]:
+    if settings["include_hair"] or settings["include_shoulders"] or settings.get("include_ears", True):
         segmenter_model = _model_path("selfie_multiclass", settings)
         segmenter, _ = _create(
             lambda d: vision.ImageSegmenter.create_from_options(
@@ -742,10 +757,13 @@ def extract_face_lineart(photo: np.ndarray, settings: dict[str, Any] | None = No
             mesh = np.asarray([[lm.x * width, lm.y * height] for lm in landmarks])
             face_h = float(np.ptp(face_outline[:, 1]))
             band = (float(mesh[[33, 263], 1].mean()) - 0.05 * face_h, float(mesh[2, 1]) + 0.06 * face_h)
-            ears = ear_strokes(category, face_outline, band, float(settings.get("ear_gap_px", 5.0)), columns)
+            ears = ear_strokes(category, face_outline, band, float(settings.get("ear_gap_px", 5.0)), columns,
+                               float(settings["ear_min_bulge_faces"]), float(settings["ear_min_height_faces"]))
             strokes += ears
             labels += ["ear"] * len(ears)
             notes.append(f"ear strokes: {len(ears)}")
+        notes.append(f"hair strokes: {extra_labels.count('hair')}, neck strokes: {extra_labels.count('neck')}, "
+                     f"shoulder strokes: {extra_labels.count('shoulders')}")
     if settings.get("include_glasses", False) and len(face_outline):
         mesh = np.asarray([[lm.x * width, lm.y * height] for lm in landmarks])
         frames = glasses_strokes(mesh, face_outline, float(settings.get("glasses_lens_width", 1.6)),
@@ -753,8 +771,6 @@ def extract_face_lineart(photo: np.ndarray, settings: dict[str, Any] | None = No
         strokes += frames
         labels += ["glasses"] * len(frames)
         notes.append(f"glasses strokes: {len(frames)}")
-        notes.append(f"hair strokes: {extra_labels.count('hair')}, neck strokes: {extra_labels.count('neck')}, "
-                     f"shoulder strokes: {extra_labels.count('shoulders')}")
 
     if len(face_outline):
         box = portrait_box(face_outline, settings)
@@ -873,6 +889,52 @@ def find_faces(
     return faces
 
 
+def _write_outputs(art: FaceLineArt, settings: dict[str, Any], out_dir: Path) -> dict[str, Any]:
+    trajectory = to_trajectory(art, float(settings["margin"]))
+    trajectory_path = out_dir / "trajectory.json"
+    trajectory_path.write_text(json.dumps(trajectory, indent=2), encoding="utf-8")
+    svg_path = out_dir / "strokes.svg"
+    write_svg(
+        svg_path,
+        [[(p["x"], p["y"]) for p in stroke["points"]] for stroke in trajectory["strokes"]],
+        1024, 1024, stroke_width=3, stroke_color="#000000",
+    )
+    lineart_path = out_dir / "lineart.png"
+    render_lineart(trajectory).save(lineart_path)
+    return {"trajectory": trajectory, "trajectory_path": trajectory_path, "svg_path": svg_path,
+            "lineart_path": lineart_path}
+
+
+def _fidelity_check(source_path: Path, lineart_path: Path, settings: dict[str, Any],
+                    drawing_has_glasses: bool = False) -> dict[str, Any]:
+    """Run the local judge; never raises. Returns the verdict summary recorded in the trajectory.
+
+    The judge decides only whether the photo shows glasses. Whether the drawing has them is known
+    exactly from the stroke labels, and the judge misreads line art (it reported glasses in a drawing
+    with none), so its drawing verdict is recorded but does not drive the redraw."""
+    from wildtrace import face_fidelity
+
+    verdict: dict[str, Any] = {"status": "ok", "glasses_missing": False, "glasses_added": False}
+    try:
+        kwargs = {"model": settings["fidelity_model"]} if settings.get("fidelity_model") else {}
+        result = face_fidelity.judge_face_fidelity(
+            source_path, lineart_path, backend="ollama",
+            ollama_host=str(settings["fidelity_ollama_host"]), **kwargs)
+    except Exception as exc:
+        return {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"[:200],
+                "glasses_missing": False, "glasses_added": False}
+    glasses = result["features"]["glasses"]
+    verdict.update(
+        resemblance=result["resemblance"], missing=list(result["missing"]), extra=list(result["extra"]),
+        glasses_photo=glasses["photo"], glasses_drawing=bool(drawing_has_glasses),
+        glasses_drawing_judge=glasses["drawing"],
+        model=result["provenance"]["model"],
+        glasses_missing=bool(glasses["photo"] == "present" and not drawing_has_glasses
+                             and not settings.get("include_glasses")),
+    )
+    return verdict
+
+
 def generate_face_trajectory(
     *,
     image_path: Path,
@@ -911,17 +973,28 @@ def generate_face_trajectory(
     ))
 
     emit(FaceStageEvent("extract", "Build pen strokes", "running"))
-    trajectory = to_trajectory(art, float(settings["margin"]))
-    trajectory_path = out_dir / "trajectory.json"
-    trajectory_path.write_text(json.dumps(trajectory, indent=2), encoding="utf-8")
-    svg_path = out_dir / "strokes.svg"
-    write_svg(
-        svg_path,
-        [[(p["x"], p["y"]) for p in stroke["points"]] for stroke in trajectory["strokes"]],
-        1024, 1024, stroke_width=3, stroke_color="#000000",
-    )
-    lineart_path = out_dir / "lineart.png"
-    render_lineart(trajectory).save(lineart_path)
+    out = _write_outputs(art, settings, out_dir)
+    fidelity = None
+    if settings.get("fidelity_check"):
+        fidelity = _fidelity_check(source_path, out["lineart_path"], settings,
+                                   drawing_has_glasses="glasses" in art.labels)
+        if fidelity["status"] == "ok" and fidelity["glasses_missing"]:
+            try:
+                redo = extract_face_lineart(photo, {**settings, "include_glasses": True}, others, target)
+                if any(label == "glasses" for label in redo.labels):
+                    art = redo
+                    out = _write_outputs(art, settings, out_dir)
+                    fidelity["glasses_added"] = True
+                else:
+                    fidelity["note"] = "glasses requested but none could be drawn"
+            except Exception as exc:  # keep the first drawing
+                fidelity["note"] = f"glasses redraw failed: {exc}"[:200]
+        if fidelity.get("note") is None:
+            fidelity.pop("note", None)
+        trajectory = json.loads(out["trajectory_path"].read_text(encoding="utf-8"))
+        trajectory["fidelity"] = fidelity
+        out["trajectory_path"].write_text(json.dumps(trajectory, indent=2), encoding="utf-8")
+    trajectory, lineart_path = out["trajectory"], out["lineart_path"]
     stats = {
         "stroke_count": trajectory["stroke_count"],
         "point_count": trajectory["point_count"],
@@ -935,8 +1008,9 @@ def generate_face_trajectory(
     return {
         "source_path": source_path,
         "lineart_path": lineart_path,
-        "svg_path": svg_path,
-        "trajectory_path": trajectory_path,
+        "svg_path": out["svg_path"],
+        "trajectory_path": out["trajectory_path"],
         "stats": stats,
         "backend": art.backend,
+        "fidelity": fidelity,
     }

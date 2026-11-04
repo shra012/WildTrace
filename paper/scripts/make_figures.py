@@ -236,8 +236,6 @@ def figure_photos() -> None:
     isaac.crop((720, 60, 1360, 420)).save(OUT / "twin_closeup.jpg", quality=92)
     real = Image.open(REPO / "paper/figures/src/real_bird_frame.jpg").convert("RGB")
     real.crop((0, 120, 464, 740)).save(OUT / "real_arm.jpg", quality=92)
-    face = Image.open(RESULTS / "portrait_hardware_eval/20261102/07_face_e67870b5_act_markerB_topdown.png").convert("RGB")
-    face.rotate(-90, expand=True).crop((140, 130, 350, 390)).save(OUT / "real_face.jpg", quality=92)
 
 
 def robustness_table(ik: pd.DataFrame, act: pd.DataFrame) -> None:
@@ -344,7 +342,8 @@ def figure_faces() -> None:
             ax.set_yticks([])
             for sp in ax.spines.values():
                 sp.set_visible(False)
-            path = real[face] if name == "real" else work / face / name
+            v2 = REPO / "outputs" / "paper_eval" / "paper_faces_v2" / face / name  # final line art (with ears)
+            path = real[face] if name == "real" else (v2 if name == "lineart.png" and v2.exists() else work / face / name)
             if path is not None and Path(path).exists():
                 im = Image.open(path).convert("RGB")
                 im.thumbnail((700, 700))

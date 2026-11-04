@@ -1,0 +1,27 @@
+\begin{table}[t]
+\centering
+\caption{Generator and judge study (paper-r3, 20 subjects per generator). $n$: evaluated images or paired verdicts. Pass: Qwen3-VL-235B; export: trajectory constraints.}
+\label{tab:judge}
+\setlength{\tabcolsep}{2.6pt}
+\begin{tabular}{lrrrrr}
+\toprule
+Generator & $n$ & Pass & BioCLIP & Blank & Export \\
+\midrule
+Informative drawings & 20 & 0/20 & 25\% & 0\% & 100\% \\
+SD1.5 + ControlNet & 20 & 2/20 & 25\% & 0\% & 100\% \\
+FLUX.1-schnell & 20 & 16/20 & 55\% & 0\% & 100\% \\
+OmniGen2 & 20 & 8/20 & 25\% & 45\% & 55\% \\
+\bottomrule
+\end{tabular}
+\vspace{3pt}
+\begin{tabular}{lrrr}
+\toprule
+Judge & $n$ & Agreement & Cohen's $\kappa$ \\
+\midrule
+Qwen2.5-VL-7B (local) & 80 & 38.8\% & 0.06 \\
+Qwen3-VL-8B & 80 & 88.7\% & 0.76 \\
+Qwen3-VL-30B-A3B & 80 & 91.2\% & 0.81 \\
+Gemma-3-12B & 80 & 78.7\% & 0.59 \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -148,17 +148,13 @@ J.~Tobin, R.~Fong, A.~Ray, J.~Schneider, W.~Zaremba, and P.~Abbeel, ``Domain
 C.~Lugaresi \emph{et~al.}, ``{MediaPipe}: A framework for building perception
   pipelines,'' \emph{arXiv preprint arXiv:1906.08172}, 2019.
 
-\bibitem{bai2025qwen3vl}
-S.~Bai \emph{et~al.}, ``{Qwen3-VL} technical report,'' \emph{arXiv preprint
-  arXiv:2511.21631}, 2025.
-
 \bibitem{wu2025omnigen2}
 C.~Wu \emph{et~al.}, ``{OmniGen2}: Towards instruction-aligned multimodal
   generation,'' \emph{arXiv preprint arXiv:2506.18871}, 2025.
 
-\bibitem{bai2025qwen25vl}
-S.~Bai \emph{et~al.}, ``{Qwen2.5-VL} technical report,'' \emph{arXiv preprint
-  arXiv:2502.13923}, 2025.
+\bibitem{bai2025qwen3vl}
+S.~Bai \emph{et~al.}, ``{Qwen3-VL} technical report,'' \emph{arXiv preprint
+  arXiv:2511.21631}, 2025.
 
 \bibitem{isaacsim}
 {NVIDIA}, ``{Isaac Sim},'' \url{https://developer.nvidia.com/isaac/sim},

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -393,6 +394,8 @@ class OllamaSemanticValidator(SemanticValidator):
         # budget reasoning and return no JSON.
         if self.settings.get("think") is not None:
             body["think"] = bool(self.settings["think"])
+        if self.settings.get("format") is not None:
+            body["format"] = self.settings["format"]
         req = request.Request(
             f"{self._host().rstrip('/')}/api/generate",
             data=json.dumps(body).encode("utf-8"),
@@ -527,16 +530,37 @@ class OpenRouterSemanticValidator(OllamaSemanticValidator):
             },
             method="POST",
         )
-        try:
-            with request.urlopen(req, timeout=float(self.settings.get("openrouter_timeout_seconds", 60))) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except error.HTTPError as exc:  # pragma: no cover - network path
-            detail = exc.read().decode("utf-8", errors="ignore")
-            raise RuntimeError(f"OpenRouter semantic validation failed: {detail or exc.reason}") from exc
-        except error.URLError as exc:  # pragma: no cover - network path
-            raise RuntimeError(f"OpenRouter semantic validation failed: {exc.reason}") from exc
-        if "error" in payload:
-            raise RuntimeError(f"OpenRouter semantic validation failed: {payload['error']}")
+        retries = max(0, int(self.settings.get("openrouter_max_retries", 0)))
+        for attempt in range(retries + 1):
+            try:
+                with request.urlopen(req, timeout=float(self.settings.get("openrouter_timeout_seconds", 60))) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                if "error" in payload:
+                    detail = payload["error"]
+                    code = detail.get("code") if isinstance(detail, dict) else None
+                    if str(code) in {"429", "500", "502", "503", "504"} and attempt < retries:
+                        time.sleep(min(30, 5 * 2**attempt))
+                        continue
+                    raise RuntimeError(f"OpenRouter semantic validation failed: {detail}")
+                break
+            except error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="ignore")
+                if exc.code in {429, 500, 502, 503, 504} and attempt < retries:
+                    delay = min(30, 5 * 2**attempt)
+                    try:
+                        delay = max(delay, min(60, float(exc.headers.get("Retry-After", 0))))
+                    except (ValueError, TypeError, AttributeError):
+                        pass
+                    logging.getLogger(__name__).warning("OpenRouter HTTP %s; retry %s/%s in %.0f s",
+                                                       exc.code, attempt + 1, retries, delay)
+                    time.sleep(delay)
+                    continue
+                raise RuntimeError(f"OpenRouter semantic validation failed: {detail or exc.reason}") from exc
+            except error.URLError as exc:
+                if attempt < retries:
+                    time.sleep(min(30, 5 * 2**attempt))
+                    continue
+                raise RuntimeError(f"OpenRouter semantic validation failed: {exc.reason}") from exc
         usage = payload.get("usage") or {}
         # Reshape to the Ollama /api/generate payload the parent class reads.
         return {

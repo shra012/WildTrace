@@ -91,7 +91,7 @@ interface CatalogItem {
 | GET | `/api/health` | | `{gpu: {busy: bool, utilization: number, note: string}, isaac: {running: bool, scene_ready: bool, config?: string}, backends: {image: string, chat: string, face: string}, policy: {checkpoint: string, device: string}}` |
 | POST | `/api/chat` | `{message: string, session_id?: string}` | `{reply: string, job?: Job, run?: Run, suggestions?: string[]}` |
 | POST | `/api/jobs/text` | `{prompt: string}` | `Job` |
-| POST | `/api/jobs/image` | multipart: `file`, `kind` = `face` \| `animal` \| `auto`, optional `category` | `Job` |
+| POST | `/api/jobs/image` | multipart: `file`, `kind` = `face` \| `animal` \| `auto`, optional `category`, optional `glasses` = `off` (default) \| `on` \| `auto` | `Job` (face jobs only use `glasses`: `on` always draws glasses, `off` never, `auto` asks a local Ollama judge and redraws once with glasses if the photo has them and the drawing does not; the verdict is stored under `fidelity` in the trajectory file, or `status: "skipped"` if the judge is unreachable; faces never go to a hosted judge) |
 | GET | `/api/jobs` | | `Job[]` (newest first) |
 | GET | `/api/jobs/{id}` | | `Job` |
 | DELETE | `/api/jobs/{id}` | | `{deleted: string}` (removes the job, its runs and files; 409 while it runs or is being drawn) |

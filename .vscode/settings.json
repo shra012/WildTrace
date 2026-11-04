@@ -11,6 +11,7 @@
     "outputs",
     "isaac-sim/outputs",
     "isaac-sim/models",
+    "isaac-sim/results/paper_eval",
     "isaac-sim/.vendor",
     "app/frontend"
   ],
@@ -22,6 +23,7 @@
     "**/.venv/**": true,
     "**/.venv-act/**": true,
     "isaac-sim/models/**": true,
+    "isaac-sim/results/paper_eval/**": true,
     "**/node_modules/**": true,
     "**/.next/**": true,
     "**/.ruff_cache/**": true,
@@ -35,6 +37,7 @@
     "**/.venv": true,
     "**/.venv-act": true,
     "isaac-sim/models": true,
+    "isaac-sim/results/paper_eval": true,
     "**/node_modules": true,
     "**/.next": true,
     "**/.ruff_cache": true,

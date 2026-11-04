@@ -182,14 +182,40 @@ def _detect_work(job_id: str, image_path: Path):
 def _draw_face(job_id: str, choice: dict[str, Any]) -> dict[str, Any]:
     from wildtrace.face_lineart import generate_face_trajectory
 
+    glasses = ((store.get_job(job_id) or {}).get("request") or {}).get("glasses", "off")
     return generate_face_trajectory(
         image_path=file_path(choice["image_url"]), out_dir=store.job_dir(job_id), emit=_on_event(job_id),
         other_faces=choice["others_in_crop"], target_face=choice["box_in_crop"],
+        settings=face_glasses_settings(glasses),
     )
 
 
-def face_job(image_path: Path, title: str = "Your portrait") -> dict[str, Any]:
-    job = store.create_job("face", title, {"image_url": file_url(image_path)}, _stages("face"))
+GLASSES_MODES = ("auto", "on", "off")
+
+
+def face_glasses_settings(glasses: str | None) -> dict[str, Any]:
+    """Face settings for a glasses mode: on forces frames, off never draws them, auto asks the local
+    judge (Ollama on this machine only; faces never go to a hosted model)."""
+    mode = glasses or "off"
+    if mode not in GLASSES_MODES:
+        raise ValueError(f"glasses must be one of {', '.join(GLASSES_MODES)}")
+    if mode == "on":
+        return {"include_glasses": True}
+    if mode == "auto":
+        settings: dict[str, Any] = {"fidelity_check": True}
+        host = os.environ.get("WILDTRACE_FACE_JUDGE_HOST")
+        if host:
+            settings["fidelity_ollama_host"] = host
+        return settings
+    return {"include_glasses": False}
+
+
+def face_job(image_path: Path, title: str = "Your portrait", glasses: str = "off") -> dict[str, Any]:
+    face_glasses_settings(glasses)
+    request = {"image_url": file_url(image_path)}
+    if glasses != "off":
+        request["glasses"] = glasses
+    job = store.create_job("face", title, request, _stages("face"))
     _submit(job["id"], _detect_work(job["id"], image_path))
     return job
 
@@ -275,11 +301,15 @@ def animal_job(category: str, hint: str | None = None, image_path: Path | None =
     return job
 
 
-def auto_image_job(image_path: Path, category: str | None) -> dict[str, Any]:
+def auto_image_job(image_path: Path, category: str | None, glasses: str = "off") -> dict[str, Any]:
     """A face if MediaPipe finds one, otherwise an animal of `category`."""
     if category:
         return animal_job(category, image_path=image_path)
-    job = store.create_job("face", "Your photo", {"image_url": file_url(image_path)}, _stages("face"))
+    face_glasses_settings(glasses)
+    request = {"image_url": file_url(image_path)}
+    if glasses != "off":
+        request["glasses"] = glasses
+    job = store.create_job("face", "Your photo", request, _stages("face"))
     detect = _detect_work(job["id"], image_path)
 
     def work() -> dict[str, Any] | None:

@@ -20,6 +20,7 @@
 \usepackage{algorithm}
 \usepackage{algorithmic}
 \newcommand{\mm}{\,mm\xspace}
+\input{tables/generator_metrics}
 
 \begin{document}
 
@@ -154,47 +155,34 @@ next to their source photographs.
   \centering
   \includegraphics[width=\textwidth]{figures/faces.pdf}
   \caption{Face portraits: Open Images source photographs (top) and the pen-sketch line art traced from MediaPipe
-  landmarks and segmentation (bottom), 15 to 19 strokes each. Photographs CC BY 2.0 via Flickr, by Byron Gonzalez,
+  landmarks and segmentation, including ears where they stand out from the head (bottom), 15 to 19 strokes each. Photographs CC BY 2.0 via Flickr, by Byron Gonzalez,
   MangakaMaiden Photography, Luca Boldrini, JJP Bolger Photography and Walt Stoneburner (left to right).}
   \label{fig:faces}
 \end{figure*}
 
-\textbf{Choosing the generator and the judge.} Table~\ref{tab:judge} summarises a 20-subject study against a
-strong referee (Qwen3-VL-235B~\cite{bai2025qwen3vl}). FLUX produced acceptable outlines for all 20 subjects against
-6/20 for OmniGen2~\cite{wu2025omnigen2} (paired sign test $p=10^{-4}$), whose failures were mostly blank pages. The local Qwen2.5-VL-7B~\cite{bai2025qwen25vl} judge originally
-in production agreed with the referee no better than chance and passed every blank page; we therefore switched
-to Qwen3-VL-8B, which agrees with the referee on 92.5\% of outlines.
+\textbf{Choosing the generator and the judge.} Table~\ref{tab:judge} compares informative drawings,
+SD1.5 with ControlNet, FLUX and OmniGen2~\cite{wu2025omnigen2} on the same 20 subjects, using corrected contour
+conditioning. Each uses Qwen3-VL-8B in the retry loop with a three-attempt budget. Four judges then rescore
+the final images, including prescreen rejects, against Qwen3-VL-235B~\cite{bai2025qwen3vl}.
+\ifGeneratorStudyComplete\else
+Hosted API errors interrupted some subjects and referee calls; the table gives the available denominators,
+and this generator comparison remains interim.
+\fi
+The OpenCV prescreen favours FLUX's clean line style: informative drawings failed it on all 60 attempts
+(component count, small contours or lower fragments), so none reached the in-loop judge. This selection
+effect must be considered alongside the generator scores.
 
-\textbf{Why open-weight models, not frontier APIs.} Every generator and judge in the pipeline is an open-weight
-model that runs on the lab's single 16\,GB laptop GPU, and we did not evaluate proprietary frontier models in
-either role. Four reasons drove this. (i) \emph{Volume and cost}: the dataset took thousands of generate-judge
-calls with up to three attempts per subject, at zero marginal cost locally; a hosted open 8B judge costs about
-\$0.00004 per call, which keeps even hosted runs negligible. (ii) \emph{Privacy}: WildTrace Studio turns
-uploaded photographs of people into portraits, and a local pipeline never sends those faces to a third party.
-(iii) \emph{Reproducibility}: pinned open weights give the same verdicts on a rerun, whereas a hosted frontier
-model can change under the same name. (iv) \emph{Sufficiency}: an 8B open judge already agrees with a 235B open
-referee at $\kappa=0.83$, so a larger judge has little room to improve the accept/reject decision. The cost is
-that we cannot report how a frontier judge would score; the referee is itself an open model.
+\textbf{Why open-weight models, not frontier APIs.} The generators and judges are open-weight models;
+we did not evaluate proprietary frontier models in either role. The generators and local 7B judge run on the
+lab's 16\,GB laptop GPU; the other judges and the 235B referee are hosted for this study. Open weights support
+three practical goals. (i) \emph{Volume and cost}: the dataset requires thousands of generate-judge calls;
+local execution avoids per-call API fees, while the benchmark records hosted costs. (ii) \emph{Privacy}:
+Studio's face-landmark and segmentation path processes uploaded portraits locally.
+(iii) \emph{Reproducibility}: pinned checkpoints and saved prompts permit controlled reruns and inspection.
+Table~\ref{tab:judge} measures the agreement of smaller judges with the larger open referee; this is an
+imperfect reference, not a human evaluation or evidence about proprietary frontier models.
 
-\begin{table}[t]
-\centering
-\caption{Outline generator and judge study (20 subjects, referee Qwen3-VL-235B).}
-\label{tab:judge}
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lcc}
-\toprule
-Generator & Referee pass & BioCLIP top-1 \\
-\midrule
-FLUX.1-schnell & \textbf{20/20} & \textbf{75\%} \\
-OmniGen2       & 6/20  & 30\% \\
-\midrule
-Judge & Agreement & Cohen's $\kappa$ \\
-\midrule
-Qwen2.5-VL-7B (local) & passes 9/9 blanks & 0.00 \\
-Qwen3-VL-8B           & \textbf{92.5\%}   & \textbf{0.83} \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/generator_judges}
 
 %======================================================================
 \section{Robot, Twin and Controllers}
@@ -204,15 +192,13 @@ Qwen3-VL-8B           & \textbf{92.5\%}   & \textbf{0.83} \\
 \begin{figure}[t]
   \centering
   \setlength{\tabcolsep}{1pt}
-  \begin{tabular}{ccc}
+  \begin{tabular}{cc}
     \includegraphics[height=2.38cm]{figures/twin_scene.jpg} &
-    \includegraphics[height=2.38cm]{figures/real_arm.jpg} &
-    \includegraphics[height=2.38cm]{figures/real_face.jpg} \\
-    \footnotesize (a) Lab-arm twin & \footnotesize (b) Physical xArm 7 & \footnotesize (c) Real portrait
+    \includegraphics[height=2.38cm]{figures/real_arm.jpg} \\
+    \footnotesize (a) Lab-arm twin & \footnotesize (b) Physical xArm 7
   \end{tabular}
   \caption{(a) Isaac Sim twin built from the lab arm's calibrated URDF, gripper and measured paper placement, at
-  1\,g. (b) The physical xArm 7 drawing a WildTrace bird. (c) A face portrait drawn by ACT on the physical arm
-  with a marker (run 7 in Table~\ref{tab:real}).}
+  1\,g. (b) The physical xArm 7 drawing a WildTrace bird.}
   \label{fig:robot}
 \end{figure}
 
@@ -245,9 +231,8 @@ controller the system shipped with and the teacher that labels the policy data.
 ACT's progress rule (the first waypoint ahead of the pen's projection, Sec.~\ref{sec:control}) with no settle
 gate, and solves Lula IK every tick for a carrot a fixed arc length $L$ ahead of the pen (pure pursuit). The carrot
 advances along the path no faster than ACT's median pen speed, 12.4\mm\,s$^{-1}$, so both controllers draw at
-the same pace; we also run it at plain IK's median pen speed, 6.9\mm\,s$^{-1}$. On six drawings outside the test
-set, $L$ between 0.5 and 2\mm made no difference because the speed limit binds, so we use $L=0.5$\mm. Without
-the speed limit, pure pursuit raced through a drawing in a sixth of the time at 0.69\mm RMSE.
+the same pace; we also run it at plain IK's median pen speed, 6.9\mm\,s$^{-1}$. Both runs use $L=1$\mm.
+The speed cap prevents the carrot from advancing faster than the comparison pace.
 
 \textbf{ACT path follower.} At control tick $t$ the policy observes the robot state
 $s_t = [\,q_t,\ \dot q_t,\ u_{t-1}\,] \in \mathbb{R}^{21}$ (joint positions, velocities and previous joint
@@ -462,22 +447,25 @@ cap fixed spike tips (0.885\mm) at a small RMSE cost. Moving to the stiffened la
 jitter in training, gives the final policy. Each variant beats IK on path RMSE in its own scene.
 
 \textbf{Paper placement.} Table~\ref{tab:robust} moves the sheet on a 16-drawing subset. ACT, trained with height
-jitter, finishes all 64 runs within 0.189 to 0.193\mm. IK drops to 13/16 with the paper 12\mm lower and
-degrades to 0.300\mm under a planar shift.
+jitter, finishes all 64 runs within 0.189 to 0.193\mm, and SmolVLA, trained on the same jittered data, stays
+within 0.171 to 0.182\mm. IK drops to 13/16 with the paper 12\mm lower and degrades to 0.300\mm under a planar
+shift; streaming IK finishes every run but degrades the same way under the shift (0.261 to 0.286\mm).
 
 \begin{table}[t]
 \centering
-\caption{Paper placement robustness, 16 gold drawings (finished, mean path RMSE in mm).}
+\caption{Paper placement robustness, 16 gold drawings: mean path RMSE in mm (finished drawings in brackets
+where fewer than 16). IK and ACT columns come from the earlier development code, streaming IK (S-IK) and SmolVLA
+from the final code.}
 \label{tab:robust}
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{3pt}
 \begin{tabular}{lcccc}
 \toprule
-Placement & \multicolumn{2}{c}{Lula IK} & \multicolumn{2}{c}{ACT} \\
+Placement & Lula IK & S-IK & ACT & SmolVLA \\
 \midrule
-Nominal                & 15/16 & 0.278 & 16/16 & 0.192 \\
-12\mm lower            & 13/16 & 0.284 & 16/16 & 0.189 \\
-12\mm higher           & 15/16 & 0.271 & 16/16 & 0.193 \\
-Shifted $(+15,-15)$\mm & 16/16 & 0.300 & 16/16 & 0.190 \\
+Nominal                & 0.278 (15) & 0.261 & 0.192 & 0.178 \\
+12\mm lower            & 0.284 (13) & 0.265 & 0.189 & 0.171 \\
+12\mm higher           & 0.271 (15) & 0.255 & 0.193 & 0.182 \\
+Shifted $(+15,-15)$\mm & 0.300 & 0.286 & 0.190 & 0.182 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -489,8 +477,12 @@ accurate than ACT: 0.180 against 0.192\mm, lower on 36 of 48 drawings (paired re
 390), a higher worst point (0.871 against 0.776\mm), and twice the query latency (17.7 against 9.1\,ms). In the
 interactive runner used for the studies below the order was reversed (0.230 against 0.206\mm on six animals,
 10 flow steps, and 0.252 against 0.206\mm on one cat with the same three-step CUDA-graph server). The runners
-share the policy servers but have separate control loops, and we have not isolated which difference flips the
-order, so we compare only within a runner. The interactive-runner studies use one gold drawing per class and six face sketches unseen by both
+share the policy servers but have separate control loops. The interactive runner lacks the batch runner's
+7\mm\,s$^{-1}$ speed check before advancing the target, and draws about 1.5$\times$ faster. Removing that check in
+the batch runner on the same six animals reproduces the faster pace (71 to 52\,s) and the higher error for both
+policies (ACT 0.193 to 0.258\mm, SmolVLA 0.178 to 0.248\mm), but SmolVLA still leads on five of six, also by a
+segment-based error that removes sampling density. The speed check explains the interactive runner's pace and
+error, not the ranking; we have not isolated what flips it, so we compare only within a runner. The interactive-runner studies use one gold drawing per class and six face sketches unseen by both
 policies (Table~\ref{tab:vla}). Offline,
 on 1,024 held-out frames, ACT's first-action error is 0.28 (normalised so that predicting zero scores 1.0)
 against 0.36 for SmolVLA. In
@@ -532,11 +524,12 @@ rounds~\cite{ross2011dagger}, retrace weighting and an explicit redraw mode taug
 direction at a gap (2\% of its going-back actions pointed the wrong way, against 38\% for ACT), but not to
 land back on the line: the camera policies abandoned 16 of 17 self-directed redraws.
 
-\textbf{Hybrid repair.} With the pen made to skip ink on purpose (3 to 8\mm skips every 60\mm of inked travel on
-average), the supervisor made 87 redraws for 105 skips under ACT across 12 drawings, gave up none, and left at
-most 0.49\% of any path uninked; the remaining skips fell on line already re-inked or were shorter than the gap
-threshold. The cost was at most 0.011\mm RMSE and 0.4 to 2.2\,s per drawing. Without skips the supervisor never
-intervened.
+\textbf{Hybrid repair.} On all 48 gold drawings in the batch runner, the supervisor never intervened without
+injected faults, and ACT's results were unchanged. With the pen made to skip ink on purpose (3 to 8\mm skips
+every 60\mm of inked travel on average, 345 skips in all), it made 232 redraws, gave up none, and left 0.24\% of
+the path uninked on average; the remaining skips fell on line already re-inked or were shorter than the gap
+threshold. The cost was 0.001\mm of path RMSE and about 1\,s per drawing, with joint jerk rising from 390 to 510
+during IK's redraw moves.
 
 \begin{figure}[t]
   \centering
@@ -633,11 +626,15 @@ cause rather than content. Candidates we observed are a non-level sheet (line we
 pen compliance, the arm's own position controller differing from the twin's servo, and dense-waypoint stalls.
 Fitting the paper plane from a three-point touch and training on stalled states are the next steps.
 
-\textbf{What the pipeline does not preserve.} FLUX passes the referee reliably but redraws the subject in a
-generic pose: in our generator study its median silhouette IoU with the source photo was about 0.2, against
-0.78 to 0.91 for OmniGen2's non-blank drawings, and facing direction matched in 65\% of cases. The drawings are
-recognisably the right animal, not a tracing of the photo. Lower diffusion strength or contour conditioning is
-the obvious next step.
+\textbf{What the pipeline does not preserve.} Recognisability and geometric fidelity are separate goals.
+For completed paper-r3 final images, mean silhouette IoU with the source photo is \FluxMeanIoU{} for FLUX
+($n=\FluxImageCount$) and \OmniMeanIoU{} for OmniGen2 ($n=\OmniImageCount$, including \OmniBlankCount{} blank images);
+FLUX's facing direction matches in \FluxDirectionMatch{} of available cases.
+\ifGeneratorStudyComplete\else
+These are interim output-subset statistics; API failures prevent a full 20-subject comparison.
+\fi
+The redraw can preserve the animal category while changing its pose. Lower diffusion strength or stronger
+contour conditioning requires a separate evaluation.
 
 \textbf{Baseline strength.} We compare against the waypoint-gated IK controller the system shipped with and
 a streaming IK that shares ACT's progress rule; an optimisation-based tracker (for example model-predictive
@@ -650,12 +647,11 @@ geometric; ink scoring from photographs covers only three portraits so far, and 
 is future work. The IK baseline is
 tolerance-gated and its timeouts could be reduced by tuning. Real-arm portraits take 8 to 10\,min, against
 43\,s to 2\,min for systems built for exhibition speed~\cite{wang2019robocodraw,gao2020aisketcher,nasrat2023artistic};
-our runs used the default step scale and stall releases, not a speed-tuned setting. The hybrid supervisor and
-the camera policies were evaluated on 12 drawings in the interactive runner only.
+our runs used the default step scale and stall releases, not a speed-tuned setting. The camera policies
+were evaluated on 12 drawings in the interactive runner only.
 
-\textbf{Reproducibility.} Every number in this paper comes from per-run metric files kept with the code: the
-configuration hash, checkpoint and runner of each run are recorded, and one script regenerates all figures and
-the statistics in Tables~\ref{tab:gold} and~\ref{tab:class}.
+\textbf{Reproducibility.} Every number comes from per-run metric files that record configuration, checkpoint
+and runner; one script regenerates all figures and statistics.
 
 %======================================================================
 \section{Conclusion}

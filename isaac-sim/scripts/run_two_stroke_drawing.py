@@ -56,6 +56,11 @@ def _parse_args():
     # arm lag its command at query time, which the policy misread as sag and
     # overshot. Querying every physics step at half scale keeps lag below the
     # labels' one-tick lag and was ~3x smoother than IK on the gold set.
+    parser.add_argument("--policy-assist", action="store_true",
+                        help="ACT hybrid (src/policy_assist.py): IK takes over where the policy stalls and redraws gaps")
+    parser.add_argument("--skip-test-spacing-m", type=float, default=0.0,
+                        help="With --policy-assist: inject ink skips about this far apart (0 = none)")
+    parser.add_argument("--skip-test-seed", type=int, default=0)
     parser.add_argument("--act-hold-steps", type=int, default=1, help="Physics steps per ACT query")
     parser.add_argument(
         "--act-action-scale",
@@ -508,6 +513,15 @@ def main() -> int:
         policy = ActPolicyClient(ARGS.policy_address)
         policy.reset()
         print(f"[OK] ACT controller via {ARGS.policy_address}")
+    assist = None
+    if ARGS.policy_assist:
+        from act_features import SkipSchedule
+        from policy_assist import POLICY, REDRAW, PolicyAssist
+
+        skips = SkipSchedule(np.random.default_rng(ARGS.skip_test_seed), ARGS.skip_test_spacing_m, (0.003, 0.008)) \
+            if ARGS.skip_test_spacing_m > 0 else None
+        assist = PolicyAssist(desired_targets, desired_positions, desired_arc, skips=skips)
+    driver, redraw_point = "policy", None
 
     # Desired path tangent and corner classification are properties of the
     # commanded waypoint sequence, so they are computed once per phase. The
@@ -638,7 +652,7 @@ def main() -> int:
                 # semantics) instead of stopping to settle on every waypoint.
                 tip_now, _ = ik.end_effector_pose()
                 current = int(phase_offsets[machine.phase_index]) + machine.target_index
-                ahead = chased_index(desired_positions, desired_arc, current, tip_now)
+                ahead = current if redraw_point is not None else chased_index(desired_positions, desired_arc, current, tip_now)
                 for _ in range(ahead - current):
                     machine.update(sim_time, True)
                 if machine.complete or machine.failed:
@@ -661,7 +675,19 @@ def main() -> int:
             if active_ik_tolerance != ik.position_tolerance_m:
                 ik.position_tolerance_m = active_ik_tolerance
             
-            if policy is not None:
+            ink_skip = None
+            if assist is not None:
+                # Hybrid control: who drives this tick (src/policy_assist.py). A redraw leaves progress where it is.
+                index = int(phase_offsets[phase_index]) + target_index
+                ink_skip = assist.ink(index, tip_position)
+                new_driver, redraw_point = assist.mode(sim_time, index, tip_position)
+                if new_driver == POLICY and driver != POLICY:
+                    act_command = None  # the policy steps on from the pose IK left
+                if new_driver == REDRAW:
+                    machine.target_started_s = sim_time
+                    error = float(np.linalg.norm(np.asarray(tip_position) - redraw_point))
+                driver = new_driver
+            if policy is not None and driver == "policy":
                 if act_command is None or step_count % max(ARGS.act_hold_steps, 1) == 0:
                     q_obs = np.asarray(robot.get_joint_positions(), dtype=np.float64)
                     qd_obs = np.asarray(robot.get_joint_velocities(), dtype=np.float64)
@@ -672,6 +698,7 @@ def main() -> int:
                     predicted = policy.act(
                         observation_state(q_obs, qd_obs, previous_target)[0],
                         environment_state(tip_position, target.position, window[None], [[float(target.pen_down)]])[0],
+                        ink_skip,
                     )
                     if not np.isfinite(predicted).all():
                         machine.fail("ACT produced a non-finite joint step")
@@ -711,7 +738,7 @@ def main() -> int:
                 first = int(phase_offsets[phase_index])
                 action, success = ik.solve(desired_positions[min(max(carrot, first), last)], orientation)
             else:
-                action, success = ik.solve(target.position, orientation)
+                action, success = ik.solve(target.position if redraw_point is None else redraw_point, orientation)
             if not success:
                 consecutive_ik_failures += 1
                 if consecutive_ik_failures >= max_ik_failures:
@@ -828,7 +855,8 @@ def main() -> int:
             reached = position_reached and velocity_settled
             if reached:
                 reached_target_errors.append(error)
-            machine.update(sim_time, reached)
+            if redraw_point is None:
+                machine.update(sim_time, reached)
             if machine.state != previous_state:
                 print(f"[STATE] {previous_state} -> {machine.state}")
 
@@ -983,6 +1011,9 @@ def main() -> int:
         metrics["desired_to_executed_nearest_path_error"] = summarize_errors(
             nearest_path_errors(executed_down, desired_down)
         )
+    if assist is not None:
+        metrics["policy_assist"] = assist.stats()
+        metrics["skip_test_spacing_m"] = ARGS.skip_test_spacing_m
     if policy is not None:
         latencies = np.asarray(policy.latencies_ms or [0.0])
         metrics["act_policy"] = {

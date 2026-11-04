@@ -126,21 +126,24 @@ def post_text_job(body: TextJobIn) -> dict[str, Any]:
 
 
 @app.post("/api/jobs/image")
-async def post_image_job(file: UploadFile = File(...), kind: str = Form("auto"), category: str | None = Form(None)) -> dict[str, Any]:
+async def post_image_job(file: UploadFile = File(...), kind: str = Form("auto"), category: str | None = Form(None),
+                         glasses: str = Form("off")) -> dict[str, Any]:
     data = await file.read()
     if not data:
         raise HTTPException(422, "Empty upload")
     if len(data) > 25 * 1024 * 1024:
         raise HTTPException(413, "Photo is larger than 25 MB")
+    if glasses not in jobs.GLASSES_MODES:
+        raise HTTPException(422, "glasses must be auto, on or off")
     path = jobs.save_upload(data, file.filename or "upload.jpg")
     category = chat.ANIMALS.get((category or "").strip().lower()) if category else None
     if kind == "face":
-        return jobs.face_job(path)
+        return jobs.face_job(path, glasses=glasses)
     if kind == "animal":
         if not category:
             raise HTTPException(422, "Say which animal it is (Bird, Cat, Dog, Fish, Frog or Horse)")
         return jobs.animal_job(category, image_path=path)
-    return jobs.auto_image_job(path, category)
+    return jobs.auto_image_job(path, category, glasses)
 
 
 @app.get("/api/jobs")
