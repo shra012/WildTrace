@@ -169,4 +169,6 @@ docs/          plans, benchmarks, architecture diagrams
 More detail: [pipeline plan](docs/Plan.md) · [architecture](docs/diagrams/WildTracePipelineArchitecture.svg) ·
 [Isaac Sim](isaac-sim/README.md) · [Studio](app/README.md) · [ACT results](isaac-sim/results/act_eval/act_real_v2_stiff_results.md)
 
+Code is released under the [MIT License](LICENSE). Images and their derivatives keep their source licenses (Open Images, mostly CC BY 2.0).
+
 <sub>Cat photo: "I'll be good!  Promise!" by jeffreyw (<a href="https://www.flickr.com/photos/jeffreyww/7591928192">Flickr</a>), <a href="https://creativecommons.org/licenses/by/2.0/">CC BY 2.0</a>, via Open Images.</sub>

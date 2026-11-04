@@ -29,6 +29,8 @@
 \citation{ross2011dagger}
 \citation{shukor2025smolvla}
 \citation{lipman2023flow}
+\citation{bristow2006ilc}
+\citation{lam2010mpcc}
 \citation{tobin2017domain}
 \citation{langgraph}
 \citation{lugaresi2019mediapipe}
@@ -52,36 +54,37 @@
 \citation{lerobot2024}
 \citation{laskey2017dart}
 \citation{shukor2025smolvla}
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Control loop. The policy runs every 60\,Hz tick on a path window around the current progress; the supervisor hands control to Lula IK only on a stall or an uninked gap (dashed), then hands back.}}{4}{}\protected@file@percent }
-\newlabel{fig:arch}{{4}{4}{}{}{}}
 \newlabel{eq:step}{{3}{4}{}{}{}}
-\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Hybrid supervisor, run every control tick}}{4}{}\protected@file@percent }
-\newlabel{alg:sup}{{1}{4}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Gold test set, 48 held-out drawings, lab-arm twin at 1\,g, same code and runner for all four controllers. Means over finished drawings; 95\% bootstrap intervals over drawings in brackets. S-IK is the streaming IK baseline at ACT's pace.}}{4}{}\protected@file@percent }
-\newlabel{tab:gold}{{II}{4}{}{}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {V}Results}{4}{}\protected@file@percent }
 \newlabel{sec:results}{{V}{4}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Hybrid supervisor, run every control tick}}{4}{}\protected@file@percent }
+\newlabel{alg:sup}{{1}{4}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Control loop. The policy runs every 60\,Hz tick on a path window around the current progress; the supervisor hands control to Lula IK only on a stall or an uninked gap (dashed), then hands back.}}{4}{}\protected@file@percent }
+\newlabel{fig:arch}{{4}{4}{}{}{}}
 \@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Kernel density estimates (Gaussian kernel, Scott bandwidth) over the gold set for the four controllers; dotted lines are medians and ticks are individual drawings ($n$ = 45 / 48 / 48 / 48 drawings, 71k / 76k / 76k / 76k pen-down samples for IK / streaming IK / ACT / SmolVLA). (a) Per-drawing path RMSE: the two learned policies separate cleanly from both IK variants. (b) Nearest-path error of every planned pen-down sample (densified plan): medians 0.256, 0.257, 0.141 and 0.120\,mm\xspace  . (c) Pen-down joint jerk: ACT is smoothest, SmolVLA between ACT and IK.}}{5}{}\protected@file@percent }
 \newlabel{fig:kde}{{5}{5}{}{}{}}
 \@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Planned path (grey) against the executed pen tip for the same gold cat, ACT (blue) and IK (orange), top-down. (c, d) A fixed 14\,mm\xspace  window on the head: IK's stop-and-settle at each waypoint leaves a tremor of small hooks along the stroke; ACT stays smooth.}}{5}{}\protected@file@percent }
 \newlabel{fig:paths}{{6}{5}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Gold test set per class: mean path RMSE in mm (finished / total where not all finished).}}{5}{}\protected@file@percent }
-\newlabel{tab:class}{{III}{5}{}{}{}}
 \citation{ross2011dagger}
-\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces How the ACT path follower got there (48 gold drawings, 1\,g, means over finished drawings, runs made during development with earlier code). Rows above the rule use the default sim scene, rows below the stiffened lab-arm twin.}}{6}{}\protected@file@percent }
+\citation{csempesz2024piktor}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Gold test set, 48 held-out drawings, lab-arm twin at 1\,g, same code and runner for all four controllers. Means over finished drawings; 95\% bootstrap intervals over drawings in brackets. S-IK is the streaming IK baseline at ACT's pace.}}{6}{}\protected@file@percent }
+\newlabel{tab:gold}{{II}{6}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Gold test set per class: mean path RMSE in mm (finished / total where not all finished).}}{6}{}\protected@file@percent }
+\newlabel{tab:class}{{III}{6}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Development history of the ACT path follower (48 gold drawings, 1\,g, means over finished drawings). Each row was run once during development with the code of its time, so rows are not a controlled ablation. Rows above the rule use the default sim scene, rows below the stiffened lab-arm twin.}}{6}{}\protected@file@percent }
 \newlabel{tab:ablation}{{IV}{6}{}{}{}}
 \@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces Paper placement robustness, 16 gold drawings: mean path RMSE in mm (finished drawings in brackets where fewer than 16). IK and ACT columns come from the earlier development code, streaming IK (S-IK) and SmolVLA from the final code.}}{6}{}\protected@file@percent }
 \newlabel{tab:robust}{{V}{6}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {VI}{\ignorespaces SmolVLA and ACT, interactive runner. Mean path RMSE / p95 (mm); all runs finished.}}{6}{}\protected@file@percent }
-\newlabel{tab:vla}{{VI}{6}{}{}{}}
-\citation{csempesz2024piktor}
+\@writefile{lot}{\contentsline {table}{\numberline {VI}{\ignorespaces SmolVLA and ACT, interactive runner. Mean path RMSE / p95 (mm); all runs finished.}}{7}{}\protected@file@percent }
+\newlabel{tab:vla}{{VI}{7}{}{}{}}
 \@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Speed against accuracy on the gold cat (interactive runner): the step scale $\alpha $ of Eq.~(\ref {eq:step}) relative to the default 0.5 is shown next to each point. ACT keeps most of its accuracy up to 1.0; SmolVLA degrades sooner.}}{7}{}\protected@file@percent }
 \newlabel{fig:speed}{{7}{7}{}{}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {VI}Discussion and Limitations}{7}{}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces ACT path RMSE per class in the twin (gold set) and on the physical arm (five drawings per class, range shown). The real arm is 2.5 to 3.0$\times $ the twin in every class. Drawings differ between the two sets, so the comparison is per class, not paired.}}{7}{}\protected@file@percent }
 \newlabel{fig:twinreal}{{8}{7}{}{}{}}
 \@writefile{lot}{\contentsline {table}{\numberline {VII}{\ignorespaces ACT on the physical arm, 30 animal drawings (five per class). Path RMSE in mm.}}{7}{}\protected@file@percent }
 \newlabel{tab:realclass}{{VII}{7}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Discussion and Limitations}{7}{}\protected@file@percent }
+\citation{chi2023diffusion}
 \citation{wang2019robocodraw,gao2020aisketcher,nasrat2023artistic}
 \bibstyle{IEEEtran}
 \bibdata{refs}
@@ -107,16 +110,18 @@
 \bibcite{lee2022scratch}{20}
 \bibcite{laskey2017dart}{21}
 \bibcite{ross2011dagger}{22}
-\bibcite{lipman2023flow}{23}
-\bibcite{tobin2017domain}{24}
-\bibcite{langgraph}{25}
-\bibcite{lugaresi2019mediapipe}{26}
-\bibcite{wu2025omnigen2}{27}
-\bibcite{bai2025qwen3vl}{28}
-\bibcite{isaacsim}{29}
-\bibcite{lerobot2024}{30}
 \@writefile{lot}{\contentsline {table}{\numberline {VIII}{\ignorespaces Face portraits on the physical arm with ACT and a marker. RMSE, p95 and max are measured from the arm's reported tip at 10\,Hz; chamfer and coverage are measured from the ink in an overhead photograph. mm.}}{8}{}\protected@file@percent }
 \newlabel{tab:real}{{VIII}{8}{}{}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {VII}Conclusion}{8}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{References}{8}{}\protected@file@percent }
-\gdef \@abspage@last{8}
+\bibcite{lipman2023flow}{23}
+\bibcite{bristow2006ilc}{24}
+\bibcite{lam2010mpcc}{25}
+\bibcite{tobin2017domain}{26}
+\bibcite{langgraph}{27}
+\bibcite{lugaresi2019mediapipe}{28}
+\bibcite{wu2025omnigen2}{29}
+\bibcite{bai2025qwen3vl}{30}
+\bibcite{isaacsim}{31}
+\bibcite{lerobot2024}{32}
+\gdef \@abspage@last{9}

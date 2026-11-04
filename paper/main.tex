@@ -49,8 +49,8 @@ unaffected by $\pm$12\mm paper height and 21\mm planar placement errors. A strea
 settle gate gains only 0.010\mm, so the improvement comes from the learned policy. A fine-tuned SmolVLA
 re-planned every tick is slightly more accurate still (0.180\mm) but jerkier and twice as slow to query, and a
 rule-based supervisor that hands stalls and ink gaps to IK repairs
-injected ink skips (87 redraws for 105 skips, none abandoned) at under 0.011\mm cost. On the physical arm, ACT completes 30/30 animal drawings at
-0.532\mm RMSE and three face portraits at 0.497\mm, about 2.7$\times$ the twin, a gap that we analyse.
+injected ink skips on all 48 drawings (232 redraws for 345 skips, none abandoned) at 0.001\mm cost. On the physical arm, ACT completes 30/30 animal drawings at
+0.532\mm RMSE and three runs of two face portraits at 0.497\mm, about 2.7$\times$ the twin, a gap that we analyse.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -79,11 +79,11 @@ compare controllers on the same drawings under identical physics. Our contributi
         progress projection, which beats IK in a calibrated 1\,g twin on accuracy, completion and smoothness,
         is insensitive to paper placement, and keeps its lead over a streaming IK baseline that shares its
         progress rule and pace (Sec.~\ref{sec:control},~\ref{sec:results}).
-  \item A like-for-like comparison with a fine-tuned SmolVLA on the same data: re-planned every tick it matches
-        and slightly exceeds ACT on the test set, at higher jerk and latency, and a negative result on
+  \item A like-for-like comparison with a fine-tuned SmolVLA on the same data: re-planned every tick in the batch runner it slightly exceeds ACT on the test set, at higher jerk and
+        latency, while the ranking reverses in a second runner, and a negative result on
         camera-conditioned gap repair.
   \item A hybrid supervisor that repairs skipped ink using the run's own bookkeeping, and a physical-arm
-        evaluation on 30 animal drawings and three portraits that quantifies the sim-to-real gap.
+        evaluation on 30 animal drawings and two portraits that quantifies the sim-to-real gap.
 \end{enumerate}
 
 \begin{figure*}[t]
@@ -126,6 +126,11 @@ corrections. We use DART-style noise with a synthetic IK teacher, and DAgger rou
 backbone for control, with a flow-matching action head~\cite{lipman2023flow}. We fine-tune SmolVLA on the same data as ACT to test whether a pretrained
 generalist helps a precision task.
 
+\textbf{Precise path tracking.} Iterative learning control refines a feedforward command over repeated runs of
+the same path~\cite{bristow2006ilc}, and model-predictive contouring control trades contour error against
+progress along the path~\cite{lam2010mpcc}. Both suit a fixed path drawn many times or a known dynamics model;
+our policies draw each new path once, with no per-path iteration or online optimisation.
+
 \textbf{Sim-to-real.} Domain randomisation~\cite{tobin2017domain} widens the training distribution to cover the
 real system; we instead calibrate the twin to the lab arm and randomise only paper placement.
 
@@ -134,7 +139,8 @@ real system; we instead calibrate the twin to the lab arm and randomise only pap
 \label{sec:pipeline}
 %======================================================================
 
-The pipeline is a local-first medallion design with one script per stage and append-only NDJSON manifests,
+The pipeline is a local-first medallion design, in which raw (bronze), cleaned (silver) and final (gold) data
+are stored as separate layers, with one script per stage and append-only NDJSON manifests,
 so a stage reruns only for rows whose configuration or input hash changed.
 
 \textbf{Bronze.} Images, segmentation masks and licenses are fetched from Open Images V7 for six classes (bird,
@@ -379,8 +385,8 @@ Horse & 5  & 0.270 & 0.266 & 0.198 & \textbf{0.188} \\
 
 \begin{table}[t]
 \centering
-\caption{How the ACT path follower got there (48 gold drawings, 1\,g, means over finished drawings, runs made
-during development with earlier code). Rows above the rule use the default sim scene, rows below the stiffened
+\caption{Development history of the ACT path follower (48 gold drawings, 1\,g, means over finished drawings).
+Each row was run once during development with the code of its time, so rows are not a controlled ablation. Rows above the rule use the default sim scene, rows below the stiffened
 lab-arm twin.}
 \label{tab:ablation}
 \setlength{\tabcolsep}{3pt}
@@ -549,7 +555,7 @@ Piktor-O-Bot~\cite{csempesz2024piktor}. SmolVLA has no faster setting within 10\
 (five per class, not the gold-set drawings) every drawing finished, at 0.532\mm mean path RMSE
 (0.421 to 0.622\mm), 2.7$\times$ the twin (Table~\ref{tab:realclass}, Fig.~\ref{fig:twinreal}). Stalls were the main failure mode: 14 of
 30 drawings needed at least one nudge to resume (26 in total), always mid-stroke where waypoints are dense; the pen
-sat about 0.5\mm beside the path and corrected only sideways. Three face portraits drawn with markers
+sat about 0.5\mm beside the path and corrected only sideways. Three runs of two face portraits drawn with markers
 (Table~\ref{tab:real}) finished at 0.497\mm measured RMSE, using an automatic 0.5\,s stall release instead of
 nudges.
 
@@ -639,19 +645,23 @@ contour conditioning requires a separate evaluation.
 \textbf{Baseline strength.} We compare against the waypoint-gated IK controller the system shipped with and
 a streaming IK that shares ACT's progress rule; an optimisation-based tracker (for example model-predictive
 contouring control) and the vendor's own Cartesian motion commands on the real arm are stronger baselines we have
-not yet run.
+not yet run. We also did not train a diffusion policy~\cite{chi2023diffusion}: path following from a
+full path window has one correct action per state, the multimodality diffusion policy is built for is absent,
+and its iterative sampling adds the latency cost we measured for SmolVLA's flow head.
 
 \textbf{Limitations.} Each controller was run once per drawing; ACT was trained with three seeds; the other policies with one. The real-arm batch used different drawings
 from the gold set and relied on nudges, so it is not a controlled paired comparison. The path metric is
-geometric; ink scoring from photographs covers only three portraits so far, and perceived quality (a user study)
+geometric; ink scoring from photographs covers only three portrait runs so far, and perceived quality (a user study)
 is future work. The IK baseline is
 tolerance-gated and its timeouts could be reduced by tuning. Real-arm portraits take 8 to 10\,min, against
 43\,s to 2\,min for systems built for exhibition speed~\cite{wang2019robocodraw,gao2020aisketcher,nasrat2023artistic};
 our runs used the default step scale and stall releases, not a speed-tuned setting. The camera policies
 were evaluated on 12 drawings in the interactive runner only.
 
-\textbf{Reproducibility.} Every number comes from per-run metric files that record configuration, checkpoint
-and runner; one script regenerates all figures and statistics.
+\textbf{Reproducibility and ethics.} Every number comes from per-run metric files that record configuration,
+checkpoint and runner; one script regenerates all figures and statistics. Code, configurations and metric files
+will be released under the MIT license (link withheld for review). Face photographs are CC BY 2.0 Open Images
+photographs credited in Fig.~\ref{fig:faces}, and uploaded portraits are processed only locally.
 
 %======================================================================
 \section{Conclusion}

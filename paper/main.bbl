@@ -134,6 +134,16 @@ Y.~Lipman, R.~T.~Q. Chen, H.~Ben-Hamu, M.~Nickel, and M.~Le, ``Flow matching
   for generative modeling,'' in \emph{Proc. Int. Conf. Learning Representations
   (ICLR)}, 2023.
 
+\bibitem{bristow2006ilc}
+D.~A. Bristow, M.~Tharayil, and A.~G. Alleyne, ``A survey of iterative learning
+  control,'' \emph{IEEE Control Systems Magazine}, vol.~26, no.~3, pp. 96--114,
+  2006.
+
+\bibitem{lam2010mpcc}
+D.~Lam, C.~Manzie, and M.~Good, ``Model predictive contouring control,'' in
+  \emph{Proc. 49th IEEE Conf. Decision and Control (CDC)}, 2010, pp.
+  6137--6142.
+
 \bibitem{tobin2017domain}
 J.~Tobin, R.~Fong, A.~Ray, J.~Schneider, W.~Zaremba, and P.~Abbeel, ``Domain
   randomization for transferring deep neural networks from simulation to the
