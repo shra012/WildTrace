@@ -147,7 +147,17 @@ count, contour size, fragmentation) followed by a VLM judge, and retries with a 
 resampled and normalised to a unit canvas. The result is 2,874 validated trajectories. A stratified 48-drawing
 gold test set (9 bird, 12 cat, 13 dog, 4 fish, 5 frog, 5 horse; mean 4.6 strokes, range 2 to 8, mean 370
 points) is never used for training. Faces follow a separate CPU path: MediaPipe~\cite{lugaresi2019mediapipe} face
-landmarks and hair/body segmentation are traced into a pen-sketch portrait.
+landmarks and hair/body segmentation are traced into a pen-sketch portrait. Fig.~\ref{fig:faces} shows five portraits from this path
+next to their source photographs.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/faces.pdf}
+  \caption{Face portraits: Open Images source photographs (top) and the pen-sketch line art traced from MediaPipe
+  landmarks and segmentation (bottom), 15 to 19 strokes each. Photographs CC BY 2.0 via Flickr, by Byron Gonzalez,
+  MangakaMaiden Photography, Luca Boldrini, JJP Bolger Photography and Walt Stoneburner (left to right).}
+  \label{fig:faces}
+\end{figure*}
 
 \textbf{Choosing the generator and the judge.} Table~\ref{tab:judge} summarises a 20-subject study against a
 strong referee (Qwen3-VL-235B~\cite{bai2025qwen3vl}). FLUX produced acceptable outlines for all 20 subjects against
@@ -435,13 +445,16 @@ ACT halves joint jerk (Fig.~\ref{fig:kde}c) and removes the per-waypoint tremor 
 IK keeps a lower heading error (median 0.51$^\circ$ against 1.36$^\circ$), since it settles on each waypoint: its
 pen is settling on 51\% of pen-down samples against 18\% for ACT, and moves at a median 6.9 against
 12.4\mm\,s$^{-1}$. Total draw time is similar (77 against 73\,s simulated) because the phase machine's approach,
-lower and lift moves are shared. The policy server answers in 9.1\,ms median, inside the 16.7\,ms tick.
+lower and lift moves are shared. The policy server answers in 9.1\,ms median, inside the 16.7\,ms tick. Retraining ACT with two more seeds gives 0.201 and 0.218\mm on the same 48 drawings
+(three seeds: $0.204\pm0.013$\mm), all well below both IK variants.
 
 \textbf{Is it the learning or the settle gate?} Streaming IK uses ACT's progress rule with no settle gate. It
 finishes all 48 drawings (IK's timeouts came from the gate), but its path RMSE improves on IK by only 0.010\mm
 (0.267\mm, lower on 37 of 45), its corner error grows from 0.366 to 0.608\mm because pure pursuit cuts corners,
 and its jerk stays at IK's level. ACT is lower than streaming IK on all 48 drawings (paired reduction 0.075\mm,
-CI 0.069 to 0.080). Removing the gate is not what makes ACT accurate; the learned policy is.
+CI 0.069 to 0.080). Slowing streaming IK to IK's own pace (carrot limit 6.9\mm\,s$^{-1}$) does not help:
+0.266\mm RMSE, jerk down to 524 but corner error up to 0.973\mm, and 181\,s per drawing, still above ACT on all
+48 drawings. Removing the gate is not what makes ACT accurate; the learned policy is.
 
 \textbf{What mattered.} Table~\ref{tab:ablation} traces the design. Querying at 60\,Hz with half steps cut jerk
 3.7$\times$; capping the progress projection fixed hairpin jumps (mean worst point 2.36 to 1.47\mm), and a tighter
@@ -631,7 +644,7 @@ a streaming IK that shares ACT's progress rule; an optimisation-based tracker (f
 contouring control) and the vendor's own Cartesian motion commands on the real arm are stronger baselines we have
 not yet run.
 
-\textbf{Limitations.} Each controller was run once per drawing; ACT seed variance is reported separately. The real-arm batch used different drawings
+\textbf{Limitations.} Each controller was run once per drawing; ACT was trained with three seeds; the other policies with one. The real-arm batch used different drawings
 from the gold set and relied on nudges, so it is not a controlled paired comparison. The path metric is
 geometric; ink scoring from photographs covers only three portraits so far, and perceived quality (a user study)
 is future work. The IK baseline is

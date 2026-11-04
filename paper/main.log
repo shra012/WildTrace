@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2026.11.3)  3 NOV 2026 20:12
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2026.11.3)  3 NOV 2026 23:13
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -665,58 +665,62 @@ Package pdftex.def Info: figures/pipeline.jpg  used on input line 90.
 
 
 ]
+<figures/faces.pdf, id=19, 415.16216pt x 163.9592pt>
+File: figures/faces.pdf Graphic file (type pdf)
+<use figures/faces.pdf>
+Package pdftex.def Info: figures/faces.pdf  used on input line 155.
+(pdftex.def)             Requested size: 516.0pt x 203.80013pt.
 LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 1
-62.
+72.
  (/usr/share/texlive/texmf-dist/tex/latex/psnfss/ts1ptm.fd
 File: ts1ptm.fd 2001/06/04 font definitions for TS1/ptm.
 )
-<figures/twin_scene.jpg, id=19, 642.4pt x 361.35pt>
+<figures/twin_scene.jpg, id=20, 642.4pt x 361.35pt>
 File: figures/twin_scene.jpg Graphic file (type jpg)
 <use figures/twin_scene.jpg>
-Package pdftex.def Info: figures/twin_scene.jpg  used on input line 198.
+Package pdftex.def Info: figures/twin_scene.jpg  used on input line 208.
 (pdftex.def)             Requested size: 120.38109pt x 67.7177pt.
-<figures/real_arm.jpg, id=20, 465.74pt x 622.325pt>
+<figures/real_arm.jpg, id=21, 465.74pt x 622.325pt>
 File: figures/real_arm.jpg Graphic file (type jpg)
 <use figures/real_arm.jpg>
-Package pdftex.def Info: figures/real_arm.jpg  used on input line 199.
+Package pdftex.def Info: figures/real_arm.jpg  used on input line 209.
 (pdftex.def)             Requested size: 50.67723pt x 67.7177pt.
-<figures/real_face.jpg, id=21, 210.7875pt x 260.975pt>
+<figures/real_face.jpg, id=22, 210.7875pt x 260.975pt>
 File: figures/real_face.jpg Graphic file (type jpg)
 <use figures/real_face.jpg>
-Package pdftex.def Info: figures/real_face.jpg  used on input line 200.
+Package pdftex.def Info: figures/real_face.jpg  used on input line 210.
 (pdftex.def)             Requested size: 54.69409pt x 67.7177pt.
 
-[2 <./figures/pipeline.jpg>] [3 <./figures/twin_scene.jpg> <./figures/real_arm.
-jpg> <./figures/real_face.jpg>]
-<figures/kde_gold.pdf, id=37, 408.93578pt x 187.4153pt>
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [2 <./figures/pipeline.jpg>] [3 <./figures/faces.pdf> <./figures/twin_scene.jp
+g> <./figures/real_arm.jpg> <./figures/real_face.jpg>]
+<figures/kde_gold.pdf, id=66, 408.93578pt x 187.4153pt>
 File: figures/kde_gold.pdf Graphic file (type pdf)
 <use figures/kde_gold.pdf>
-Package pdftex.def Info: figures/kde_gold.pdf  used on input line 410.
+Package pdftex.def Info: figures/kde_gold.pdf  used on input line 420.
 (pdftex.def)             Requested size: 516.0pt x 236.51627pt.
-<figures/paths_cat.pdf, id=38, 403.91702pt x 125.06195pt>
+<figures/paths_cat.pdf, id=67, 403.91702pt x 125.06195pt>
 File: figures/paths_cat.pdf Graphic file (type pdf)
 <use figures/paths_cat.pdf>
-Package pdftex.def Info: figures/paths_cat.pdf  used on input line 422.
+Package pdftex.def Info: figures/paths_cat.pdf  used on input line 432.
 (pdftex.def)             Requested size: 516.0pt x 159.78104pt.
  [4]
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
-
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
  [5 <./figures/kde_gold.pdf> <./figures/paths_cat.pdf>]
-<figures/speed.pdf, id=70, 227.23206pt x 156.36041pt>
+<figures/speed.pdf, id=99, 227.23206pt x 156.36041pt>
 File: figures/speed.pdf Graphic file (type pdf)
 <use figures/speed.pdf>
-Package pdftex.def Info: figures/speed.pdf  used on input line 530.
+Package pdftex.def Info: figures/speed.pdf  used on input line 543.
 (pdftex.def)             Requested size: 252.0pt x 173.41179pt.
-<figures/twin_vs_real.pdf, id=71, 258.92232pt x 177.52034pt>
+ [6]
+<figures/twin_vs_real.pdf, id=104, 258.92232pt x 177.52034pt>
 File: figures/twin_vs_real.pdf Graphic file (type pdf)
 <use figures/twin_vs_real.pdf>
-Package pdftex.def Info: figures/twin_vs_real.pdf  used on input line 561.
+Package pdftex.def Info: figures/twin_vs_real.pdf  used on input line 574.
 (pdftex.def)             Requested size: 252.0pt x 172.7823pt.
- [6 <./figures/speed.pdf>]
-(./main.bbl [7 <./figures/twin_vs_real.pdf>]
+ [7 <./figures/speed.pdf> <./figures/twin_vs_real.pdf>] (./main.bbl
 Underfull \hbox (badness 5133) in paragraph at lines 144--146
 []\OT1/ptm/m/n/8 LangChain, ``Lang-Graph,'' $https : / / github . com / langcha
 in-[]ai / langgraph$,
@@ -746,19 +750,17 @@ Before submitting the final camera ready copy, remember to:
  uses only Type 1 fonts and that every step in the generation
  process uses the appropriate paper size.
 
-[8
-
-] (./main.aux)
+[8] (./main.aux)
  ***********
 LaTeX2e <2023-11-01> patch level 1
 L3 programming layer <2024-01-22>
  ***********
  ) 
 Here is how much of TeX's memory you used:
- 15242 strings out of 476106
- 306764 string characters out of 5793933
- 1964975 words of memory out of 5000000
- 36965 multiletter control sequences out of 15000+600000
+ 15250 strings out of 476106
+ 306966 string characters out of 5793933
+ 1961975 words of memory out of 5000000
+ 36973 multiletter control sequences out of 15000+600000
  600246 words of font info for 117 fonts, out of 8000000 for 9000
  59 hyphenation exceptions out of 8191
  84i,12n,87p,700b,846s stack positions out of 10000i,1000n,20000p,200000b,200000s
@@ -780,10 +782,10 @@ e/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy9.pfb></usr/share/texlive/texmf
 dist/fonts/type1/urw/times/utmb8a.pfb></usr/share/texlive/texmf-dist/fonts/type
 1/urw/times/utmbi8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times/ut
 mr8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
-Output written on main.pdf (8 pages, 525120 bytes).
+Output written on main.pdf (8 pages, 1105412 bytes).
 PDF statistics:
- 188 PDF objects out of 1000 (max. 8388607)
- 104 compressed objects within 2 object streams
+ 217 PDF objects out of 1000 (max. 8388607)
+ 119 compressed objects within 2 object streams
  0 named destinations out of 1000 (max. 500000)
- 53 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 58 words of extra memory for PDF output out of 10000 (max. 10000000)
 

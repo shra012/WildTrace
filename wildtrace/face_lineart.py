@@ -43,6 +43,17 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "feature_style": "sketch",
     "include_hair": True,
     "include_shoulders": True,
+    # Ears: MediaPipe's face oval stops at the cheeks, so ears come from the face-skin mask where it
+    # sticks out past the oval, between eye height and the base of the nose.
+    "include_ears": True,
+    "ear_gap_px": 5.0,
+    # Glasses: neither the landmarker nor the segmenter can tell whether a person wears glasses (the
+    # segmenter's accessory class catches fragments at best, and image edges confuse frames with skin
+    # and lashes), so this is set from outside: by the face fidelity judge or a user toggle. When set,
+    # frames are drawn from the eye landmarks: rounded lenses, a bridge and short temple arms.
+    "include_glasses": False,
+    "glasses_lens_width": 1.6,           # lens width in eye widths (corner to corner)
+    "glasses_lens_height": 1.05,
     "simplify_epsilon_px": 1.2,          # Douglas-Peucker tolerance on the resized photo
     "min_stroke_length_px": 18.0,
     "hair_face_gap_px": 6.0,             # hair outline points this close to the face outline are dropped
@@ -364,6 +375,80 @@ def _segmentation_strokes(category: np.ndarray, face_outline: np.ndarray, settin
     return strokes, labels
 
 
+def ear_strokes(category: np.ndarray, face_outline: np.ndarray, band: tuple[float, float], gap: float,
+                columns: tuple[float, float] | None = None) -> list[np.ndarray]:
+    """Outer edge of each ear: the face-skin contour where it leaves the face oval sideways, inside the
+    vertical band (eye height to nose base) where ears sit."""
+    if len(face_outline) == 0:
+        return []
+    height, width = category.shape
+    left, right = columns or (0.0, float(width))
+    skin = category == FACE_SKIN
+    skin[:, : max(0, int(np.floor(left)))] = False
+    skin[:, min(width, int(np.ceil(right))):] = False
+    low, high = face_outline.min(axis=0), face_outline.max(axis=0)
+    face_w = float(high[0] - low[0])
+    closed = np.vstack([face_outline, face_outline[:1]])
+    strokes = []
+    for contour in _mask_contours(skin, min_area=0.002 * skin.size):
+        if not _near_face(contour, face_outline, below=False):
+            continue
+        x, y = contour[:, 0], contour[:, 1]
+        outside = _distance_to_polylines(contour, [closed]) > gap
+        lateral = (x < low[0] + 0.15 * face_w) | (x > high[0] - 0.15 * face_w)
+        keep = outside & lateral & (y > band[0]) & (y < band[1])
+        for piece in _runs(contour, keep):
+            # _runs joins across small gaps and around the closed contour; clip again so a turned head's
+            # jaw and neck line, which also leaves the oval, cannot come along with the ear.
+            piece = piece[(piece[:, 1] > band[0]) & (piece[:, 1] < band[1])]
+            if len(piece) > 2 and _length(piece) > 0.12 * face_w and np.ptp(piece[:, 1]) <= band[1] - band[0]:
+                strokes.append(_smooth(piece))
+    return strokes
+
+
+# Face mesh contour rings of the two eyes (subject's left, then right).
+LEFT_EYE_RING = [263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466]
+RIGHT_EYE_RING = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
+NOSE_BRIDGE = 168
+
+
+def glasses_strokes(points: np.ndarray, face_outline: np.ndarray, lens_width: float = 1.6,
+                    lens_height: float = 1.05) -> list[np.ndarray]:
+    """Frames drawn from the eye landmarks: a rounded lens around each eye (superellipse, tilted with the
+    line between the eyes), a bridge over the nose and a short temple arm from each lens to the face
+    outline. Only called when the person is known to wear glasses."""
+    eyes = [points[LEFT_EYE_RING], points[RIGHT_EYE_RING]]
+    centers = [e.mean(axis=0) for e in eyes]
+    axis = centers[0] - centers[1]
+    angle = float(np.arctan2(axis[1], axis[0]))
+    if axis[0] < 0:
+        angle += np.pi
+    ca, sa = np.cos(angle), np.sin(angle)
+    t = np.linspace(0, 2 * np.pi, 49)
+    lenses = []
+    for eye, center in zip(eyes, centers):
+        eye_w = float(np.ptp(eye[:, 0]))
+        a, b = lens_width * eye_w / 2, lens_height * eye_w / 2
+        # Superellipse (exponent 3): a rounded rectangle, the common frame shape.
+        x = a * np.sign(np.cos(t)) * np.abs(np.cos(t)) ** (2 / 3)
+        y = b * np.sign(np.sin(t)) * np.abs(np.sin(t)) ** (2 / 3)
+        c = center + np.array([0.0, -0.08 * eye_w])
+        lenses.append(np.column_stack([c[0] + x * ca - y * sa, c[1] + x * sa + y * ca]))
+    bridge_at = points[NOSE_BRIDGE]
+    inner = [lens[np.argmin(np.linalg.norm(lens - bridge_at, axis=1))] for lens in lenses]
+    bridge = _chaikin(np.vstack([inner[0], (inner[0] + inner[1]) / 2 + np.array([0.0, -0.04 * np.linalg.norm(inner[0] - inner[1])]), inner[1]]), 2)
+    strokes = lenses + [bridge]
+    if len(face_outline):
+        for lens, center in zip(lenses, centers):
+            outer = lens[np.argmax(np.linalg.norm(lens - bridge_at, axis=1))]
+            same_side = face_outline[np.sign(face_outline[:, 0] - bridge_at[0]) == np.sign(outer[0] - bridge_at[0])]
+            if len(same_side):
+                target = same_side[np.argmin(np.abs(same_side[:, 1] - outer[1]))]
+                if np.linalg.norm(target - outer) > 2:
+                    strokes.append(np.vstack([outer, target]))
+    return strokes
+
+
 def hair_strands(contours: list[np.ndarray], face_outline: np.ndarray, shape: tuple[int, int],
                  settings: dict[str, Any]) -> list[np.ndarray]:
     """Flow lines inside the hair: the outer hair outline offset inward by a fraction of the
@@ -653,6 +738,21 @@ def extract_face_lineart(photo: np.ndarray, settings: dict[str, Any] | None = No
         extra, extra_labels = _segmentation_strokes(category, face_outline, settings, columns, drawn_outline)
         strokes += extra
         labels += extra_labels
+        if settings.get("include_ears", True) and len(face_outline):
+            mesh = np.asarray([[lm.x * width, lm.y * height] for lm in landmarks])
+            face_h = float(np.ptp(face_outline[:, 1]))
+            band = (float(mesh[[33, 263], 1].mean()) - 0.05 * face_h, float(mesh[2, 1]) + 0.06 * face_h)
+            ears = ear_strokes(category, face_outline, band, float(settings.get("ear_gap_px", 5.0)), columns)
+            strokes += ears
+            labels += ["ear"] * len(ears)
+            notes.append(f"ear strokes: {len(ears)}")
+    if settings.get("include_glasses", False) and len(face_outline):
+        mesh = np.asarray([[lm.x * width, lm.y * height] for lm in landmarks])
+        frames = glasses_strokes(mesh, face_outline, float(settings.get("glasses_lens_width", 1.6)),
+                                 float(settings.get("glasses_lens_height", 1.05)))
+        strokes += frames
+        labels += ["glasses"] * len(frames)
+        notes.append(f"glasses strokes: {len(frames)}")
         notes.append(f"hair strokes: {extra_labels.count('hair')}, neck strokes: {extra_labels.count('neck')}, "
                      f"shoulder strokes: {extra_labels.count('shoulders')}")
 

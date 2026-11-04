@@ -1,13 +1,13 @@
 # Fdb version 4
-["bibtex main"] 1793765572.12386 "main.aux" "main.bbl" "main" 1793765572.93345 0
+["bibtex main"] 1793776414.33966 "main.aux" "main.bbl" "main" 1793776415.87714 0
   "./refs.bib" 1793735090.97143 8312 1c95e3955abc9549d7196992fa1d75c2 ""
   "/usr/share/texlive/texmf-dist/bibtex/bst/ieeetran/IEEEtran.bst" 1440712899 57748 7c8250ecf02814ce6ddc0cdbb63df1dd ""
-  "main.aux" 1793765572.76895 8791 aee2ae70665172cbc10052bdd76112c6 "pdflatex"
+  "main.aux" 1793776415.62896 9247 2f63b1dbcb9c5cf6cdbfaaf290a1a365 "pdflatex"
   (generated)
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["pdflatex"] 1793765572.14634 "main.tex" "main.pdf" "main" 1793765572.93374 0
+["pdflatex"] 1793776414.40205 "main.tex" "main.pdf" "main" 1793776415.8777 0
   "/etc/texmf/web2c/texmf.cnf" 1793734485.97943 475 c0e671620eb5563b2130f56340a5fde8 ""
   "/usr/share/texlive/texmf-dist/fonts/enc/dvips/base/8r.enc" 1165713224 4850 80dc9bab7f31fb78a000ccfed0e27cab ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/adobe/times/ptmb7t.tfm" 1136768653 2172 fd0c924230362ff848a33632ed45dc23 ""
@@ -169,17 +169,18 @@
   "/usr/share/texmf/web2c/texmf.cnf" 1707919699 40399 f2c302f7d2af602abb742093540a5834 ""
   "/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map" 1793736419.09542 73908 b116809a00f4ed9447ea8febc7fdf7de ""
   "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1793736439 6830949 8f870e8ac8cc18aafb145129f6db315a ""
-  "figures/kde_gold.pdf" 1793765470.35295 70717 90648df6772b9ac37608706eea560a35 ""
-  "figures/paths_cat.pdf" 1793765470.60495 42695 786dc19694e50af7907199448c935983 ""
+  "figures/faces.pdf" 1793769833.24496 577473 ae6745766814b9b029f22d81b80f92d3 ""
+  "figures/kde_gold.pdf" 1793769830.94896 70717 627af27b81baa187eaec3c1cb84b939f ""
+  "figures/paths_cat.pdf" 1793769831.36096 42695 432f88a12a34515b1efcc8934e104a7c ""
   "figures/pipeline.jpg" 1793734231.02343 85989 04837ce61162b833ffd58c84955873ac ""
-  "figures/real_arm.jpg" 1793765470.80495 35028 4fedaffe760771403baaa5af35221d16 ""
-  "figures/real_face.jpg" 1793765470.81695 9434 2a927060a03609ce7cc0758aeb2deb9c ""
-  "figures/speed.pdf" 1793765471.02895 11205 6815ac95d54205d57e41caf69b1cf6e4 ""
-  "figures/twin_scene.jpg" 1793765470.78495 14524 18110b29b2f6fa79e011204c4a615328 ""
-  "figures/twin_vs_real.pdf" 1793765470.76095 10499 2c8dd903941449fa57f4a406340aa5be ""
-  "main.aux" 1793765572.76895 8791 aee2ae70665172cbc10052bdd76112c6 "pdflatex"
-  "main.bbl" 1793765572.14095 7038 791bcaa57543a7708e9608aca95d5d43 "bibtex main"
-  "main.tex" 1793765571.17295 40146 fb18137f5c57b0ce5a8038184183e21a ""
+  "figures/real_arm.jpg" 1793769831.66496 35028 4fedaffe760771403baaa5af35221d16 ""
+  "figures/real_face.jpg" 1793769831.68096 9434 2a927060a03609ce7cc0758aeb2deb9c ""
+  "figures/speed.pdf" 1793769832.00496 11205 6bd87fdf0eca76826cf529fbe6961d49 ""
+  "figures/twin_scene.jpg" 1793769831.64096 14524 18110b29b2f6fa79e011204c4a615328 ""
+  "figures/twin_vs_real.pdf" 1793769831.61296 10499 0913c6938c561b0873c69d21d0e1baa1 ""
+  "main.aux" 1793776415.62896 9247 2f63b1dbcb9c5cf6cdbfaaf290a1a365 "pdflatex"
+  "main.bbl" 1793776414.38896 7038 791bcaa57543a7708e9608aca95d5d43 "bibtex main"
+  "main.tex" 1793776412.10496 41078 763399ee56b50a1427e058e851284209 ""
   (generated)
   "main.aux"
   "main.log"

@@ -320,3 +320,41 @@ def motion_stats() -> None:
 if __name__ == "__main__":
     figure_speed()
     motion_stats()
+
+
+PAPER_FACES = ["58265341041a89bb", "fb1b8bcaf2415905", "cdb9aedb5778896b", "f4d9516ce50ff090", "e00984bb56fa1ba6"]
+REAL_FACES_DIR = REPO / "isaac-sim" / "results" / "portrait_hardware_eval" / "paper_faces"
+
+
+def figure_faces() -> None:
+    """Source photo, generated line art and (when present) the sheet drawn by the physical arm, per face.
+
+    Real drawings are read from REAL_FACES_DIR/<sample_id>.(jpg|png); a face without one keeps an empty slot.
+    """
+    work = REPO / "outputs" / "faces_source" / "work"
+    real = {f: next((REAL_FACES_DIR / f"{f}{ext}" for ext in (".jpg", ".png") if (REAL_FACES_DIR / f"{f}{ext}").exists()), None)
+            for f in PAPER_FACES}
+    rows = [("Photo", "source.png"), ("Line art", "lineart.png")] + ([("Physical arm", "real")] if any(real.values()) else [])
+    fig, axes = plt.subplots(len(rows), len(PAPER_FACES), figsize=(FULL_W, 1.45 * len(rows)),
+                             gridspec_kw={"wspace": 0.04, "hspace": 0.06})
+    for c, face in enumerate(PAPER_FACES):
+        for r, (label, name) in enumerate(rows):
+            ax = axes[r, c]
+            ax.set_xticks([])
+            ax.set_yticks([])
+            for sp in ax.spines.values():
+                sp.set_visible(False)
+            path = real[face] if name == "real" else work / face / name
+            if path is not None and Path(path).exists():
+                im = Image.open(path).convert("RGB")
+                im.thumbnail((700, 700))
+                ax.imshow(np.asarray(im))
+            ax.set_aspect("equal")
+            if c == 0:
+                ax.set_ylabel(label, color=INK)
+    fig.savefig(OUT / "faces.pdf", dpi=300)
+    plt.close(fig)
+
+
+if __name__ == "__main__":
+    figure_faces()
