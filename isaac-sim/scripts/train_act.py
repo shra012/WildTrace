@@ -28,6 +28,8 @@ def _parse_args():
     parser.add_argument("--stage", required=True)
     parser.add_argument("--steps", type=int, default=None, help="Override the stage's step count")
     parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=None, help="Override train.seed (for seed-variance runs)")
+    parser.add_argument("--num-workers", type=int, default=None, help="Override train.num_workers (fewer when sharing the CPU)")
     parser.add_argument("--resume", action="store_true", help="Continue the stage's existing run")
     parser.add_argument("--policy", action="append", default=[], metavar="KEY=VALUE",
                         help="Override a policy setting, e.g. --policy use_vae=false --policy chunk_size=10")
@@ -45,7 +47,8 @@ def _flag(name: str, value) -> str:
 
 
 def build_command(
-    config: dict, stage_name: str, *, steps=None, batch_size=None, resume=False, overrides=(), output_name=None
+    config: dict, stage_name: str, *, steps=None, batch_size=None, resume=False, overrides=(), output_name=None,
+    seed=None, num_workers=None
 ) -> list[str]:
     stages = config["stages"]
     if stage_name not in stages:
@@ -56,6 +59,10 @@ def build_command(
     train = dict(config["train"])
     if batch_size:
         train["batch_size"] = batch_size
+    if seed is not None:
+        train["seed"] = seed
+    if num_workers is not None:
+        train["num_workers"] = num_workers
     if sys.platform == "win32":
         # Same trainer, with checkpoints/last as a junction instead of a symlink.
         launcher = [sys.executable, str(Path(__file__).with_name("lerobot_train_windows.py"))]
@@ -98,7 +105,7 @@ def main() -> int:
     args = _parse_args()
     config = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
     command = build_command(
-        config, args.stage, steps=args.steps, batch_size=args.batch_size, resume=args.resume,
+        config, args.stage, steps=args.steps, batch_size=args.batch_size, resume=args.resume, seed=args.seed, num_workers=args.num_workers,
         overrides=args.policy, output_name=args.output_name,
     )
     print(" ".join(command), flush=True)

@@ -53,7 +53,7 @@ def _parse_args():
     evaluate = sub.add_parser("eval", parents=[common])
     evaluate.add_argument("--trajectories", default=str(PROJECT_ROOT / "data" / "act_test"),
                           help="Directory of trajectory JSONs, or a single file")
-    evaluate.add_argument("--controller", choices=["ik", "act"], required=True)
+    evaluate.add_argument("--controller", choices=["ik", "act", "ik_stream"], required=True)
     evaluate.add_argument("--tag", required=True, help="Result folder name, e.g. ik, act_kin, act_kin_phys")
     evaluate.add_argument("--policy-address", default="127.0.0.1:8790")
     evaluate.add_argument("--out", default=str(REPO_ROOT / "outputs" / "act_eval"))

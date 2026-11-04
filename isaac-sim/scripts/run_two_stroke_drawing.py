@@ -28,7 +28,13 @@ def _parse_args():
     parser.add_argument("--first-n-strokes", type=int, default=None, help="Only draw the first N strokes")
     parser.add_argument("--output-dir", default=None, help="Override project.output_dir")
     parser.add_argument("--demo-path", default=None, help="Override recording.demo_path (one NPZ per drawing)")
-    parser.add_argument("--controller", choices=["ik", "act"], default="ik")
+    parser.add_argument("--controller", choices=["ik", "act", "ik_stream"], default="ik")
+    # ik_stream: a continuous IK baseline. Progress follows the same chased-waypoint
+    # rule as ACT (no stop-and-settle gate) and IK aims at a carrot this far ahead
+    # of the pen along the path (pure pursuit), so only the controller differs.
+    parser.add_argument("--ik-lookahead-m", type=float, default=0.001, help="ik_stream carrot distance along the path")
+    parser.add_argument("--ik-speed-m-s", type=float, default=0.0124,
+                        help="ik_stream: the carrot advances along the path at most this fast (default: ACT's median tip speed)")
     parser.add_argument("--gravity", type=float, default=None, help="Override safety.gravity_m_s2 (diagnostics)")
     parser.add_argument(
         "--paper-shift",
@@ -494,6 +500,8 @@ def main() -> int:
     act_command = None
     act_from = None
     act_query_step = 0
+    carrot_arc = None  # ik_stream: arc length of the carrot, reset at each phase
+    carrot_phase = None
     if ARGS.controller == "act":
         from act_client import ActPolicyClient
 
@@ -625,7 +633,7 @@ def main() -> int:
             elif sim_time - home_start > float(safety["home_timeout_s"]):
                 machine.fail(f"Home joint-position timeout (max error {last_home_error:.6f} rad, q={q.tolist()})")
         else:
-            if policy is not None:
+            if policy is not None or ARGS.controller == "ik_stream":
                 # ACT chases the first waypoint ahead of the pen (the labelled
                 # semantics) instead of stopping to settle on every waypoint.
                 tip_now, _ = ik.end_effector_pose()
@@ -688,6 +696,20 @@ def main() -> int:
                         joint_positions=act_from + (act_command.joint_positions - act_from) * fraction
                     )
                 success = True
+            elif ARGS.controller == "ik_stream":
+                current = int(phase_offsets[phase_index]) + target_index
+                last = int(phase_offsets[phase_index + 1]) - 1
+                if carrot_phase != phase_index:
+                    carrot_phase, carrot_arc = phase_index, float(desired_arc[current])
+                # A reference point that moves along the path at --ik-speed-m-s, never more than the
+                # lookahead past the pen's progress. It is not pulled up to the chased waypoint (the first one
+                # ahead of the pen), or the pen's own progress would set the pace and the speed limit would
+                # never bind.
+                carrot_arc = min(float(desired_arc[current]) + ARGS.ik_lookahead_m,
+                                 carrot_arc + ARGS.ik_speed_m_s * physics_dt)
+                carrot = int(np.searchsorted(desired_arc, carrot_arc))
+                first = int(phase_offsets[phase_index])
+                action, success = ik.solve(desired_positions[min(max(carrot, first), last)], orientation)
             else:
                 action, success = ik.solve(target.position, orientation)
             if not success:

@@ -405,6 +405,16 @@ def final_rows() -> list[dict[str, Any]]:
     return list(latest.values())
 
 
+def referee_rows() -> list[dict[str, Any]]:
+    """Latest verdict per judge and current final drawing, including resumed calls."""
+    paths = {(r["setup"], r["sample_id"]): r.get("output_path") for r in final_rows()}
+    latest = {}
+    for row in read_ndjson(out_dir() / "referee.ndjson"):
+        if row.get("output_path") == paths.get((row["setup"], row["sample_id"])):
+            latest[(row["referee"], row["setup"], row["sample_id"])] = row
+    return list(latest.values())
+
+
 def cmd_referee(args: argparse.Namespace) -> None:
     runtime = load_runtime_config(REPO_ROOT)
     models = runtime["models"]
@@ -412,14 +422,21 @@ def cmd_referee(args: argparse.Namespace) -> None:
     finals = [r for r in final_rows() if r.get("output_path")]
     names = args.referees or [r["name"] for r in comparison()["referees"]]
     results_path = out_dir() / "referee.ndjson"
+    completed = {
+        (r["referee"], r["setup"], r["sample_id"], r["output_path"])
+        for r in read_ndjson(results_path) if "error" not in r and not r.get("parse_failed")
+    } if args.resume else set()
     for name in names:
+        pending = [r for r in finals if (name, r["setup"], r["sample_id"], r["output_path"]) not in completed]
+        if not pending:
+            continue
         entry = entry_by_name(comparison()["referees"], name)
         settings = {**models["outline_validator"], "force_semantic": True,
                     **{k: v for k, v in entry.items() if k not in ("name", "strong")}}
         if settings["backend"] == "ollama_semantic_validator":
             ensure_ollama(settings)
         judge = build_outline_validator(settings)
-        for row in finals:
+        for row in pending:
             path = REPO_ROOT / row["output_path"]
             opencv = validate_with_opencv(path, models["opencv_prescreen"])
             out = {"referee": name, "strong": bool(entry.get("strong")), "setup": row["setup"],
@@ -459,7 +476,7 @@ def build_summary() -> dict[str, Any]:
     metrics = read_ndjson(out_dir() / "metrics.ndjson")
     by_path = {m["output_path"]: m for m in metrics}
     attempts = read_ndjson(out_dir() / "attempts.ndjson")
-    referee = [r for r in read_ndjson(out_dir() / "referee.ndjson") if "error" not in r]
+    referee = [r for r in referee_rows() if "error" not in r]
     runs = {r["setup"]: r for r in read_ndjson(out_dir() / "pipeline_runs.ndjson") if not r.get("limit")}
     attempt_keys = [m.key for m in em.METRICS if m.level == "attempt" and m.key != "gen_latency_s"]
     referees = [r["name"] for r in comparison()["referees"]]
@@ -576,7 +593,7 @@ def contact_sheet(summary: dict[str, Any], destination: Path, cell: int = 180) -
     finals = {(r["setup"], r["sample_id"]): r for r in final_rows()}
     metrics = {m["output_path"]: m for m in read_ndjson(out_dir() / "metrics.ndjson")}
     strong = next((r["name"] for r in comparison()["referees"] if r.get("strong")), None)
-    ref = {(r["setup"], r["sample_id"]): r for r in read_ndjson(out_dir() / "referee.ndjson") if r.get("referee") == strong}
+    ref = {(r["setup"], r["sample_id"]): r for r in referee_rows() if r.get("referee") == strong}
     subjects = list(subjects_by_id().values())
     header = 24
     sheet = Image.new("RGB", (cell * (1 + len(setups)), header + cell * len(subjects)), "white")
@@ -803,6 +820,7 @@ def main() -> None:
     sub.add_parser("evaluate")
     referee = sub.add_parser("referee")
     referee.add_argument("--referees", nargs="*")
+    referee.add_argument("--resume", action="store_true", help="Skip successful verdicts for the same final drawing.")
     sub.add_parser("report")
     args = parser.parse_args()
     {

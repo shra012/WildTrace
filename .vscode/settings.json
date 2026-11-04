@@ -1,0 +1,43 @@
+{
+  // Pylance: analyse only the project's own code. Setting this list replaces Pylance's defaults,
+  // so the default entries (node_modules, __pycache__, dot folders) are repeated here.
+  "python.analysis.exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*",
+    "**/.venv",
+    "**/.venv-act",
+    "**/*.egg-info",
+    "outputs",
+    "isaac-sim/outputs",
+    "isaac-sim/models",
+    "isaac-sim/.vendor",
+    "app/frontend"
+  ],
+  "python.analysis.diagnosticMode": "openFilesOnly",
+
+  // File watcher: the data folders hold ~45k files (outputs 99 GB, isaac-sim/outputs 30 GB).
+  "files.watcherExclude": {
+    "**/outputs/**": true,
+    "**/.venv/**": true,
+    "**/.venv-act/**": true,
+    "isaac-sim/models/**": true,
+    "**/node_modules/**": true,
+    "**/.next/**": true,
+    "**/.ruff_cache/**": true,
+    "**/.pytest_cache/**": true,
+    "**/__pycache__/**": true
+  },
+
+  // Search: skip the same folders (files stay visible in the explorer).
+  "search.exclude": {
+    "**/outputs": true,
+    "**/.venv": true,
+    "**/.venv-act": true,
+    "isaac-sim/models": true,
+    "**/node_modules": true,
+    "**/.next": true,
+    "**/.ruff_cache": true,
+    "**/.pytest_cache": true
+  }
+}

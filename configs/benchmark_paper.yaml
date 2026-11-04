@@ -1,0 +1,86 @@
+# Paper benchmark (paper-r3): four outline generators, four judges, one strong referee.
+# Select it with WILDTRACE_BENCHMARK_CONFIG=configs/benchmark_paper.yaml.
+#
+# Generators follow the project's history: informative-drawings and SD1.5 + ControlNet lineart were
+# the first production backends, FLUX.1-schnell replaced them, OmniGen2 was the r2 alternative.
+# All four run with the fixed contour helper (r2 predates the fix), so FLUX and OmniGen2 are rerun.
+# Every setup uses the same in-loop judge (qwen3-vl-8b) and retry loop, so only the generator differs.
+# Judges are open-weight models that run on the lab laptop; each final drawing is scored by all four
+# and by the strong referee, and agreement is Cohen's kappa against the referee.
+run_id: paper-r3
+seed: 14
+subjects_per_category: 5
+label_set:
+  accepted: 44
+  rejected: 16
+
+validators:
+  - name: qwen3-vl-8b
+    backend: openrouter_semantic_validator
+    openrouter_model_name: qwen/qwen3-vl-8b-instruct
+validator_defaults:
+  backend: openrouter_semantic_validator
+  force_semantic: true
+  temperature: 0.0
+  max_tokens: 300
+  timeout_seconds: 180
+  min_score: 0.55
+
+rectifiers:
+  - name: informative-drawings
+    backend: informative_drawings_rectifier
+  - name: sd15-controlnet-lineart
+    backend: sd_controlnet_lineart_rectifier
+  - name: flux-schnell
+    backend: flux_silhouette_rectifier
+    conditioning_mode: isolated_only
+    strength: 0.85
+  - name: omnigen2
+    backend: omnigen2_rectifier
+    conditioning_input: subject
+    offload: model
+    size: 768
+    num_inference_steps: 30
+
+comparison:
+  run_id: paper-r3
+  evalset:
+    path: benchmarks/evalset_v2.json
+    seed: 14
+    per_category: 3
+    extra: {Cat: 1, Dog: 1}
+  max_attempts: 3
+  setups:
+    - name: informative-qwen3
+      rectifier: informative-drawings
+      validator: {backend: openrouter_semantic_validator, openrouter_model_name: qwen/qwen3-vl-8b-instruct}
+    - name: sd15cn-qwen3
+      rectifier: sd15-controlnet-lineart
+      validator: {backend: openrouter_semantic_validator, openrouter_model_name: qwen/qwen3-vl-8b-instruct}
+    - name: flux-qwen3
+      rectifier: flux-schnell
+      validator: {backend: openrouter_semantic_validator, openrouter_model_name: qwen/qwen3-vl-8b-instruct}
+    - name: omnigen2-qwen3
+      rectifier: omnigen2
+      rectifier_overrides:
+        image_guidance_scale: 2.2
+        num_inference_steps: 20
+        cfg_range: [0.0, 0.6]
+      validator: {backend: openrouter_semantic_validator, openrouter_model_name: qwen/qwen3-vl-8b-instruct}
+  referees:
+    - name: qwen2.5-vl-7b
+      backend: ollama_semantic_validator
+      ollama_model_name: qwen2.5vl:7b
+    - name: qwen3-vl-8b
+      backend: openrouter_semantic_validator
+      openrouter_model_name: qwen/qwen3-vl-8b-instruct
+    - name: qwen3-vl-30b-a3b
+      backend: openrouter_semantic_validator
+      openrouter_model_name: qwen/qwen3-vl-30b-a3b-instruct
+    - name: gemma-3-12b
+      backend: openrouter_semantic_validator
+      openrouter_model_name: google/gemma-3-12b-it
+    - name: qwen3-vl-235b
+      strong: true
+      backend: openrouter_semantic_validator
+      openrouter_model_name: qwen/qwen3-vl-235b-a22b-instruct
