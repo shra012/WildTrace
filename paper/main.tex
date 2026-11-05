@@ -606,7 +606,8 @@ Piktor-O-Bot~\cite{csempesz2024piktor}. SmolVLA has no faster setting within 10\
 30 drawings needed at least one nudge to resume (26 in total), always mid-stroke where waypoints are dense; the pen
 sat about 0.5\mm beside the path and corrected only sideways. Three runs of two face portraits drawn with markers
 (Table~\ref{tab:real}) finished at 0.497\mm measured RMSE, using an automatic 0.5\,s stall release instead of
-nudges.
+nudges. The five faces of Fig.~\ref{fig:faces}, drawn in pencil on the measured paper surface, finished at
+0.42 to 0.52\mm with no nudges.
 
 \textbf{Scoring the ink.} The arm's reported tip says where the arm believes the pen is, not what reached the
 paper. We therefore score the sheet itself: the page is found in an overhead photograph and rectified to
@@ -679,9 +680,10 @@ target cuts corners and stays jerky, while the policy has learned from noise-inj
 toward the path.
 
 \textbf{Sim-to-real gap.} The 2.7$\times$ gap is consistent across classes, which points to a systematic
-cause rather than content. Candidates we observed are a non-level sheet (line weight varies across the page),
-pen compliance, the arm's own position controller differing from the twin's servo, and dense-waypoint stalls.
-Fitting the paper plane from a three-point touch and training on stalled states are the next steps.
+cause rather than content. The first candidate is measured: a three-corner and centre touch fits a plane tilted 1.15$^\circ$ (3.3\mm of
+height across the drawing area), where the twin assumes a flat sheet at one height, matching the line weight
+that varies across every sheet. Other candidates are pen compliance, the arm's own position controller differing from the twin's servo, and
+dense-waypoint stalls. Following the measured surface and training on stalled states are the next steps.
 
 \textbf{What the pipeline does not preserve.} Recognisability and geometric fidelity are separate goals.
 For completed paper-r3 final images, mean silhouette IoU with the source photo is \FluxMeanIoU{} for FLUX

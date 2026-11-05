@@ -1,13 +1,13 @@
 # Fdb version 4
-["bibtex main"] 1793855797.2206 "main.aux" "main.bbl" "main" 1793855799.52746 0
+["bibtex main"] 1793866674.45595 "main.aux" "main.bbl" "main" 1793866676.5833 0
   "./refs.bib" 1793815028.36496 8857 833f984aa2258fe7f0857044e4e4c175 ""
   "/usr/share/texlive/texmf-dist/bibtex/bst/ieeetran/IEEEtran.bst" 1440712899 57748 7c8250ecf02814ce6ddc0cdbb63df1dd ""
-  "main.aux" 1793855799.08877 10012 3f29b289a3cb4d03320a7e290743769e "pdflatex"
+  "main.aux" 1793866676.25276 10012 3db0f1cda1b6928f4b96877e3c784c50 "pdflatex"
   (generated)
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["pdflatex"] 1793855797.28919 "main.tex" "main.pdf" "main" 1793855799.52888 0
+["pdflatex"] 1793866674.5326 "main.tex" "main.pdf" "main" 1793866676.58435 0
   "/etc/texmf/web2c/texmf.cnf" 1793734485.97943 475 c0e671620eb5563b2130f56340a5fde8 ""
   "/usr/share/texlive/texmf-dist/fonts/enc/dvips/base/8r.enc" 1165713224 4850 80dc9bab7f31fb78a000ccfed0e27cab ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/adobe/times/ptmb7t.tfm" 1136768653 2172 fd0c924230362ff848a33632ed45dc23 ""
@@ -166,7 +166,7 @@
   "/usr/share/texmf/web2c/texmf.cnf" 1707919699 40399 f2c302f7d2af602abb742093540a5834 ""
   "/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map" 1793736419.09542 73908 b116809a00f4ed9447ea8febc7fdf7de ""
   "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1793736439 6830949 8f870e8ac8cc18aafb145129f6db315a ""
-  "figures/faces.pdf" 1793785301.18895 579207 2f6b66af28d567de61990a2612975e0a ""
+  "figures/faces.pdf" 1793866634.30077 579207 2f6b66af28d567de61990a2612975e0a ""
   "figures/kde_gold.pdf" 1793785297.22095 70717 f9227386a35c16bfff02c0e51b85c97a ""
   "figures/paths_cat.pdf" 1793785297.70895 42695 2d1b343260b7322468bf0185bda3b7c8 ""
   "figures/pipeline.jpg" 1793734231.02343 85989 04837ce61162b833ffd58c84955873ac ""
@@ -174,9 +174,9 @@
   "figures/speed.pdf" 1793785298.76895 11205 db5797c3810b1f3a7decafe0642bb754 ""
   "figures/twin_scene.jpg" 1793785298.10495 14524 18110b29b2f6fa79e011204c4a615328 ""
   "figures/twin_vs_real.pdf" 1793785298.05695 10499 5f1713874b31a132eb9e4a6456848f1c ""
-  "main.aux" 1793855799.08877 10012 3f29b289a3cb4d03320a7e290743769e "pdflatex"
-  "main.bbl" 1793855797.27677 7414 26627c18b572df32a2bad9c7d55d2478 "bibtex main"
-  "main.tex" 1793855794.72477 48237 d5916246cf511a23277af375ed05f8d9 ""
+  "main.aux" 1793866676.25276 10012 3db0f1cda1b6928f4b96877e3c784c50 "pdflatex"
+  "main.bbl" 1793866674.51676 7414 26627c18b572df32a2bad9c7d55d2478 "bibtex main"
+  "main.tex" 1793866671.84876 48538 d181bab2fb81479b387d73a63fc370a8 ""
   "tables/generator_judges.tex" 1793786974.11695 872 014652269fb9773705f04bbb65067998 ""
   "tables/generator_metrics.tex" 1793786974.11695 334 88b648968f90aa4c1c3cb084df27baea ""
   (generated)
