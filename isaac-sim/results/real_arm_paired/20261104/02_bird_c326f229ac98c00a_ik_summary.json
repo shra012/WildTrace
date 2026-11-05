@@ -1,0 +1,25 @@
+{
+ "controller": "ik_set_position",
+ "argv": [
+  "scripts\\run_xarm7_hardware.py",
+  "--execute",
+  "--trajectory",
+  "data/act_test/Bird/c326f229ac98c00a.json"
+ ],
+ "outcome": "finished",
+ "safe_stop": null,
+ "seconds": 287.1,
+ "waypoints_planned": 821,
+ "waypoints_reached": 821,
+ "retries": 0,
+ "pen_down_waypoints": 690,
+ "settled_pen_down_error_mm": {
+  "rmse": 0.0,
+  "p95": 0.0,
+  "max": 0.001
+ },
+ "joint7_deg_range": [
+  -316.4,
+  -297.9
+ ]
+}

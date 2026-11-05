@@ -1,0 +1,52 @@
+{
+  "outcome": "finished",
+  "ticks": 10962,
+  "seconds": 182.7,
+  "pen_down_error_mm": {
+    "rmse": 0.676,
+    "max": 1.496
+  },
+  "tip_z_min_mm": 70.86,
+  "pen_down_plane_mm": 71.935,
+  "lowest_below_paper_mm": 1.375,
+  "paper_plane": "outputs/calibration/20261104_plane/surface_bowl_sharpened_m08.json",
+  "joint_min_deg": [
+    342.1,
+    -6.6,
+    20.0,
+    40.7,
+    -14.7,
+    39.0,
+    5.2
+  ],
+  "joint_max_deg": [
+    349.5,
+    24.8,
+    33.1,
+    75.4,
+    3.4,
+    58.0,
+    26.4
+  ],
+  "joint_limit_margin_deg": [
+    10.5,
+    95.2,
+    326.9,
+    51.7,
+    345.3,
+    122.0,
+    333.6
+  ],
+  "max_joint_step_rad_per_tick": 0.00297,
+  "policy_ms_mean": 4.7,
+  "real_tip_lag_mm": {
+    "mean": 0.107,
+    "max": 0.348
+  },
+  "real_pen_down_error_mm": {
+    "rmse": 0.518,
+    "p95": 1.026,
+    "max": 1.246,
+    "samples": 493
+  }
+}

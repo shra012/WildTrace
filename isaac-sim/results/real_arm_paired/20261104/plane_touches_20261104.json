@@ -1,0 +1,72 @@
+{
+ "session": "20261104_plane",
+ "tool": "pencil",
+ "tcp_offset_mm": 172.0,
+ "upright_correction_extension_mm": 24.0,
+ "touches": {
+  "plane_corner_1": {
+   "tcp_xyz_mm": [
+    376.952,
+    25.809,
+    73.145
+   ],
+   "tilt_deg": 2.62,
+   "z_upright_mm": 73.17
+  },
+  "plane_corner_2": {
+   "tcp_xyz_mm": [
+    551.431,
+    28.148,
+    76.524
+   ],
+   "tilt_deg": 1.7,
+   "z_upright_mm": 76.535
+  },
+  "plane_corner_3": {
+   "tcp_xyz_mm": [
+    550.425,
+    148.213,
+    76.458
+   ],
+   "tilt_deg": 1.91,
+   "z_upright_mm": 76.471
+  },
+  "plane_center": {
+   "tcp_xyz_mm": [
+    462.766,
+    86.526,
+    74.444
+   ],
+   "tilt_deg": 2.34,
+   "z_upright_mm": 74.464
+  }
+ },
+ "plane": {
+  "z0_mm": 65.5669,
+  "dz_dx": 0.019956,
+  "dz_dy": -0.001295,
+  "tilt_deg": 1.146,
+  "rise_heading_deg": -3.7,
+  "residuals_mm": [
+   0.114,
+   -0.0,
+   0.112,
+   -0.226
+  ]
+ },
+ "drawing_area": {
+  "centre_xy_mm": [
+   476.55,
+   86.613
+  ],
+  "z_centre_mm": 74.965,
+  "corner_z_mm": [
+   73.446,
+   76.639,
+   76.484,
+   73.291
+  ],
+  "z_range_mm": 3.348
+ },
+ "note": "Capture only, per issue #52: paper_center_mm and calibration files unchanged by this measurement."
+}
