@@ -62,37 +62,36 @@
 \newlabel{fig:arch}{{4}{4}{}{}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {V}Results}{4}{}\protected@file@percent }
 \newlabel{sec:results}{{V}{4}{}{}{}}
-\citation{laskey2017dart}
 \@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Kernel density estimates (Gaussian kernel, Scott bandwidth) over the gold set for the four controllers; dotted lines are medians and ticks are individual drawings ($n$ = 45 / 48 / 48 / 48 drawings, 71k / 76k / 76k / 76k pen-down samples for IK / streaming IK / ACT / SmolVLA). (a) Per-drawing path RMSE: the two learned policies separate cleanly from both IK variants. (b) Nearest-path error of every planned pen-down sample (densified plan): medians 0.256, 0.257, 0.141 and 0.120\,mm\xspace  . (c) Pen-down joint jerk: ACT has the lowest, SmolVLA between ACT and IK.}}{5}{}\protected@file@percent }
 \newlabel{fig:kde}{{5}{5}{}{}{}}
 \@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Planned path (grey) against the executed pen tip for the same gold cat, ACT (blue) and IK (orange), top-down. (c, d) A fixed 14\,mm\xspace  window on the head: at drawing scale both follow the plan closely; the 0.08\,mm\xspace  RMSE difference is a sixth of a marker line and not visible.}}{5}{}\protected@file@percent }
 \newlabel{fig:paths}{{6}{5}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Gold test set, 48 held-out drawings, lab-arm twin at 1\,g, same code and runner for all four controllers. Means over finished drawings; 95\% bootstrap intervals over drawings in brackets. S-IK is the streaming IK baseline at ACT's pace.}}{6}{}\protected@file@percent }
+\citation{laskey2017dart}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Gold test set, 48 held-out drawings, lab-arm twin at 1\,g, same code and runner for all four controllers. Means over finished drawings; 95\% bootstrap intervals over drawings in brackets. Segment RMSE measures each point of the densified plan (Fig.~\ref {fig:kde}b) to the executed polyline instead of the nearest sample, removing sampling density; sample-based on the same plan it is 0.275, 0.268, 0.270, 0.180 and 0.171\,mm\xspace  . ACT is lower than IK on all 45 drawings by both. IK$^\ast $ is Lula IK with the best of eight tolerance, gate and step settings; S-IK is the streaming IK baseline at ACT's pace.}}{6}{}\protected@file@percent }
 \newlabel{tab:gold}{{II}{6}{}{}{}}
 \@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Gold test set per class: mean path RMSE in mm (finished / total where not all finished).}}{6}{}\protected@file@percent }
 \newlabel{tab:class}{{III}{6}{}{}{}}
 \@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Development history of the ACT path follower (48 gold drawings, 1\,g, means over finished drawings). Each row was run once during development with the code of its time, so rows are not a controlled ablation. Rows above the rule use the default sim scene, rows below the stiffened lab-arm twin.}}{6}{}\protected@file@percent }
 \newlabel{tab:ablation}{{IV}{6}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces Paper placement robustness, 16 gold drawings: mean path RMSE in mm (finished drawings in brackets where fewer than 16), final code for all four controllers. S-IK: streaming IK.}}{6}{}\protected@file@percent }
-\newlabel{tab:robust}{{V}{6}{}{}{}}
 \citation{ross2011dagger}
 \citation{csempesz2024piktor}
+\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces Paper placement robustness, 16 gold drawings: mean path RMSE in mm (finished drawings in brackets where fewer than 16), final code for all four controllers. S-IK: streaming IK.}}{7}{}\protected@file@percent }
+\newlabel{tab:robust}{{V}{7}{}{}{}}
 \@writefile{lot}{\contentsline {table}{\numberline {VI}{\ignorespaces SmolVLA and ACT, interactive runner. Mean path RMSE / p95 (mm); all runs finished.}}{7}{}\protected@file@percent }
 \newlabel{tab:vla}{{VI}{7}{}{}{}}
 \@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Speed against accuracy on the gold cat (interactive runner): the step scale $\alpha $ of Eq.~(\ref {eq:step}) relative to the default 0.5 is shown next to each point. ACT keeps most of its accuracy up to 1.0; SmolVLA degrades sooner.}}{7}{}\protected@file@percent }
 \newlabel{fig:speed}{{7}{7}{}{}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {VI}Discussion and Limitations}{7}{}\protected@file@percent }
 \citation{chi2023diffusion}
 \citation{wang2019robocodraw,gao2020aisketcher,nasrat2023artistic}
-\bibstyle{IEEEtran}
-\bibdata{refs}
 \@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces ACT path RMSE per class in the twin (gold set) and on the physical arm (five drawings per class, range shown). The real arm is 2.5 to 3.0$\times $ the twin in every class. Drawings differ between the two sets, so the comparison is per class, not paired.}}{8}{}\protected@file@percent }
 \newlabel{fig:twinreal}{{8}{8}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Discussion and Limitations}{8}{}\protected@file@percent }
 \@writefile{lot}{\contentsline {table}{\numberline {VII}{\ignorespaces ACT on the physical arm, 30 animal drawings (five per class). Path RMSE in mm.}}{8}{}\protected@file@percent }
 \newlabel{tab:realclass}{{VII}{8}{}{}{}}
 \@writefile{lot}{\contentsline {table}{\numberline {VIII}{\ignorespaces Face portraits on the physical arm with ACT and a marker. RMSE, p95 and max are measured from the arm's reported tip at 10\,Hz; chamfer and coverage are measured from the ink in an overhead photograph. mm.}}{8}{}\protected@file@percent }
 \newlabel{tab:real}{{VIII}{8}{}{}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {VII}Conclusion}{8}{}\protected@file@percent }
+\bibstyle{IEEEtran}
+\bibdata{refs}
 \bibcite{calinon2005humanoid}{1}
 \bibcite{tresset2013paul}{2}
 \bibcite{zhao2023act}{3}
@@ -126,5 +125,6 @@
 \bibcite{bai2025qwen3vl}{31}
 \bibcite{isaacsim}{32}
 \bibcite{lerobot2024}{33}
+\@writefile{toc}{\contentsline {section}{\numberline {VII}Conclusion}{9}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{References}{9}{}\protected@file@percent }
 \gdef \@abspage@last{9}

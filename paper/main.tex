@@ -38,17 +38,18 @@ City, Country\\
 \begin{abstract}
 We present WildTrace, an end-to-end system that turns photographs of animals and faces into pen-stroke
 trajectories and draws them with a 7-DoF UFACTORY xArm~7, both in a calibrated NVIDIA Isaac Sim twin and on the
-physical arm. A medallion data pipeline uses a diffusion model to redraw each photo as a clean outline, a
-vision-language judge with OpenCV prescreening to reject bad outlines, and a vectoriser that emits a few
+physical arm. A medallion data pipeline uses a diffusion model to redraw each photo as a clean outline, an
+OpenCV prescreen with retries to reject bad outlines, and a vectoriser that emits a few
 ordered strokes, yielding 2,874 validated trajectories over six animal classes. On top of this data we train an
 Action Chunking Transformer (ACT) that maps joint state and a short window of the upcoming path to joint steps,
 using only kinematic inverse-kinematics labels with noise injection. On a held-out set of 48 drawings in the
 twin at 1\,g, ACT finishes 48/48 drawings against 45/48 for a Lula IK baseline, lowers mean path RMSE from
-0.277\mm to 0.192\mm (lower on all 45 paired drawings, Wilcoxon $p<10^{-12}$), halves joint jerk, and is
-unaffected by $\pm$12\mm paper height and 21\mm planar placement errors. A streaming IK baseline without the
+0.277\mm to 0.192\mm (lower on all 45 paired drawings, Wilcoxon $p<10^{-12}$), a sixth of a marker line, halves joint jerk, and is
+unaffected by $\pm$12\mm paper height and 21\mm planar placement errors. IK tuned over eight settings finishes all 48 at
+0.262\mm and keeps a lower worst-point error, but ACT is lower on every drawing; a streaming IK without the
 settle gate gains only 0.010\mm and gravity-compensated IK 0.011\mm, so the improvement comes from the learned
 policy; without its noise-injected training episodes the same policy fails every drawing. A fine-tuned SmolVLA
-re-planned every tick is slightly more accurate still (0.180\mm) but jerkier and twice as slow to query, and a
+re-planned every tick matches ACT within its seed spread (0.180\mm) but is jerkier and twice as slow to query, and a
 rule-based supervisor that hands stalls and ink gaps to IK repairs
 injected ink skips on all 48 drawings (232 redraws for 345 skips, none abandoned) at 0.001\mm cost. On the physical arm, ACT completes 30/30 animal drawings at
 0.532\mm RMSE and three runs of two face portraits at 0.497\mm, about 2.7$\times$ the twin, a gap that we analyse.
@@ -74,18 +75,21 @@ on open-ended content.
 WildTrace closes the loop from an arbitrary photograph to ink on paper (Fig.~\ref{fig:pipeline}) and uses it to
 compare controllers on the same drawings under identical physics. Our contributions are:
 \begin{enumerate}
-  \item A photo-to-trajectory pipeline with a generate-judge-retry loop, which we use to build 2,874 validated
-        drawing trajectories and a 48-drawing held-out test set (Sec.~\ref{sec:pipeline}).
+  \item A photo-to-trajectory pipeline (diffusion redraw, prescreen and retry, vectoriser) that builds 2,874
+        validated drawing trajectories and a 48-drawing held-out test set, with a benchmark of four generators
+        and four open-weight VLM judges (Sec.~\ref{sec:pipeline}).
   \item A path-conditioned ACT policy trained only on kinematic IK labels with noise injection and a capped
-        progress projection, which beats IK in a calibrated 1\,g twin on accuracy, completion and joint jerk,
+        progress projection, which beats IK in a calibrated 1\,g twin on mean accuracy and joint jerk, also after tuning IK,
         is insensitive to paper placement, and keeps its lead over a streaming IK baseline that shares its
         progress rule and pace (Sec.~\ref{sec:control},~\ref{sec:results}).
-  \item A like-for-like comparison with a fine-tuned SmolVLA on the same data: re-planned every tick in the batch runner it slightly exceeds ACT on the test set, at higher jerk and
+  \item A like-for-like comparison with a fine-tuned SmolVLA on the same data: re-planned every tick in the batch runner it matches ACT within seed variance, at higher jerk and
         latency, while the ranking reverses in a second runner, and a negative result on
         camera-conditioned gap repair.
   \item A hybrid supervisor that repairs skipped ink using the run's own bookkeeping, and a physical-arm
         evaluation on 30 animal drawings and two portraits that quantifies the sim-to-real gap.
 \end{enumerate}
+The individual methods are established; the contribution is the end-to-end system and a controlled analysis,
+with ablations, of why a learned path follower beats the IK controller that labelled it.
 
 \begin{figure*}[t]
   \centering
@@ -344,28 +348,32 @@ plots are kept with the code.
 \begin{table}[t]
 \centering
 \caption{Gold test set, 48 held-out drawings, lab-arm twin at 1\,g, same code and runner for all four
-controllers. Means over finished drawings; 95\% bootstrap intervals over drawings in brackets. S-IK is the
-streaming IK baseline at ACT's pace.}
+controllers. Means over finished drawings; 95\% bootstrap intervals over drawings in brackets. Segment RMSE
+measures each point of the densified plan (Fig.~\ref{fig:kde}b) to the executed polyline instead of the nearest
+sample, removing sampling density; sample-based on the same plan it is 0.275, 0.268, 0.270, 0.180 and 0.171\mm.
+ACT is lower than IK on all 45 drawings by both. IK$^\ast$ is Lula IK
+with the best of eight tolerance, gate and step settings; S-IK is the streaming IK baseline at ACT's pace.}
 \label{tab:gold}
-\setlength{\tabcolsep}{2.2pt}
+\setlength{\tabcolsep}{1.6pt}
 \footnotesize
-\begin{tabular}{lcccc}
+\begin{tabular}{lccccc}
 \toprule
-Metric & Lula IK & S-IK & ACT & SmolVLA \\
+Metric & IK & IK$^\ast$ & S-IK & ACT & SmolVLA \\
 \midrule
-Finished & 45/48 & \textbf{48/48} & \textbf{48/48} & \textbf{48/48} \\
-Path RMSE (mm) & 0.277 & 0.267 & 0.192 & \textbf{0.180} \\
-\ \ 95\% CI & .271-.283 & .262-.272 & .190-.194 & .176-.184 \\
-Path p95 (mm) & 0.398 & 0.373 & 0.335 & \textbf{0.327} \\
-Path max (mm) & 0.778 & 0.953 & \textbf{0.776} & 0.871 \\
-Reverse RMSE (mm) & 0.397 & 0.401 & 0.374 & \textbf{0.356} \\
-Corner RMSE (mm) & 0.366 & 0.608 & \textbf{0.325} & 0.330 \\
-Heading, median ($^\circ$) & 0.51 & \textbf{0.41} & 1.36 & 1.10 \\
-Jerk RMS (rad\,s$^{-3}$) & 757 & 745 & \textbf{390} & 521 \\
-Samples settling (\%) & 51 & 48 & 18 & \textbf{17} \\
-Median speed (mm\,s$^{-1}$) & 6.9 & 7.8 & 12.4 & \textbf{14.1} \\
-Sim. draw time (s) & 76.8 & 101.0 & 73.4 & \textbf{71.3} \\
-Latency p50 (ms) & - & - & \textbf{9.1} & 17.7 \\
+Finished & 45/48 & \textbf{48/48} & \textbf{48/48} & \textbf{48/48} & \textbf{48/48} \\
+Path RMSE (mm) & 0.277 & 0.262 & 0.267 & 0.192 & \textbf{0.180} \\
+\ \ 95\% CI & .271-.283 & .256-.268 & .262-.272 & .190-.194 & .176-.184 \\
+Path p95 (mm) & 0.398 & 0.377 & 0.373 & 0.335 & \textbf{0.327} \\
+Path max (mm) & 0.778 & \textbf{0.466} & 0.953 & 0.776 & 0.871 \\
+Segment RMSE (mm) & 0.259 & 0.255 & 0.257 & 0.163 & \textbf{0.156} \\
+Reverse RMSE (mm) & 0.397 & 0.406 & 0.401 & 0.374 & \textbf{0.356} \\
+Corner RMSE (mm) & 0.366 & 0.372 & 0.608 & \textbf{0.325} & 0.330 \\
+Heading med. ($^\circ$) & 0.51 & 0.47 & \textbf{0.41} & 1.36 & 1.10 \\
+Jerk RMS (rad\,s$^{-3}$) & 757 & 773 & 745 & \textbf{390} & 521 \\
+Samples settling (\%) & 51 & 64 & 48 & 18 & \textbf{17} \\
+Med. speed (mm\,s$^{-1}$) & 6.9 & 7.5 & 7.8 & 12.4 & \textbf{14.1} \\
+Sim. draw time (s) & 76.8 & \textbf{70.1} & 101.0 & 73.4 & 71.3 \\
+Latency p50 (ms) & - & - & - & \textbf{9.1} & 17.7 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -443,6 +451,17 @@ pen is settling on 51\% of pen-down samples against 18\% for ACT. Total draw tim
 lower and lift moves are shared. The policy server answers in 9.1\,ms median, inside the 16.7\,ms tick. Retraining ACT with two more seeds gives 0.201 and 0.218\mm on the same 48 drawings
 (three seeds: $0.204\pm0.013$\mm), all well below both IK variants.
 
+\textbf{Is the IK baseline tuned?} We swept IK's reach tolerance (0.6, 1.2, 2.0\mm), its settle gate (4, 7,
+12\mm\,s$^{-1}$) and its waypoint step (0.75, 1.5\mm) on the 16 robustness drawings, then ran the best setting,
+0.6\mm tolerance with a 12\mm\,s$^{-1}$ gate, on all 48 (IK$^\ast$ in Table~\ref{tab:gold}). It finishes every
+drawing, is the fastest controller (70.1\,s) and has the smallest worst point (0.466 against 0.776\mm for ACT,
+smaller on all 48 drawings), but its path RMSE improves only to 0.262\mm: ACT is lower on all 48 (paired
+reduction 0.070\mm, CI 0.064 to 0.076, $p=7\times10^{-15}$) with half the joint jerk. Tightening the gate to
+4\mm\,s$^{-1}$ lost six of 16 drawings to timeouts without lowering the error. ACT's advantage is therefore in
+mean tracking and joint smoothness, not in its worst point: a third of ACT's worst points (16 of 48) lie within
+3\mm of a stroke's start or end, which hold 12\% of the path, against 3 of 48 for IK$^\ast$, so its largest
+errors come where the pen lands and lifts.
+
 \textbf{Is it the learning or the settle gate?} Streaming IK uses ACT's progress rule with no settle gate. It
 finishes all 48 drawings (IK's timeouts came from the gate), but its path RMSE improves on IK by only 0.010\mm
 (0.267\mm, lower on 37 of 45), its corner error grows from 0.366 to 0.608\mm because pure pursuit cuts corners,
@@ -451,7 +470,8 @@ CI 0.069 to 0.080). Slowing streaming IK to IK's own pace (carrot limit 6.9\mm\,
 0.266\mm RMSE, jerk down to 524 but corner error up to 0.973\mm, and 181\,s per drawing, still above ACT on all
 48 drawings. Removing the gate is not what makes ACT accurate; the learned policy is. Nor is gravity sag: adding the
 servo's steady-state sag, $-\tau_g(q)/k_p$ per joint, to IK's targets lowers its RMSE on all 34 drawings both
-versions finish, but only by 0.011\mm (0.266\mm over 37 finished), and it times out on 11 of 48; ACT is lower
+versions finish, but only by 0.011\mm (0.266\mm over 37 finished), and it times out on 11 of 48, with the pen inside the position tolerance but moving just above the
+7\mm\,s$^{-1}$ settle threshold; ACT is lower
 on all 37 (paired reduction 0.074\mm, $p=1.5\times10^{-11}$). Streaming IK's longer draw time comes
 from its speed cap, which also slows the pen-up moves (46.9 against 21.2\,s per drawing); its pen-down time is
 shorter than IK's.
@@ -503,9 +523,10 @@ Shifted $(+15,-15)$\mm & 0.299 (15) & 0.286 & 0.189 & 0.182 \\
 \end{table}
 
 \textbf{SmolVLA against ACT.} On the full gold set with the batch runner (Table~\ref{tab:gold}), SmolVLA
-stage~2, served with zero noise, three flow steps and a CUDA graph and re-planned every tick, is slightly more
-accurate than ACT: 0.180 against 0.192\mm, lower on 36 of 48 drawings (paired reduction 0.012\mm, CI 0.008 to
-0.017, $p=5\times10^{-6}$), and best in every class. It pays for it with a third more joint jerk (521 against
+stage~2, served with zero noise, three flow steps and a CUDA graph and re-planned every tick, is as accurate
+as ACT: 0.180 against 0.192\mm, lower on 36 of 48 drawings (paired reduction 0.012\mm, CI 0.008 to
+0.017, $p=5\times10^{-6}$), but within ACT's seed spread ($\pm$0.013\mm), and by segment error only 0.007\mm
+lower (32 of 48). It pays for it with a third more joint jerk (521 against
 390), a higher worst point (0.871 against 0.776\mm), and twice the query latency (17.7 against 9.1\,ms). In the
 interactive runner used for the studies below the order was reversed (0.230 against 0.206\mm on six animals,
 10 flow steps, and 0.252 against 0.206\mm on one cat with the same three-step CUDA-graph server). The runners
@@ -521,7 +542,9 @@ against 0.36 for SmolVLA. In
 closed loop (10 flow steps), executing three actions per chunk gives 0.327\mm; re-planning every tick with the same checkpoint
 gives 0.230\mm, within 12\% of ACT. Most of the gap was therefore execution, not prediction. On faces,
 SmolVLA is 14\% behind ACT. Both generalise from animals to faces at about +22 to +25\% RMSE. Faces were
-never in either policy's training data.
+never in either policy's training data. In the batch runner, on nine face sketches (15 to 20 strokes), ACT draws
+at 0.212\mm against IK's 0.302\mm, lower on all nine, with half the joint jerk (456 against 964), about 10\%
+above its error on the animal test set.
 
 \textbf{End-to-end use.} The pipeline and controllers are wrapped in WildTrace Studio, a web application in which
 a user asks for an animal in chat or uploads a photo, picks a face, and watches the twin draw it live with camera
@@ -670,8 +693,8 @@ These are interim output-subset statistics; API failures prevent a full 20-subje
 The redraw can preserve the animal category while changing its pose. Lower diffusion strength or stronger
 contour conditioning requires a separate evaluation.
 
-\textbf{Baseline strength.} We compare against the waypoint-gated IK controller the system shipped with,
-a streaming IK that shares ACT's progress rule, and IK with gravity compensation; an optimisation-based tracker (for example model-predictive
+\textbf{Baseline strength.} We compare against the waypoint-gated IK controller the system shipped with, a
+tuned version of it, a streaming IK that shares ACT's progress rule, and IK with gravity compensation; an optimisation-based tracker (for example model-predictive
 contouring control) and the vendor's own Cartesian motion commands on the real arm are stronger baselines we have
 not yet run. We also did not train a diffusion policy~\cite{chi2023diffusion}: path following from a
 full path window has one correct action per state, the multimodality diffusion policy is built for is absent,
@@ -681,8 +704,8 @@ and its iterative sampling adds the latency cost we measured for SmolVLA's flow 
 ACT on six drawings reproduced every metric bit for bit; ACT was trained with three seeds; the other policies with one. The real-arm batch used different drawings
 from the gold set and relied on nudges, so it is not a controlled paired comparison. The path metric is
 geometric; ink scoring from photographs covers only three portrait runs so far, and perceived quality (a user study)
-is future work. The IK baseline is
-tolerance-gated and its timeouts could be reduced by tuning. Real-arm portraits take 8 to 10\,min, against
+is future work. IK was tuned only over the
+settings above. Real-arm portraits take 8 to 10\,min, against
 43\,s to 2\,min for systems built for exhibition speed~\cite{wang2019robocodraw,gao2020aisketcher,nasrat2023artistic};
 our runs used the default step scale and stall releases, not a speed-tuned setting. The camera policies
 were evaluated on 12 drawings in the interactive runner only.
@@ -697,10 +720,10 @@ photographs credited in Fig.~\ref{fig:faces}, and uploaded portraits are process
 %======================================================================
 
 WildTrace turns photographs into robot pen drawings end to end. A compact ACT path follower trained only on
-kinematic IK labels draws held-out content more accurately and more reliably than the IK solver that labelled it, with half
+kinematic IK labels draws held-out content more accurately than the IK solver that labelled it, even after tuning, with half
 its joint jerk, is robust to paper placement, and transfers to a physical xArm 7 at about half a
 millimetre RMSE. A streaming IK with the same progress rule gains almost nothing, so the accuracy comes from
-learning. A fine-tuned VLA re-planned every tick is slightly more accurate again but jerkier and slower to query,
+learning. A fine-tuned VLA re-planned every tick is as accurate but jerkier and slower to query,
 and a simple supervisor makes either policy robust to missed ink. Closing the remaining sim-to-real gap is our next goal.
 
 \bibliographystyle{IEEEtran}
