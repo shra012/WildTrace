@@ -10,6 +10,20 @@ import numpy as np
 from path_geometry import limit_joint_delta
 
 
+def gravity_offset_rad(compensation_torque, stiffness, max_offset_rad: float = 0.01) -> np.ndarray:
+    """Target offset that cancels steady-state servo sag under gravity, -tau / kp per joint, bounded.
+
+    `compensation_torque` is the generalized gravity force as PhysX reports it. Verified in the
+    lab-arm twin: adding +tau / kp raised IK path RMSE on three tuning drawings (0.249 to 0.283 mm,
+    0.307 to 0.344 mm) and -tau / kp lowered it (0.249 to 0.236 mm, 0.307 to 0.289 mm).
+    """
+    tau = np.asarray(compensation_torque, dtype=np.float64).reshape(-1)
+    kp = np.broadcast_to(np.asarray(stiffness, dtype=np.float64).reshape(-1), tau.shape)
+    if not np.isfinite(tau).all() or np.any(kp <= 0.0):
+        return np.zeros_like(tau)
+    return np.clip(-tau / kp, -abs(max_offset_rad), abs(max_offset_rad))
+
+
 class SafeLulaIKController:
     """Position-only articulation commands; never emits torque or hardware I/O."""
 
@@ -41,6 +55,9 @@ class SafeLulaIKController:
         self.last_commanded_delta_rad = np.zeros(len(self.joint_names), dtype=np.float64)
         self.last_command_was_clamped = False
         self._last_commanded_positions = None
+        # Opt-in gravity compensation: callable returning the per-joint target offset (rad), or None.
+        self.gravity_offset_fn = None
+        self.last_gravity_offset_rad = np.zeros(len(self.joint_names), dtype=np.float64)
         self.reset_command_state()
 
     def reset_command_state(self, positions=None) -> None:
@@ -109,4 +126,16 @@ class SafeLulaIKController:
             if self.max_joint_delta_rad:
                 command_action = copy(action)
                 command_action.joint_positions = limited
+        if getattr(self, "gravity_offset_fn", None) is not None and command_action.joint_positions is not None:
+            offset = np.asarray(self.gravity_offset_fn(), dtype=np.float64).reshape(-1)
+            indices = getattr(command_action, "joint_indices", None)
+            offset = offset if indices is None else offset[np.asarray(indices, dtype=int).reshape(-1)]
+            self.last_gravity_offset_rad = offset.copy()
+            command_action = copy(command_action)
+            # The slew-limited setpoint stays uncompensated in the controller state; only the drive sees the offset.
+            command_action.joint_positions = np.clip(
+                np.asarray(command_action.joint_positions, dtype=np.float64).reshape(-1) + offset,
+                self.lower if indices is None else self.lower[np.asarray(indices, dtype=int)],
+                self.upper if indices is None else self.upper[np.asarray(indices, dtype=int)],
+            )
         self.articulation_controller.apply_action(command_action)

@@ -154,6 +154,10 @@ J.~Tobin, R.~Fong, A.~Ray, J.~Schneider, W.~Zaremba, and P.~Abbeel, ``Domain
 {LangChain}, ``{LangGraph},'' \url{https://github.com/langchain-ai/langgraph},
   2024.
 
+\bibitem{bai2025qwen25vl}
+S.~Bai \emph{et~al.}, ``{Qwen2.5-VL} technical report,'' \emph{arXiv preprint
+  arXiv:2502.13923}, 2025.
+
 \bibitem{lugaresi2019mediapipe}
 C.~Lugaresi \emph{et~al.}, ``{MediaPipe}: A framework for building perception
   pipelines,'' \emph{arXiv preprint arXiv:1906.08172}, 2019.

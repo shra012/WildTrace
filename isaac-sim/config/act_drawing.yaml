@@ -68,6 +68,11 @@ stages:
   real_kinematic_v2:
     dataset: wildtrace_real_kin_v2_train
     steps: 40000
+  # Ablation: same labels without DART command noise and servo offset
+  # (paper height jitter kept), 3 episodes per drawing.
+  real_kinematic_v2_nonoise:
+    dataset: wildtrace_real_kin_v2_nonoise_train
+    steps: 40000
   # Stage B: fine-tune the stage A checkpoint on Isaac 1 g rollouts. Made
   # tracking worse in practice: the IK demos carry IK's own ~0.7 mm sag error.
   physics_finetune:

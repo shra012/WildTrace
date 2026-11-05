@@ -35,6 +35,13 @@ def _parse_args():
     parser.add_argument("--ik-lookahead-m", type=float, default=0.001, help="ik_stream carrot distance along the path")
     parser.add_argument("--ik-speed-m-s", type=float, default=0.0124,
                         help="ik_stream: the carrot advances along the path at most this fast (default: ACT's median tip speed)")
+    parser.add_argument("--ik-gravity-comp", action="store_true",
+                        help="ik/ik_stream baseline: offset each joint target by the steady-state servo sag, "
+                             "generalized gravity force / drive stiffness (opt-in; default off)")
+    parser.add_argument("--ik-gravity-comp-sign", type=float, default=1.0,
+                        help="Diagnostic: -1 flips the offset sign to test the PhysX force convention")
+    parser.add_argument("--ik-gravity-comp-max-rad", type=float, default=0.01,
+                        help="Bound on the per-joint gravity offset (rad)")
     parser.add_argument("--gravity", type=float, default=None, help="Override safety.gravity_m_s2 (diagnostics)")
     parser.add_argument(
         "--paper-shift",
@@ -471,6 +478,16 @@ def main() -> int:
         float(drawing["orientation_tolerance_rad"]),
         max_joint_delta_rad=float(robot_config["max_joint_delta_rad"]),
     )
+    if ARGS.ik_gravity_comp:
+        from articulation_control import generalized_gravity_forces
+        from ik_controller import gravity_offset_rad
+
+        _kps = np.asarray(articulation_controller.get_gains()[0], dtype=np.float64).reshape(-1)[: len(home)]
+        ik.gravity_offset_fn = lambda: ARGS.ik_gravity_comp_sign * gravity_offset_rad(
+            generalized_gravity_forces(robot), _kps, ARGS.ik_gravity_comp_max_rad
+        )
+        print(f"[DRAW CONTROL] ik gravity compensation on, kp={_kps.tolist()}, "
+              f"offset_at_home_rad={np.round(ik.gravity_offset_fn(), 7).tolist()}")
     phases = build_motion_sequence(
         mapped["strokes"],
         pen_down_z=float(drawing["pen_down_z_m"]),
@@ -830,6 +847,8 @@ def main() -> int:
                     ),
                 }
             )
+            if ARGS.ik_gravity_comp:
+                executed_rows[-1]["max_gravity_offset_rad"] = float(np.max(np.abs(ik.last_gravity_offset_rad)))
             if target.pen_down:
                 actual_by_stroke[target.stroke_id].append(np.asarray(tip_position).tolist())
                 joints_by_stroke[target.stroke_id].append(q)
@@ -893,6 +912,8 @@ def main() -> int:
         "max_joint_tracking_error_rad",
         "command_tip_error_m",
     ]
+    if ARGS.ik_gravity_comp:
+        fields = fields + ["max_gravity_offset_rad"]
     write_csv(output_dir / "executed_path.csv", executed_rows, fields)
     _write_comparison(
         output_dir / "two_stroke_comparison.png",
@@ -933,6 +954,10 @@ def main() -> int:
         # Heading errors below are only meaningful at this chord length.
         "heading_chord_m": heading_chord,
     }
+    if ARGS.ik_gravity_comp:
+        metrics["control_parameters"]["ik_gravity_comp"] = True
+        metrics["control_parameters"]["ik_gravity_comp_max_rad"] = float(ARGS.ik_gravity_comp_max_rad)
+        metrics["control_parameters"]["ik_gravity_comp_sign"] = float(ARGS.ik_gravity_comp_sign)
     pen_down_rows = [row for row in executed_rows if row["pen_down"]]
     if pen_down_rows:
         metrics["clamped_command_fraction"] = float(
