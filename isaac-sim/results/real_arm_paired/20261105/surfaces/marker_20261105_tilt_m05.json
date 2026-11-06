@@ -1,0 +1,9 @@
+{
+    "note":  "2026-11-05 new marker: slope of the 20261104 corner fit (plane_touches.json) through today\u0027s touch at (367.988, 91.990, 52.293), shifted -0.5 mm (user: draw lower on the left). Used for paired run 05c (ACT) after 05b left no ink below x ~510.",
+    "plane":  {
+                  "z0_mm":  44.5686,
+                  "dz_dx":  0.019956,
+                  "dz_dy":  -0.001295,
+                  "model":  "corner-fit slope through the 2026-11-05 marker touch, -0.5 mm"
+              }
+}

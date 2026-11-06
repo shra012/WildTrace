@@ -1,0 +1,52 @@
+{
+  "outcome": "finished",
+  "ticks": 5999,
+  "seconds": 100.0,
+  "pen_down_error_mm": {
+    "rmse": 0.566,
+    "max": 1.575
+  },
+  "tip_z_min_mm": 51.75,
+  "pen_down_plane_mm": 53.366,
+  "lowest_below_paper_mm": 0.525,
+  "paper_plane": "outputs/calibration/20261104_plane/marker_20261105_tilt_m11.json",
+  "joint_min_deg": [
+    342.4,
+    -2.2,
+    19.8,
+    39.5,
+    -16.8,
+    35.4,
+    7.8
+  ],
+  "joint_max_deg": [
+    351.7,
+    31.7,
+    33.0,
+    77.4,
+    1.4,
+    50.3,
+    24.7
+  ],
+  "joint_limit_margin_deg": [
+    8.3,
+    88.3,
+    327.0,
+    50.5,
+    343.2,
+    129.7,
+    335.3
+  ],
+  "max_joint_step_rad_per_tick": 0.00281,
+  "policy_ms_mean": 4.7,
+  "real_tip_lag_mm": {
+    "mean": 0.112,
+    "max": 0.295
+  },
+  "real_pen_down_error_mm": {
+    "rmse": 0.48,
+    "p95": 0.988,
+    "max": 1.407,
+    "samples": 617
+  }
+}

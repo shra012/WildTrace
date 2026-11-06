@@ -1,0 +1,32 @@
+{
+ "surface_file": "outputs/calibration/20261104_plane/marker_20261105_measured_m04.json",
+ "x0": 522.0,
+ "y0": 125.0,
+ "lines": [
+  {
+   "line": 0,
+   "stage": "coarse",
+   "x_mm": 522.0,
+   "offset_mm": 0.6,
+   "tcp_z_end_mm": 53.887,
+   "new_mark_px": 0
+  },
+  {
+   "line": 1,
+   "stage": "coarse",
+   "x_mm": 526.0,
+   "offset_mm": 0.1,
+   "tcp_z_end_mm": 53.439,
+   "new_mark_px": 83
+  },
+  {
+   "line": 2,
+   "stage": "fine",
+   "x_mm": 530.0,
+   "offset_mm": 0.5,
+   "tcp_z_end_mm": 53.891,
+   "new_mark_px": 42
+  }
+ ],
+ "contact_offset_mm": 0.5
+}

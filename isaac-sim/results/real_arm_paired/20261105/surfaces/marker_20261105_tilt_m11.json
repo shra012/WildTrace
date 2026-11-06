@@ -1,0 +1,9 @@
+{
+    "note":  "marker_20261105_tilt_m08 shifted -0.3 mm (user: redraw 05d over the same sheet, 0.3 mm deeper). Used for 05e.",
+    "plane":  {
+                  "z0_mm":  43.9686,
+                  "dz_dx":  0.019956,
+                  "dz_dy":  -0.001295,
+                  "model":  "corner-fit slope through the 2026-11-05 marker touch, -1.1 mm"
+              }
+}

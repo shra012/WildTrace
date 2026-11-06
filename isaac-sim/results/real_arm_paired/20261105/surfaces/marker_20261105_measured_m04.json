@@ -1,0 +1,21 @@
+{
+    "note":  "2026-11-05 new marker, measured: contact lines at x 378 (TCP 51.919, left-edge search) and x 538 (TCP 53.986, high-x search on the run 09 sheet). The 20261104 corner-fit slope (0.01996) was too steep: m15 sat 0.9 mm past contact on the left and 0.2 mm above it on the right. This plane runs 0.4 mm past contact everywhere along x.",
+    "contacts":  [
+                     {
+                         "x_mm":  378,
+                         "y_mm":  66,
+                         "tcp_z_mm":  51.919
+                     },
+                     {
+                         "x_mm":  538,
+                         "y_mm":  86,
+                         "tcp_z_mm":  53.986
+                     }
+                 ],
+    "plane":  {
+                  "z0_mm":  46.7211,
+                  "dz_dx":  0.012919,
+                  "dz_dy":  -0.001295,
+                  "model":  "two measured marker contacts, -0.4 mm"
+              }
+}

@@ -1,0 +1,9 @@
+{
+    "note":  "marker_20261105_tilt_m05 shifted -0.3 mm: the left-edge contact search (marker_20261105_search) first marked at -0.1 mm, so this is 0.2 mm past contact for firm ink. Used for paired run 05d.",
+    "plane":  {
+                  "z0_mm":  44.2686,
+                  "dz_dx":  0.019956,
+                  "dz_dy":  -0.001295,
+                  "model":  "corner-fit slope through the 2026-11-05 marker touch, -0.8 mm"
+              }
+}

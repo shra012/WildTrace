@@ -1,0 +1,27 @@
+{
+ "controller": "ik_set_position",
+ "argv": [
+  "scripts\\run_xarm7_hardware.py",
+  "--execute",
+  "--trajectory",
+  "data/act_test/Dog/4cf9d2757b8a6282.json",
+  "--paper-plane",
+  "outputs/calibration/20261104_plane/marker_20261105_measured_m04.json"
+ ],
+ "outcome": "finished",
+ "safe_stop": null,
+ "seconds": 238.8,
+ "waypoints_planned": 669,
+ "waypoints_reached": 669,
+ "retries": 0,
+ "pen_down_waypoints": 521,
+ "settled_pen_down_error_mm": {
+  "rmse": 0.0,
+  "p95": 0.0,
+  "max": 0.001
+ },
+ "joint7_deg_range": [
+  -313.1,
+  -297.3
+ ]
+}

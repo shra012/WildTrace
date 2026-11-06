@@ -1,0 +1,27 @@
+{
+ "controller": "ik_set_position",
+ "argv": [
+  "scripts\\run_xarm7_hardware.py",
+  "--execute",
+  "--trajectory",
+  "data/act_test/Horse/a84882576126b982.json",
+  "--paper-plane",
+  "outputs/calibration/20261104_plane/marker_20261105_measured_m04.json"
+ ],
+ "outcome": "finished",
+ "safe_stop": null,
+ "seconds": 376.6,
+ "waypoints_planned": 1216,
+ "waypoints_reached": 1216,
+ "retries": 0,
+ "pen_down_waypoints": 1024,
+ "settled_pen_down_error_mm": {
+  "rmse": 0.0,
+  "p95": 0.0,
+  "max": 0.001
+ },
+ "joint7_deg_range": [
+  -313.3,
+  -299.0
+ ]
+}

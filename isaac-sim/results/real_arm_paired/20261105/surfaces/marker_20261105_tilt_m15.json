@@ -1,0 +1,9 @@
+{
+    "note":  "marker_20261105_tilt_m13 shifted -0.2 mm for both controllers (fresh round marker tip inks only under pressure; user agreed). Used from paired run 08 on.",
+    "plane":  {
+                  "z0_mm":  43.5686,
+                  "dz_dx":  0.019956,
+                  "dz_dy":  -0.001295,
+                  "model":  "corner-fit slope through the 2026-11-05 marker touch, -1.5 mm"
+              }
+}

@@ -1,0 +1,32 @@
+{
+ "surface_file": "outputs/calibration/20261104_plane/marker_20261105_tilt_m05.json",
+ "x0": 370.0,
+ "y0": 60.0,
+ "lines": [
+  {
+   "line": 0,
+   "stage": "coarse",
+   "x_mm": 370.0,
+   "offset_mm": 0.0,
+   "tcp_z_end_mm": 51.859,
+   "new_mark_px": 0
+  },
+  {
+   "line": 1,
+   "stage": "coarse",
+   "x_mm": 374.0,
+   "offset_mm": -0.5,
+   "tcp_z_end_mm": 51.439,
+   "new_mark_px": 166
+  },
+  {
+   "line": 2,
+   "stage": "fine",
+   "x_mm": 378.0,
+   "offset_mm": -0.1,
+   "tcp_z_end_mm": 51.919,
+   "new_mark_px": 54
+  }
+ ],
+ "contact_offset_mm": -0.1
+}

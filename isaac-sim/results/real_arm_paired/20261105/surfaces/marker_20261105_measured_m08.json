@@ -1,0 +1,21 @@
+{
+    "note":  "marker_20261105_measured_m04 shifted -0.4 mm, only for the dog back segment (run 09e) where m04 left no ink.",
+    "contacts":  [
+                     {
+                         "x_mm":  378,
+                         "y_mm":  66,
+                         "tcp_z_mm":  51.919
+                     },
+                     {
+                         "x_mm":  538,
+                         "y_mm":  86,
+                         "tcp_z_mm":  53.986
+                     }
+                 ],
+    "plane":  {
+                  "z0_mm":  46.3211,
+                  "dz_dx":  0.012919,
+                  "dz_dy":  -0.001295,
+                  "model":  "two measured marker contacts, -0.8 mm"
+              }
+}

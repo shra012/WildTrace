@@ -1,0 +1,9 @@
+{
+    "note":  "marker_20261105_tilt_m15 shifted -0.3 mm: second pass over the run 09 dog sheet to fill missing ink (user).",
+    "plane":  {
+                  "z0_mm":  43.2686,
+                  "dz_dx":  0.019956,
+                  "dz_dy":  -0.001295,
+                  "model":  "corner-fit slope through the 2026-11-05 marker touch, -1.8 mm"
+              }
+}

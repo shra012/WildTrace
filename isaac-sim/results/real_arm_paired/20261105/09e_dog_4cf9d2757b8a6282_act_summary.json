@@ -1,0 +1,52 @@
+{
+  "outcome": "finished",
+  "ticks": 1092,
+  "seconds": 18.2,
+  "pen_down_error_mm": {
+    "rmse": 0.619,
+    "max": 1.247
+  },
+  "tip_z_min_mm": 52.35,
+  "pen_down_plane_mm": 52.365,
+  "lowest_below_paper_mm": 0.13,
+  "paper_plane": "outputs/calibration/20261104_plane/marker_20261105_measured_m08.json",
+  "joint_min_deg": [
+    343.9,
+    9.9,
+    20.1,
+    59.0,
+    -14.7,
+    41.8,
+    8.2
+  ],
+  "joint_max_deg": [
+    348.4,
+    21.9,
+    29.0,
+    65.5,
+    -5.4,
+    52.2,
+    25.8
+  ],
+  "joint_limit_margin_deg": [
+    11.6,
+    98.1,
+    331.0,
+    70.0,
+    345.3,
+    127.8,
+    334.2
+  ],
+  "max_joint_step_rad_per_tick": 0.00176,
+  "policy_ms_mean": 5.41,
+  "real_tip_lag_mm": {
+    "mean": 0.096,
+    "max": 0.18
+  },
+  "real_pen_down_error_mm": {
+    "rmse": 0.426,
+    "p95": 0.702,
+    "max": 0.767,
+    "samples": 80
+  }
+}

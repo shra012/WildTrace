@@ -27,7 +27,9 @@ Files per run: `<NN>_<class>_<id>_<act|ik>_summary.json`, `_events.jsonl`, `_rob
 IK stops and settles at every waypoint and is only read at rest, so its arm-reported error is about zero and is
 not comparable. The sheet scans (`ink_fidelity.py`) are the like-for-like comparison between the two.
 
-## Still to run
+Runs 03 to 22 (9 pairs) are in `../20261105/README.md`.
+
+## Still to run (as of 2026-11-04)
 
 | NN | Drawing | Controller |
 |---|---|---|

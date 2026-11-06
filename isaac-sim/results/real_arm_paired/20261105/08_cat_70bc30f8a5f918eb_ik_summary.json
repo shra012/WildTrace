@@ -1,0 +1,27 @@
+{
+ "controller": "ik_set_position",
+ "argv": [
+  "scripts\\run_xarm7_hardware.py",
+  "--execute",
+  "--trajectory",
+  "data/act_test/Cat/70bc30f8a5f918eb.json",
+  "--paper-plane",
+  "outputs/calibration/20261104_plane/marker_20261105_tilt_m15.json"
+ ],
+ "outcome": "finished",
+ "safe_stop": null,
+ "seconds": 556.3,
+ "waypoints_planned": 2002,
+ "waypoints_reached": 2002,
+ "retries": 0,
+ "pen_down_waypoints": 1816,
+ "settled_pen_down_error_mm": {
+  "rmse": 0.0,
+  "p95": 0.0,
+  "max": 0.001
+ },
+ "joint7_deg_range": [
+  -313.3,
+  -299.6
+ ]
+}
