@@ -69,3 +69,13 @@ checklists, comparison sheets, stroke counts and estimated drawing times under
 All eight local comparisons completed. The report flags two baseline drawings
 where the judge claimed glasses despite zero frame strokes, so the checker
 remains diagnostic. It is not connected to a dataset quality gate or Studio.
+
+## CCWC 2027 review version
+
+`main.tex`, `refs.bib` and `figures/` hold the anonymised 7-page IEEE CCWC 2027 review copy (authors shown as
+Author 1 to Author 5): supervisor edits, paired real-arm ACT vs IK results from issue #52 and the three-row
+Fig. 2 with the xArm7 sketches. `WildTrace_CCWC_submission.pdf` is the file uploaded to EDAS. Camera-ready is due
+Dec 20: add real names, affiliations and the copyright number, then run IEEE PDF eXpress.
+
+The previous longer draft (noise-injection ablation, tuned-IK sweep, "what a viewer sees", ethics paragraph) is
+kept on the `paper-backup-before-ccwc` branch.

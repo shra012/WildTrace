@@ -16,80 +16,68 @@
 \citation{nasrat2023artistic}
 \citation{hoang2024piktor,csempesz2024piktor}
 \citation{song2022tspbot}
-\citation{venkataramaiyer2020lineart}
 \citation{ha2018sketchrnn,huang2019paint}
 \citation{schaldenbrand2023frida}
 \citation{chen2024splinefrida}
 \citation{lee2022scratch}
-\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {II}Related Work}{1}{}\protected@file@percent }
 \citation{zhao2023act}
 \citation{chi2023diffusion}
 \citation{laskey2017dart}
 \citation{ross2011dagger}
-\citation{shukor2025smolvla}
-\citation{lipman2023flow}
+\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {II}Related Work}{1}{}\protected@file@percent }
 \citation{bristow2006ilc}
 \citation{lam2010mpcc}
+\citation{silver2018residual,johannink2019residual}
+\citation{shukor2025smolvla}
+\citation{lipman2023flow}
 \citation{tobin2017domain}
 \citation{langgraph}
-\citation{bai2025qwen25vl}
 \citation{lugaresi2019mediapipe}
-\citation{wu2025omnigen2}
 \citation{bai2025qwen3vl}
+\citation{wu2025omnigen2}
+\citation{bai2025qwen25vl}
+\citation{isaacsim}
 \@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces WildTrace data pipeline on one Open Images~\cite  {kuznetsova2020openimages} photo. Bronze: fetch the image, mask and license, then curate and label (BioCLIP~\cite  {stevens2024bioclip}). Silver: isolate the subject and redraw it as an outline with FLUX~\cite  {flux2024}, judged and retried. Gold: the accepted outline becomes a few ordered pen strokes on a normalised canvas (numbered markers show stroke starts).}}{2}{}\protected@file@percent }
 \newlabel{fig:pipeline}{{1}{2}{}{}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {III}Data Pipeline: Photo to Pen Strokes}{2}{}\protected@file@percent }
 \newlabel{sec:pipeline}{{III}{2}{}{}{}}
-\citation{isaacsim}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Face portraits: Open Images source photographs (top) and the pen-sketch line art traced from MediaPipe landmarks and segmentation, including ears where they stand out from the head (bottom), 15 to 19 strokes each. Photographs CC BY 2.0 via Flickr, by Byron Gonzalez, MangakaMaiden Photography, Luca Boldrini, JJP Bolger Photography and Walt Stoneburner (left to right).}}{3}{}\protected@file@percent }
-\newlabel{fig:faces}{{2}{3}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Generator and judge study (paper-r3, 20 subjects per generator). $n$: evaluated images or paired verdicts. Pass: Qwen3-VL-235B; export: trajectory constraints.}}{3}{}\protected@file@percent }
-\newlabel{tab:judge}{{I}{3}{}{}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {IV}Robot, Twin and Controllers}{3}{}\protected@file@percent }
-\newlabel{sec:control}{{IV}{3}{}{}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces (a) Isaac Sim twin built from the lab arm's calibrated URDF, gripper and measured paper placement, at 1\,g. (b) The physical xArm 7 drawing a WildTrace bird.}}{3}{}\protected@file@percent }
-\newlabel{fig:robot}{{3}{3}{}{}{}}
-\newlabel{eq:dist}{{1}{3}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Outline generator and judge study (20 subjects, referee Qwen3-VL-235B).}}{2}{}\protected@file@percent }
+\newlabel{tab:judge}{{I}{2}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {IV}Robot, Twin and Controllers}{2}{}\protected@file@percent }
+\newlabel{sec:control}{{IV}{2}{}{}{}}
 \citation{zhao2023act}
 \citation{lerobot2024}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Face portraits: Open Images source photographs (top), the pen-sketch line art traced from MediaPipe landmarks and segmentation (middle) and the xArm~7 sketches (bottom), 15 to 19 strokes each. Photographs CC BY 2.0 via Flickr, by Byron Gonzalez, MangakaMaiden Photography, Luca Boldrini, JJP Bolger Photography and Walt Stoneburner (left to right).}}{3}{}\protected@file@percent }
+\newlabel{fig:faces}{{2}{3}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces (a) Isaac Sim twin built from the lab arm's calibrated URDF, gripper and measured paper placement, at 1\,g. (b) The physical xArm 7 drawing a WildTrace bird. (c) A face portrait drawn by ACT on the physical arm with a marker (portrait A in Table~\ref {tab:real}).}}{3}{}\protected@file@percent }
+\newlabel{fig:robot}{{3}{3}{}{}{}}
+\newlabel{eq:dist}{{1}{3}{}{}{}}
+\newlabel{eq:step}{{3}{3}{}{}{}}
 \citation{laskey2017dart}
 \citation{shukor2025smolvla}
-\newlabel{eq:step}{{3}{4}{}{}{}}
-\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Hybrid supervisor, run every control tick}}{4}{}\protected@file@percent }
-\newlabel{alg:sup}{{1}{4}{}{}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Control loop. The policy runs every 60\,Hz tick on a path window around the current progress; the supervisor hands control to Lula IK only on a stall or an uninked gap (dashed), then hands back.}}{4}{}\protected@file@percent }
-\newlabel{fig:arch}{{4}{4}{}{}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {V}Results}{4}{}\protected@file@percent }
 \newlabel{sec:results}{{V}{4}{}{}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Kernel density estimates (Gaussian kernel, Scott bandwidth) over the gold set for the four controllers; dotted lines are medians and ticks are individual drawings ($n$ = 45 / 48 / 48 / 48 drawings, 71k / 76k / 76k / 76k pen-down samples for IK / streaming IK / ACT / SmolVLA). (a) Per-drawing path RMSE: the two learned policies separate cleanly from both IK variants. (b) Nearest-path error of every planned pen-down sample (densified plan): medians 0.256, 0.257, 0.141 and 0.120\,mm\xspace  . (c) Pen-down joint jerk: ACT has the lowest, SmolVLA between ACT and IK.}}{5}{}\protected@file@percent }
-\newlabel{fig:kde}{{5}{5}{}{}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Planned path (grey) against the executed pen tip for the same gold cat, ACT (blue) and IK (orange), top-down. (c, d) A fixed 14\,mm\xspace  window on the head: at drawing scale both follow the plan closely; the 0.08\,mm\xspace  RMSE difference is a sixth of a marker line and not visible.}}{5}{}\protected@file@percent }
-\newlabel{fig:paths}{{6}{5}{}{}{}}
-\citation{laskey2017dart}
-\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Gold test set, 48 held-out drawings, lab-arm twin at 1\,g, same code and runner for all four controllers. Means over finished drawings; 95\% bootstrap intervals over drawings in brackets. Segment RMSE measures each point of the densified plan (Fig.~\ref {fig:kde}b) to the executed polyline instead of the nearest sample, removing sampling density; sample-based on the same plan it is 0.275, 0.268, 0.270, 0.180 and 0.171\,mm\xspace  . ACT is lower than IK on all 45 drawings by both. IK$^\ast $ is Lula IK with the best of eight tolerance, gate and step settings; S-IK is the streaming IK baseline at ACT's pace.}}{6}{}\protected@file@percent }
-\newlabel{tab:gold}{{II}{6}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Gold test set per class: mean path RMSE in mm (finished / total where not all finished).}}{6}{}\protected@file@percent }
-\newlabel{tab:class}{{III}{6}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Development history of the ACT path follower (48 gold drawings, 1\,g, means over finished drawings). Each row was run once during development with the code of its time, so rows are not a controlled ablation. Rows above the rule use the default sim scene, rows below the stiffened lab-arm twin.}}{6}{}\protected@file@percent }
-\newlabel{tab:ablation}{{IV}{6}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Gold test set, 48 held-out drawings, lab-arm twin at 1\,g, same code and runner for all four controllers. Means over finished drawings; 95\% bootstrap intervals over drawings in brackets. S-IK is the streaming IK baseline at ACT's pace.}}{4}{}\protected@file@percent }
+\newlabel{tab:gold}{{II}{4}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces How the ACT path follower got there (48 gold drawings, 1\,g, means over finished drawings, earlier code). Rows above the rule use the default sim scene, rows below the stiffened lab-arm twin.}}{4}{}\protected@file@percent }
+\newlabel{tab:ablation}{{III}{4}{}{}{}}
 \citation{ross2011dagger}
 \citation{csempesz2024piktor}
-\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces Paper placement robustness, 16 gold drawings: mean path RMSE in mm (finished drawings in brackets where fewer than 16), final code for all four controllers. S-IK: streaming IK.}}{7}{}\protected@file@percent }
-\newlabel{tab:robust}{{V}{7}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {VI}{\ignorespaces SmolVLA and ACT, interactive runner. Mean path RMSE / p95 (mm); all runs finished.}}{7}{}\protected@file@percent }
-\newlabel{tab:vla}{{VI}{7}{}{}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Speed against accuracy on the gold cat (interactive runner): the step scale $\alpha $ of Eq.~(\ref {eq:step}) relative to the default 0.5 is shown next to each point. ACT keeps most of its accuracy up to 1.0; SmolVLA degrades sooner.}}{7}{}\protected@file@percent }
-\newlabel{fig:speed}{{7}{7}{}{}{}}
-\citation{chi2023diffusion}
-\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces ACT path RMSE per class in the twin (gold set) and on the physical arm (five drawings per class, range shown). The real arm is 2.5 to 3.0$\times $ the twin in every class. Drawings differ between the two sets, so the comparison is per class, not paired.}}{8}{}\protected@file@percent }
-\newlabel{fig:twinreal}{{8}{8}{}{}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {VI}Discussion and Limitations}{8}{}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {VII}{\ignorespaces ACT on the physical arm, 30 animal drawings (five per class). Path RMSE in mm.}}{8}{}\protected@file@percent }
-\newlabel{tab:realclass}{{VII}{8}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {VIII}{\ignorespaces Face portraits on the physical arm with ACT and a marker. RMSE, p95 and max are measured from the arm's reported tip at 10\,Hz; chamfer and coverage are measured from the ink in an overhead photograph. mm.}}{8}{}\protected@file@percent }
-\newlabel{tab:real}{{VIII}{8}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Planned path (grey) against the executed pen tip for the same gold cat, ACT (blue) and IK (orange), top-down. (c, d) A fixed 14\,mm\xspace  window on the head: IK's stop-and-settle at each waypoint leaves a tremor of small hooks along the stroke; ACT stays smooth.}}{5}{}\protected@file@percent }
+\newlabel{fig:paths}{{4}{5}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Paper placement robustness, 16 gold drawings (finished, mean path RMSE in mm).}}{5}{}\protected@file@percent }
+\newlabel{tab:robust}{{IV}{5}{}{}{}}
+\citation{lam2010mpcc}
+\citation{bristow2006ilc}
 \citation{wang2019robocodraw,gao2020aisketcher,nasrat2023artistic}
+\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces Paired real-arm comparison, nine gold drawings, ACT against the shipped IK controller. IK's arm-reported error is read at rest and is not comparable. Ink completeness is judged by eye from wrist-camera photographs.}}{6}{}\protected@file@percent }
+\newlabel{tab:paired}{{V}{6}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {VI}{\ignorespaces ACT on the physical arm, 30 animal drawings (five per class). Path RMSE in mm.}}{6}{}\protected@file@percent }
+\newlabel{tab:realclass}{{VI}{6}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Discussion and Limitations}{6}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {VII}{\ignorespaces Face portraits on the physical arm with ACT and a marker. RMSE, p95 and max are from the arm's reported tip at 10\,Hz; chamfer and coverage are from the ink in an overhead photograph. mm.}}{6}{}\protected@file@percent }
+\newlabel{tab:real}{{VII}{6}{}{}{}}
 \bibstyle{IEEEtran}
 \bibdata{refs}
 \bibcite{calinon2005humanoid}{1}
@@ -106,25 +94,26 @@
 \bibcite{hoang2024piktor}{12}
 \bibcite{csempesz2024piktor}{13}
 \bibcite{song2022tspbot}{14}
-\bibcite{venkataramaiyer2020lineart}{15}
-\bibcite{ha2018sketchrnn}{16}
-\bibcite{huang2019paint}{17}
-\bibcite{schaldenbrand2023frida}{18}
-\bibcite{chen2024splinefrida}{19}
-\bibcite{lee2022scratch}{20}
-\bibcite{laskey2017dart}{21}
-\bibcite{ross2011dagger}{22}
-\bibcite{lipman2023flow}{23}
-\bibcite{bristow2006ilc}{24}
-\bibcite{lam2010mpcc}{25}
-\bibcite{tobin2017domain}{26}
-\bibcite{langgraph}{27}
-\bibcite{bai2025qwen25vl}{28}
+\bibcite{ha2018sketchrnn}{15}
+\bibcite{huang2019paint}{16}
+\bibcite{schaldenbrand2023frida}{17}
+\bibcite{chen2024splinefrida}{18}
+\bibcite{lee2022scratch}{19}
+\bibcite{laskey2017dart}{20}
+\bibcite{ross2011dagger}{21}
+\bibcite{bristow2006ilc}{22}
+\bibcite{lam2010mpcc}{23}
+\bibcite{silver2018residual}{24}
+\bibcite{johannink2019residual}{25}
+\bibcite{lipman2023flow}{26}
+\bibcite{tobin2017domain}{27}
+\bibcite{langgraph}{28}
 \bibcite{lugaresi2019mediapipe}{29}
-\bibcite{wu2025omnigen2}{30}
-\bibcite{bai2025qwen3vl}{31}
-\bibcite{isaacsim}{32}
-\bibcite{lerobot2024}{33}
-\@writefile{toc}{\contentsline {section}{\numberline {VII}Conclusion}{9}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{References}{9}{}\protected@file@percent }
-\gdef \@abspage@last{9}
+\bibcite{bai2025qwen3vl}{30}
+\bibcite{wu2025omnigen2}{31}
+\bibcite{bai2025qwen25vl}{32}
+\bibcite{isaacsim}{33}
+\bibcite{lerobot2024}{34}
+\@writefile{toc}{\contentsline {section}{\numberline {VII}Conclusion}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{7}{}\protected@file@percent }
+\gdef \@abspage@last{7}

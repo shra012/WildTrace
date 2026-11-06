@@ -89,11 +89,6 @@ D.~Song, E.~Lim, J.~Park, M.~Jung, and Y.~J. Kim, ``{TSP-Bot}: Robotic {TSP}
   pen art using high-{DoF} manipulators,'' \emph{arXiv preprint
   arXiv:2210.07592}, 2022.
 
-\bibitem{venkataramaiyer2020lineart}
-R.~B. Venkataramaiyer, S.~Kumar, and V.~P. Namboodiri, ``Can {I} teach a robot
-  to replicate a line art,'' in \emph{Proc. IEEE Winter Conf. Applications of
-  Computer Vision (WACV)}, 2020, pp. 1922--1930.
-
 \bibitem{ha2018sketchrnn}
 D.~Ha and D.~Eck, ``A neural representation of sketch drawings,'' in
   \emph{Proc. Int. Conf. Learning Representations (ICLR)}, 2018.
@@ -129,11 +124,6 @@ S.~Ross, G.~J. Gordon, and J.~A. Bagnell, ``A reduction of imitation learning
   and structured prediction to no-regret online learning,'' in \emph{Proc. Int.
   Conf. Artificial Intelligence and Statistics (AISTATS)}, 2011.
 
-\bibitem{lipman2023flow}
-Y.~Lipman, R.~T.~Q. Chen, H.~Ben-Hamu, M.~Nickel, and M.~Le, ``Flow matching
-  for generative modeling,'' in \emph{Proc. Int. Conf. Learning Representations
-  (ICLR)}, 2023.
-
 \bibitem{bristow2006ilc}
 D.~A. Bristow, M.~Tharayil, and A.~G. Alleyne, ``A survey of iterative learning
   control,'' \emph{IEEE Control Systems Magazine}, vol.~26, no.~3, pp. 96--114,
@@ -141,8 +131,22 @@ D.~A. Bristow, M.~Tharayil, and A.~G. Alleyne, ``A survey of iterative learning
 
 \bibitem{lam2010mpcc}
 D.~Lam, C.~Manzie, and M.~Good, ``Model predictive contouring control,'' in
-  \emph{Proc. 49th IEEE Conf. Decision and Control (CDC)}, 2010, pp.
-  6137--6142.
+  \emph{Proc. IEEE Conf. Decision and Control (CDC)}, 2010, pp. 6137--6142.
+
+\bibitem{silver2018residual}
+T.~Silver, K.~Allen, J.~Tenenbaum, and L.~Kaelbling, ``Residual policy
+  learning,'' \emph{arXiv preprint arXiv:1812.06298}, 2018.
+
+\bibitem{johannink2019residual}
+T.~Johannink, S.~Bahl, A.~Nair, J.~Luo, A.~Kumar, M.~Loskyll, J.~A. Ojea,
+  E.~Solowjow, and S.~Levine, ``Residual reinforcement learning for robot
+  control,'' in \emph{Proc. IEEE Int. Conf. Robotics and Automation (ICRA)},
+  2019, pp. 6023--6029.
+
+\bibitem{lipman2023flow}
+Y.~Lipman, R.~T.~Q. Chen, H.~Ben-Hamu, M.~Nickel, and M.~Le, ``Flow matching
+  for generative modeling,'' in \emph{Proc. Int. Conf. Learning Representations
+  (ICLR)}, 2023.
 
 \bibitem{tobin2017domain}
 J.~Tobin, R.~Fong, A.~Ray, J.~Schneider, W.~Zaremba, and P.~Abbeel, ``Domain
@@ -154,21 +158,21 @@ J.~Tobin, R.~Fong, A.~Ray, J.~Schneider, W.~Zaremba, and P.~Abbeel, ``Domain
 {LangChain}, ``{LangGraph},'' \url{https://github.com/langchain-ai/langgraph},
   2024.
 
-\bibitem{bai2025qwen25vl}
-S.~Bai \emph{et~al.}, ``{Qwen2.5-VL} technical report,'' \emph{arXiv preprint
-  arXiv:2502.13923}, 2025.
-
 \bibitem{lugaresi2019mediapipe}
 C.~Lugaresi \emph{et~al.}, ``{MediaPipe}: A framework for building perception
   pipelines,'' \emph{arXiv preprint arXiv:1906.08172}, 2019.
+
+\bibitem{bai2025qwen3vl}
+S.~Bai \emph{et~al.}, ``{Qwen3-VL} technical report,'' \emph{arXiv preprint
+  arXiv:2511.21631}, 2025.
 
 \bibitem{wu2025omnigen2}
 C.~Wu \emph{et~al.}, ``{OmniGen2}: Towards instruction-aligned multimodal
   generation,'' \emph{arXiv preprint arXiv:2506.18871}, 2025.
 
-\bibitem{bai2025qwen3vl}
-S.~Bai \emph{et~al.}, ``{Qwen3-VL} technical report,'' \emph{arXiv preprint
-  arXiv:2511.21631}, 2025.
+\bibitem{bai2025qwen25vl}
+S.~Bai \emph{et~al.}, ``{Qwen2.5-VL} technical report,'' \emph{arXiv preprint
+  arXiv:2502.13923}, 2025.
 
 \bibitem{isaacsim}
 {NVIDIA}, ``{Isaac Sim},'' \url{https://developer.nvidia.com/isaac/sim},
