@@ -1,12 +1,14 @@
 # WildTrace
 
-**Turn animal photos into line drawings, and have a robot arm draw them.**
+**Turn animal photos (and faces) into line drawings, and have a robot arm draw them, in simulation and on a real UFACTORY xArm 7.**
 
-WildTrace takes real photos (Open Images), turns each one into a clean outline and a set of pen strokes,
-and then a simulated UFACTORY xArm 7 draws them on paper in NVIDIA Isaac Sim. Learned controllers (ACT,
-SmolVLA) are compared against classic inverse kinematics on the same drawings.
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
 ![Photo to line drawing to pen strokes to robot drawing](docs/readme/hero.jpg)
+
+WildTrace takes real photos (Open Images), turns each one into a clean outline and a short list of ordered pen
+strokes, and has an xArm 7 draw them on paper: first in a calibrated NVIDIA Isaac Sim twin of the lab arm, then on
+the physical arm. A learned imitation policy (ACT) is compared against classic inverse kinematics on the same drawings.
 
 ## From simulation to the real arm
 
@@ -20,10 +22,20 @@ SmolVLA) are compared against classic inverse kinematics on the same drawings.
       The lab-arm twin in Isaac Sim is built from this arm's calibrated model and its measured paper
       placement, so simulation runs match the real setup.
       <br><br>
-      <a href="docs/readme/bird_live_edit.mp4"><b>Watch the 40-second video (with sound)</b></a>
+      <a href="docs/readme/bird_live_edit.mp4"><b>Watch the 42-second video (with sound)</b></a>
     </td>
   </tr>
 </table>
+
+## Key results
+
+- **2,874 validated pen-stroke trajectories** across six animals (bird, cat, dog, fish, frog, horse), plus a
+  48-drawing gold test set that no policy trains on.
+- **ACT beats inverse kinematics in the twin:** 48/48 drawings finished vs 44/48, path error 0.195 mm vs 0.283 mm
+  (lower on all 44 drawings both finished), and about half the jerk.
+- **Sim to real:** on the physical arm, ACT finished all 30 drawings of a batch run (5 per animal) with a mean path
+  error of 0.53 mm, about 2.7 times the twin's. 14 of the 30 needed at least one manual nudge when the pen stalled
+  mid-stroke ([details](isaac-sim/results/act_eval/act_real_v2_stiff_results.md#real-arm-physical-xarm-7-sim-to-real)).
 
 ## How it works
 
@@ -34,12 +46,13 @@ flowchart LR
     C --> D{Judge<br/>OpenCV + VLM}
     D -- retry --> C
     D -- accepted --> E[Gold<br/>pen-stroke trajectory]
-    E --> F[Isaac Sim<br/>xArm 7 draws it]
+    E --> F[Isaac Sim twin<br/>xArm 7 draws it]
     F --> G[Metrics<br/>path error, time]
+    E --> H[Real xArm 7<br/>same policy]
 ```
 
-The project has two halves. A **data pipeline** turns photos into robot-ready trajectories. A **robot
-simulation** draws those trajectories and measures how well it did.
+The project has two halves. A **data pipeline** turns photos into robot-ready trajectories. A **robot** side
+draws those trajectories, in simulation and on the real arm, and measures how well it did.
 
 ## 1. Data pipeline: photo to pen strokes
 
@@ -70,18 +83,18 @@ The same drawings are drawn by different **controllers**:
 |---|---|
 | **Lula IK** | Classic inverse kinematics: solve joint angles for each waypoint, wait until reached |
 | **ACT** | Learned policy (Action Chunking Transformer) that looks at the upcoming path and predicts the next joint moves |
-| **SmolVLA** | Pretrained vision-language-action model, fine-tuned on the same data (training in progress) |
-| **PPO** | Reinforcement-learning baseline on the same task |
+| **SmolVLA** | Pretrained vision-language-action model, fine-tuned on the same data; finishes the test drawings but trails ACT ([results](isaac-sim/results/smolvla/README.md)) |
+| **PPO** | Early reinforcement-learning baseline on the same task |
 
 ### Results (gold test set, lab-arm twin, 1 g)
 
-| Controller | Drawings finished | Path error (RMSE) | Smoothness (jerk) |
+| Controller | Drawings finished | Path error (RMSE) | Jerk (RMS, rad/s³, lower is smoother) |
 |---|---|---|---|
 | Lula IK | 44 / 48 | 0.283 mm | 752 |
 | **ACT** | **48 / 48** | **0.195 mm** | **390** |
 
 ACT finishes every drawing, follows the path more closely than IK on all 44 drawings both finished, and moves
-about twice as smoothly.
+about twice as smoothly. The four IK failures are waypoint timeouts.
 
 <table>
   <tr>
@@ -113,7 +126,10 @@ Then watch the stages, the live pen trace and the camera feeds.
 
 ![WildTrace Studio](docs/readme/studio.jpg)
 
-## Key terms
+## Tech stack and key terms
+
+Python 3.12 and uv · FLUX, OpenCV, a VLM judge and LangGraph for line art · BioCLIP · MediaPipe · LeRobot (ACT,
+SmolVLA) and PyTorch · NVIDIA Isaac Sim 6.0.1 with Lula IK · FastAPI and Next.js for Studio.
 
 | Term | In one line |
 |---|---|
@@ -121,6 +137,7 @@ Then watch the stages, the live pen trace and the camera feeds.
 | **VLM judge** | A vision-language model that checks the outline really is the right animal, with OpenCV checks first |
 | **LangGraph** | Runs the outline → judge → retry loop |
 | **BioCLIP** | Biology-tuned CLIP model that labels the animal's species and type |
+| **MediaPipe** | Google's on-device face landmark and segmentation models, used for portraits |
 | **Lula IK** | NVIDIA's inverse-kinematics solver: target pen position → joint angles |
 | **ACT** | Action Chunking Transformer: imitation-learning policy that predicts short chunks of future actions |
 | **SmolVLA** | Small (450M) vision-language-action model from Hugging Face, pretrained on robot data |
