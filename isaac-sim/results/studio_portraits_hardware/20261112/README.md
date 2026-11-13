@@ -36,11 +36,16 @@ lowest point below the surface, safe stop reason, surface, note).
 | face_fb1b8bca_holder_7650 | Face `fb1b8bca` | holder, 76.50 | complete in one pass |
 | example2_part1, _part2 | Studio example2 (183 strokes) | holder, 76.50 | stopped at stroke 106 (1124 ms tick), resumed with `--skip-strokes 106` |
 | example4_original | Studio example4 (352 strokes) | holder, 76.50 | finished in 43 min; strokes shifted up to about 6 mm |
+| example4_lineB_stopped | Studio example4 (352 strokes) | holder, line B | pen and holder fixed; stopped by the user mid-run |
+| example4_simplified | example4 simplified (225 strokes) | holder, line B | strokes 0-103, then a safe stop (678 ms tick); drift check skipped (half drawing) |
+| example4_simplified_part2 | example4 simplified, from stroke 104 | holder, line B | finished; face coherent, most stroke groups within 1.5 mm, first hair strokes and the resume seam about 4 mm |
 
 **example4 shift.** The arm's own real-tip error stayed at 0.44 mm, the overhead video shows the sheet did not
 move, but in the close-up strokes drawn early (hair) and late (collar) sit up to about 6 mm off the plan, mostly
 along +y, while the face strokes are within 1 mm (`stroke_shifts.csv`). So the pen tip moved relative to the
-gripper during the run. The user then fixed the pen tip and holder and the drawing was repeated.
+gripper during the run. The user then fixed the pen tip and holder; the simplified example4 (strokes joined within 1 mm, strokes under
+3 mm dropped outside the eye band, Douglas-Peucker 0.15 mm, nearest-neighbour order: `example4_simplified/trajectory.json`)
+was drawn at line B and came out coherent.
 
 **Slow control ticks.** Two long runs stopped on the 0.5 s tick guard (529 ms, 1124 ms) while the laptop was
 on AC with Edge, Cursor and VS Code busy. The runner lifted the pen each time.
