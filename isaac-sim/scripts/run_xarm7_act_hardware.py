@@ -113,13 +113,29 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+def plane_height_m(plane: dict, x_m, y_m):
+    """Paper height (m) at x, y (m) from a fitted surface in mm (plane_touches.json): z = z0 + dz_dx x + dz_dy y,
+    plus an optional round bowl k * ((x - xc)^2 + (y - yc)^2). The 2026-11-04 sheet sat ~0.2-0.3 mm low in the middle."""
+    x_mm, y_mm = np.asarray(x_m) * 1000.0, np.asarray(y_m) * 1000.0
+    z = plane["z0_mm"] + plane["dz_dx"] * x_mm + plane["dz_dy"] * y_mm
+    bowl = plane.get("bowl")
+    if bowl:
+        z = z + bowl["k_per_mm2"] * ((x_mm - bowl["xc_mm"]) ** 2 + (y_mm - bowl["yc_mm"]) ** 2)
+    return z / 1000.0
+
+
 def build_targets(
-    hardware: dict, twin: dict, home_tip: np.ndarray, lift_m: float, skip: int, limit: int | None, floor_below_m: float = 0.0002
+    hardware: dict, twin: dict, home_tip: np.ndarray, lift_m: float, skip: int, limit: int | None, floor_below_m: float = 0.0002,
+    plane: dict | None = None,
 ):
     drawing = twin["drawing"]
     trajectory_path = Path(hardware["trajectory_path"])
     trajectory = load_trajectory(trajectory_path if trajectory_path.is_absolute() else PROJECT / trajectory_path)
     paper = np.asarray(hardware["paper_center_mm"], dtype=np.float64) / 1000.0
+    if plane is not None:
+        # Opt-in (#52): the sheet is not level in the arm frame, so the touch height comes from the measured
+        # plane at the drawing centre, and every waypoint below follows the plane.
+        paper = np.array([paper[0], paper[1], float(plane_height_m(plane, paper[0], paper[1]))])
     # The lift moves the draw plane and every height built from it, before the approach from the
     # pen's real position is added, so the path stays continuous from where the pen is.
     pen_down = float(paper[2]) + lift_m
@@ -155,6 +171,8 @@ def build_targets(
     phases[0] = Phase(first.state, [MotionTarget(first.state, p, final.stroke_id, i, False) for i, p in enumerate(points)])
     targets = flatten_desired_targets(phases)
     positions = np.asarray([t.position for t in targets], dtype=np.float64)
+    if plane is not None:
+        positions[:, 2] += plane_height_m(plane, positions[:, 0], positions[:, 1]) - paper[2]
     return {
         "positions": positions,
         "pen_down": np.asarray([bool(t.pen_down) for t in targets]),
@@ -166,6 +184,8 @@ def build_targets(
         "floor_z": float(paper[2]) - floor_below_m,
         "approach_z": approach,
         "size_xy": np.asarray(drawing["surface_size_xy_m"], dtype=np.float64),
+        "plane": plane,
+        "centre_z": float(paper[2]),
     }
 
 
@@ -263,12 +283,14 @@ class HardwareArm:
 def _fence_check(plan: dict, tip: np.ndarray, lift_m: float) -> str | None:
     cx, cy = plan["paper_xy"]
     hx, hy = plan["size_xy"] / 2.0 + 0.04
-    floor = max(plan["pen_down_z"] - 0.001, plan["floor_z"])
+    # With a measured paper plane, the floor and the height limit follow the paper under the tip.
+    local = 0.0 if plan.get("plane") is None else float(plane_height_m(plan["plane"], tip[0], tip[1])) - plan["centre_z"]
+    floor = max(plan["pen_down_z"] - 0.001, plan["floor_z"]) + local
     if not (cx - hx <= tip[0] <= cx + hx and cy - hy <= tip[1] <= cy + hy):
         return f"tip xy {tip[:2].round(4).tolist()} left the paper fence"
     if tip[2] < floor:
         return f"tip z {tip[2] * 1000:.2f} mm is below the floor {floor * 1000:.2f} mm"
-    if tip[2] > plan["approach_z"] + 0.05:
+    if tip[2] > plan["approach_z"] + local + 0.05:
         return f"tip z {tip[2] * 1000:.1f} mm is above the approach height"
     return None
 
@@ -400,6 +422,12 @@ def main() -> int:
     )
     parser.add_argument("--start-speed-deg-s", type=float, default=8.0)
     parser.add_argument(
+        "--paper-plane",
+        default=None,
+        help="Opt-in: plane_touches.json from a 3-corner + centre touch. Pen-down heights and the floor then follow the "
+        "measured paper plane instead of the single touch height in xarm7_hardware.yaml.",
+    )
+    parser.add_argument(
         "--start-clearance-mm",
         type=float,
         default=40.0,
@@ -462,11 +490,15 @@ def main() -> int:
         log.event("urdf_fk_check", gap_mm=round(fk_gap * 1e3, 3))
         if fk_gap > 0.0005:
             raise SafeStop(f"URDF FK differs from the controller's by {fk_gap * 1e3:.2f} mm at the start pose")
+        plane = json.loads(Path(args.paper_plane).read_text(encoding="utf-8"))["plane"] if args.paper_plane else None
         plan = build_targets(
-            hardware, twin, home_tip, args.z_offset_mm / 1000.0, args.skip_strokes, args.max_strokes, args.floor_below_touch_mm / 1000.0
+            hardware, twin, home_tip, args.z_offset_mm / 1000.0, args.skip_strokes, args.max_strokes, args.floor_below_touch_mm / 1000.0,
+            plane,
         )
         log.event("plan_ready", targets=len(plan["positions"]), strokes=plan["strokes"], home_tip_mm=(home_tip * 1000).round(2),
-                  pen_down_z_mm=round(plan["pen_down_z"] * 1000, 3), lift_mm=args.z_offset_mm)
+                  pen_down_z_mm=round(plan["pen_down_z"] * 1000, 3), lift_mm=args.z_offset_mm,
+                  paper_plane=None if plane is None else {"file": args.paper_plane, **plane},
+                  config_touch_z_mm=round(float(hardware["paper_center_mm"][2]), 3))
 
         from act_policy_server import ActRunner, SmolVlaRunner
 
@@ -506,6 +538,10 @@ def main() -> int:
         ticks = list(csv.DictReader(csv_path.open(encoding="utf-8")))
         joints = np.array([[float(r[f"q{i}_deg"]) for i in range(1, 8)] for r in ticks])
         tip_z = np.array([float(r["tip_z"]) for r in ticks]) * 1000.0
+        down = np.array([r["pen_down"] == "1" for r in ticks])
+        tip_xy = np.array([[float(r["tip_x"]), float(r["tip_y"])] for r in ticks])
+        paper_under_tip = (plane_height_m(plan["plane"], tip_xy[:, 0], tip_xy[:, 1]) * 1000.0 if plan.get("plane")
+                           else np.full(len(ticks), plan["centre_z"] * 1000.0))
         summary = {
             "outcome": result["outcome"],
             "ticks": result["ticks"],
@@ -513,6 +549,9 @@ def main() -> int:
             "pen_down_error_mm": {"rmse": round(float(np.sqrt(np.mean(errors**2))), 3), "max": round(float(errors.max()), 3)} if len(errors) else None,
             "tip_z_min_mm": round(float(tip_z.min()), 3),
             "pen_down_plane_mm": round(plan["pen_down_z"] * 1000, 3),
+            # Deepest pen-down point relative to the paper under the tip (the plane when given, else the touch height).
+            "lowest_below_paper_mm": round(float((paper_under_tip - tip_z)[down].max()), 3) if down.any() else None,
+            "paper_plane": args.paper_plane,
             "joint_min_deg": joints.min(axis=0).round(1).tolist(),
             "joint_max_deg": joints.max(axis=0).round(1).tolist(),
             "joint_limit_margin_deg": np.minimum(joints.min(axis=0) - LIMITS_DEG[:, 0], LIMITS_DEG[:, 1] - joints.max(axis=0)).round(1).tolist(),

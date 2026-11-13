@@ -1,0 +1,9 @@
+{
+    "note":  "2026-11-12 new pen held directly in the gripper (no holder): first-contact estimate TCP 72.6 at (381.6, 97.3) from the user\u0027s 0.5 in gap at TCP 85.3; slope of measured_m04. Starting surface for the contact search at the user\u0027s X.",
+    "plane":  {
+                  "z0_mm":  67.7961,
+                  "dz_dx":  0.012919,
+                  "dz_dy":  -0.001295,
+                  "model":  "estimate from a 0.5 in visual gap"
+              }
+}

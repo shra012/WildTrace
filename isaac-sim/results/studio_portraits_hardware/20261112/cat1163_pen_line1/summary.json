@@ -1,0 +1,52 @@
+{
+  "outcome": "finished",
+  "ticks": 5608,
+  "seconds": 93.5,
+  "pen_down_error_mm": {
+    "rmse": 0.533,
+    "max": 1.607
+  },
+  "tip_z_min_mm": 75.68,
+  "pen_down_plane_mm": 76.81,
+  "lowest_below_paper_mm": 0.514,
+  "paper_plane": "outputs/calibration/20261112_pen/pen_20261112_line1.json",
+  "joint_min_deg": [
+    343.1,
+    0.4,
+    20.9,
+    45.5,
+    -16.8,
+    40.8,
+    9.5
+  ],
+  "joint_max_deg": [
+    353.5,
+    34.2,
+    33.0,
+    85.5,
+    -0.2,
+    55.1,
+    25.4
+  ],
+  "joint_limit_margin_deg": [
+    6.5,
+    85.8,
+    327.0,
+    56.5,
+    343.2,
+    124.9,
+    334.6
+  ],
+  "max_joint_step_rad_per_tick": 0.00234,
+  "policy_ms_mean": 5.16,
+  "real_tip_lag_mm": {
+    "mean": 0.121,
+    "max": 0.411
+  },
+  "real_pen_down_error_mm": {
+    "rmse": 0.436,
+    "p95": 0.878,
+    "max": 1.257,
+    "samples": 576
+  }
+}

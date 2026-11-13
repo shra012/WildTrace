@@ -1,0 +1,9 @@
+{
+    "note":  "2026-11-12 new pen held directly in the gripper. User picked test line 1 (x 505, y 100-112, TCP 76.88) as the right pressure; plane through its midpoint with the measured_m04 slope. Drawing centre is the user\u0027s X at (499, 100).",
+    "plane":  {
+                  "z0_mm":  70.4932,
+                  "dz_dx":  0.012919,
+                  "dz_dy":  -0.001295,
+                  "model":  "user-picked test line 1, measured slope"
+              }
+}

@@ -1,0 +1,13 @@
+name,run,outcome,seconds,strokes,real_rmse_mm,real_p95_mm,real_max_mm,commanded_rmse_mm,stall_releases,lowest_below_surface_mm,safe_stop,surface,note
+cat1163_pen_line1,20261112_133125_act,finished,93.5,4,0.436,0.878,1.257,0.533,6,0.514,,pen_20261112_line1.json,"pen in gripper, no holder; line 1 pressure; light, partial ink"
+cat1163_pen_line4_pass2,20261112_133519_act,finished,94.1,4,0.477,0.998,1.276,0.536,7,0.508,,pen_20261112_line4.json,"pen in gripper; line 4; second pass over the line 1 cat, outlines ~3 mm apart"
+cat1163_pen_line4,20261112_134052_act,finished,94.6,4,0.475,1.009,1.212,0.537,7,0.509,,pen_20261112_line4.json,"pen in gripper; line 4; fresh sheet, complete single outline"
+cat1163_holder_line3,20261112_140005_act,finished,94.5,4,0.458,0.92,1.268,0.538,8,0.51,,holder_20261112_line3.json,pen holder; line 3; over an earlier cat
+cat1163_holder_line3_b,20261112_140350_act,finished,94.1,4,0.451,0.916,1.233,0.538,7,0.511,,holder_20261112_line3.json,pen holder; line 3; user: upper part of the cat missing
+cat1163_holder_7650,20261112_141024_act,stopped,,4,,,,,,,control tick took 529 ms,holder_20261112_7650.json,pen holder; 76.50 at x 509; safe stop: control tick 529 ms at target 2259/2437
+face_fb1b8bca_holder_line0,20261112_142008_act,finished,218.5,18,0.482,0.98,1.265,0.632,2,0.377,,holder_20261112_line0.json,pen holder; line 0 pressure
+face_fb1b8bca_holder_7650,20261112_142554_act,finished,218.4,18,0.489,0.954,1.36,0.631,2,0.35,,holder_20261112_7650.json,"pen holder; 76.50 at x 509; fresh sheet, complete"
+example2_part1,20261112_144111_act,stopped,,183,,,,,,,control tick took 1124 ms,holder_20261112_7650.json,Studio example2 strokes 0-105; safe stop: control tick 1124 ms
+example2_part2,20261112_145845_act,finished,574.9,183,0.387,0.637,0.899,0.498,59,0.142,,holder_20261112_7650.json,Studio example2 resumed with --skip-strokes 106
+example4_original,20261112_154609_act,finished,2572.4,352,0.44,0.693,1.04,0.516,239,0.319,,holder_20261112_7650.json,"Studio example4, 352 strokes; strokes shifted up to ~6 mm (pen tip moved in the holder), sheet did not move"
+example4_lineB_stopped,20261112_170114_act,stopped,,352,,,,,,,set_servo_angle_j returned 9,holder_20261112_lineB.json,Studio example4 at line B after the pen and holder were fixed; stopped by the user mid-run

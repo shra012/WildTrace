@@ -1,0 +1,9 @@
+{
+    "note":  "2026-11-12 new pen: user picked test line 4 (x 517, y 100-112, TCP 76.13) after the line 1 cat was too light; plane through its midpoint with the measured_m04 slope (0.9 mm below the line 1 surface).",
+    "plane":  {
+                  "z0_mm":  69.5881,
+                  "dz_dx":  0.012919,
+                  "dz_dy":  -0.001295,
+                  "model":  "user-picked test line 4, measured slope"
+              }
+}

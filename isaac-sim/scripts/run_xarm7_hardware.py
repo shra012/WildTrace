@@ -332,6 +332,32 @@ def build_plan(config: dict[str, Any], sim_drawing: dict[str, Any], max_strokes:
     return rows
 
 
+def plane_height_mm(plane: dict[str, Any], x_mm: float, y_mm: float) -> float:
+    """Paper height at (x, y) from a fitted surface, as in run_xarm7_act_hardware.py --paper-plane."""
+    z = plane["z0_mm"] + plane["dz_dx"] * x_mm + plane["dz_dy"] * y_mm
+    bowl = plane.get("bowl")
+    if bowl:
+        z += bowl["k_per_mm2"] * ((x_mm - bowl["xc_mm"]) ** 2 + (y_mm - bowl["yc_mm"]) ** 2)
+    return float(z)
+
+
+def follow_plane(rows: list[dict[str, Any]], plane: dict[str, Any], paper: np.ndarray) -> list[dict[str, Any]]:
+    """Shift every waypoint by the surface height under it relative to the drawing centre (#52, opt-in).
+
+    paper[2] must already be the surface height at the centre. The shift is kept per row so the fence
+    can test each waypoint against the paper under it instead of one flat plane.
+    """
+    centre = plane_height_mm(plane, float(paper[0]), float(paper[1]))
+    shifted = []
+    for row in rows:
+        item = dict(row)
+        delta = plane_height_mm(plane, float(row["robot_x_mm"]), float(row["robot_y_mm"])) - centre
+        item["robot_z_mm"] = float(row["robot_z_mm"]) + delta
+        item["plane_delta_mm"] = round(delta, 4)
+        shifted.append(item)
+    return shifted
+
+
 def _fence(config: dict[str, Any], sim_drawing: dict[str, Any], paper: np.ndarray) -> dict[str, float]:
     size = np.asarray(sim_drawing["surface_size_xy_m"], dtype=np.float64) * 1000.0
     margin = float(config["xy_margin_mm"])
@@ -347,7 +373,8 @@ def _fence(config: dict[str, Any], sim_drawing: dict[str, Any], paper: np.ndarra
     }
 
 
-def _inside(fence: dict[str, float], x: float, y: float, z: float) -> bool:
+def _inside(fence: dict[str, float], x: float, y: float, z: float, plane_delta: float = 0.0) -> bool:
+    z = z - plane_delta
     return (
         fence["x_min"] <= x <= fence["x_max"]
         and fence["y_min"] <= y <= fence["y_max"]
@@ -592,7 +619,7 @@ def execute(session: RobotSession, rows: list[dict[str, Any]], config: dict[str,
     wrist_guard = float(config.get("joint7_guard_deg", 352))
     for row in rows:
         point = (float(row["robot_x_mm"]), float(row["robot_y_mm"]), float(row["robot_z_mm"]))
-        if row["state"] != "START" and not _inside(fence, *point):
+        if row["state"] != "START" and not _inside(fence, *point, float(row.get("plane_delta_mm", 0.0))):
             raise SafeStop(f"waypoint {row['index']} is outside the paper fence")
         aim = _row_rpy(row, rpy)
         session.log.event(
@@ -710,6 +737,11 @@ def main() -> int:
     )
     parser.add_argument("--stride", type=int, default=1, help="Dry run only: use every Nth waypoint.")
     parser.add_argument("--release-servos", action="store_true", help="Turn servos off after the run. Default is to hold.")
+    parser.add_argument(
+        "--paper-plane",
+        default=None,
+        help="Opt-in (#52): JSON with a 'plane' key. Pen heights and the fence follow that surface; paper_center_mm z is ignored.",
+    )
     args = parser.parse_args()
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -741,7 +773,21 @@ def main() -> int:
         sim = _load_yaml(PROJECT / "config" / "xarm7_drawing.yaml")["drawing"]
         log.event("config_loaded", robot_ip=config["robot_ip"], trajectory=config["trajectory_path"], execute=args.execute)
 
-        rows = _with_derived_start(config, build_plan(config, sim, args.max_strokes))
+        plane = None
+        if args.paper_plane:
+            plane = json.loads(Path(args.paper_plane).read_text(encoding="utf-8"))["plane"]
+            centre = _optional_vector(config.get("paper_center_mm"), 3, "paper_center_mm")
+            if centre is None:
+                raise SafeStop("--paper-plane needs paper_center_mm for the drawing centre x and y")
+            config_touch_z = float(centre[2])
+            centre[2] = plane_height_mm(plane, float(centre[0]), float(centre[1]))
+            config["paper_center_mm"] = centre.tolist()
+            log.event("paper_plane", file=args.paper_plane, plane=plane, centre_z_mm=round(float(centre[2]), 3),
+                      config_touch_z_mm=config_touch_z)
+        planned = build_plan(config, sim, args.max_strokes)
+        if plane is not None:
+            planned = follow_plane(planned, plane, np.asarray(config["paper_center_mm"], dtype=np.float64))
+        rows = _with_derived_start(config, planned)
         if not rows:
             raise SafeStop("plan is empty")
         if args.stride < 1 or (args.stride > 1 and args.dry_lift_mm < 15.0):
@@ -841,7 +887,8 @@ def main() -> int:
         outside = [
             row["index"]
             for row in rows
-            if row["state"] != "START" and not _inside(fence, row["robot_x_mm"], row["robot_y_mm"], row["robot_z_mm"])
+            if row["state"] != "START"
+            and not _inside(fence, row["robot_x_mm"], row["robot_y_mm"], row["robot_z_mm"], float(row.get("plane_delta_mm", 0.0)))
         ]
         if outside:
             outcome = "plan_outside_fence"

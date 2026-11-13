@@ -1,0 +1,9 @@
+{
+ "note": "2026-11-12 pen holder: user picked test line B (x 504, y 168-180, TCP 76.47), 0.125 mm lighter than the 76.50-at-x509 surface. Centre (499, 100).",
+ "plane": {
+  "z0_mm": 70.1865,
+  "dz_dx": 0.012919,
+  "dz_dy": -0.001295,
+  "model": "holder, 76.50-at-x509 surface raised 0.125 mm (test line B)"
+ }
+}

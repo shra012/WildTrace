@@ -1,0 +1,9 @@
+{
+    "note":  "2026-11-12 pen in the new pen holder: user picked test line 3 (x 513, y 100-112, TCP 76.38); plane through its midpoint with the measured_m04 slope. Centre is the user\u0027s X (499, 100).",
+    "plane":  {
+                  "z0_mm":  69.8898,
+                  "dz_dx":  0.012919,
+                  "dz_dy":  -0.001295,
+                  "model":  "holder, user-picked test line 3, measured slope"
+              }
+}
