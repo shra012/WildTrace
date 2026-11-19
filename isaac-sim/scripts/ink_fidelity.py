@@ -51,8 +51,12 @@ def planned_path_mm(trajectory: Path, config: Path, step_mm: float) -> np.ndarra
 
 def rectify_sheet(image: np.ndarray, sheet_mm: tuple[float, float], px_per_mm: float) -> np.ndarray:
     # Paper is bright and unsaturated; a wooden or coloured table is not. Ink inside the sheet is closed over.
+    # The lab wrist camera renders the sheet cool (hue ~95, saturation ~60) and the light wood table warm
+    # (hue ~22), so a cool-tinted bright region also counts as paper; warm hues never do.
     hsv = cv2.cvtColor(cv2.GaussianBlur(image, (5, 5), 0), cv2.COLOR_BGR2HSV)
-    white = ((hsv[..., 1] < 45) & (hsv[..., 2] > 110)).astype(np.uint8) * 255
+    hue, sat, val = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    cool = (hue >= 70) & (hue <= 130) & (sat < 110)
+    white = (((sat < 45) | cool) & (val > 110)).astype(np.uint8) * 255
     k = max(3, int(0.01 * max(image.shape[:2])) | 1)
     white = cv2.morphologyEx(white, cv2.MORPH_OPEN, np.ones((k, k), np.uint8))
     contours, _ = cv2.findContours(white, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -77,6 +81,18 @@ def rectify_sheet(image: np.ndarray, sheet_mm: tuple[float, float], px_per_mm: f
 
 
 def ink_centreline_mm(sheet: np.ndarray, px_per_mm: float, margin_mm: float, min_area_px: int) -> np.ndarray:
+    rows, cols = np.nonzero(skeletonize(ink_mask(sheet, px_per_mm, margin_mm, min_area_px)))
+    return np.column_stack([cols, rows]).astype(np.float64) / px_per_mm
+
+
+def ink_pixels_mm(sheet: np.ndarray, px_per_mm: float, margin_mm: float, min_area_px: int) -> np.ndarray:
+    """Every ink pixel (not thinned), in sheet millimetres: a thick or pooled line covers the plan anywhere
+    across its width, which the centre line alone does not show."""
+    rows, cols = np.nonzero(ink_mask(sheet, px_per_mm, margin_mm, min_area_px))
+    return np.column_stack([cols, rows]).astype(np.float64) / px_per_mm
+
+
+def ink_mask(sheet: np.ndarray, px_per_mm: float, margin_mm: float, min_area_px: int) -> np.ndarray:
     gray = cv2.cvtColor(sheet, cv2.COLOR_BGR2GRAY)
     m = int(margin_mm * px_per_mm)
     paper = int(np.median(gray))  # fill the border with paper tone: a white frame would itself read as an edge
@@ -84,9 +100,7 @@ def ink_centreline_mm(sheet: np.ndarray, px_per_mm: float, margin_mm: float, min
     block = int(15 * px_per_mm) | 1
     ink = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, block, 15)
     count, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
-    keep = np.isin(labels, [i for i in range(1, count) if stats[i, cv2.CC_STAT_AREA] >= min_area_px])
-    rows, cols = np.nonzero(skeletonize(keep))
-    return np.column_stack([cols, rows]).astype(np.float64) / px_per_mm
+    return np.isin(labels, [i for i in range(1, count) if stats[i, cv2.CC_STAT_AREA] >= min_area_px])
 
 
 def rigid_icp(source: np.ndarray, target: np.ndarray, iterations: int = 60, keep: float = 0.8):

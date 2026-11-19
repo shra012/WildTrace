@@ -283,20 +283,44 @@ adds nothing about where the pen should go:
 - **Ink repair is covered without a camera.** The hybrid supervisor ([`results/hybrid/`](results/hybrid/))
   redraws gaps found in the run's own ink bookkeeping, at no accuracy cost and about 1% extra time.
 
-**Camera for missed ink on the real arm (planned, not built).** The bookkeeping cannot see a dry pen, a sheet
-lower than the surface model, or a shifted sheet; a camera can. Keep it outside the policy, as a detector that
-feeds the supervisor:
+**Camera gap check for missed ink on the real arm (`scripts/ink_gap_check.py`).** The bookkeeping cannot see
+a dry pen, a sheet lower than the surface model, or a shifted sheet; a camera can. It stays outside the policy:
+the photo becomes a gap list, and ACT redraws the gaps as ordinary strokes.
 
-1. After a stroke or the drawing, park and capture the sheet (wrist or overhead camera).
-2. Rectify and score it with `scripts/ink_fidelity.py`: segments of the plan with no ink within a set distance
-   become a gap list (`plan_to_ink`, `coverage_at_mm`).
-3. Redraw each gap with ACT on that segment as its own path (lowering the pen slightly), as done by hand in
-   paired run 09e (`results/real_arm_paired/20261105/`, back segment only).
+```bash
+# 1. Photo of the drawn sheet: the runners already save the wrist-camera _photo.jpg from the park pose.
+python3 isaac-sim/scripts/ink_gap_check.py --image <run>_photo.jpg \
+    --trajectory isaac-sim/data/act_test/Cat/70bc30f8a5f918eb.json --out-dir outputs/ink_gaps/<run>
+# 2. Check ink_gaps_overlay.png: plan blue, gaps to redraw red, offsets left alone yellow.
+# 3. At the arm, redraw only the gaps (the count is in ink_gaps.json and redraw_hint):
+python3 isaac-sim/scripts/run_xarm7_act_hardware.py --execute \
+    --trajectory outputs/ink_gaps/<run>/gap_trajectory.json --max-strokes <gap count> ...
+```
 
-Risks: the wrist photos already miss faint lines from a fresh marker tip (paired runs 2026-11-05), so a
-detector tuned on them would redraw ink that is there and double the line. Calibrate the threshold against
-600 dpi scans first, or capture closer to the sheet. Training ACT itself to see and repair gaps is not
-recommended: the SmolVLA camera policies show that learning to land back on the line is the hard part.
+- **Fit and gaps.** The sheet is rectified and the ink fitted to the plan as in `ink_fidelity.py`. A stretch of
+  plan with no ink pixel within `--gap-mm` (1.0) for at least `--min-gap-mm` (1.5, the supervisor's rule) is
+  uncovered; gaps are padded 2 mm into the ink on both sides. Every ink pixel counts, not just the thinned
+  centre line, because a pooled IK line covers the plan across its whole width.
+- **Offsets are not gaps.** If the stroke's own ink runs alongside an uncovered stretch (median under
+  `--offset-mm`, 4.0), the line was drawn but displaced, and a redraw would add a parallel line, so it is
+  reported, not redrawn. Ink belongs to the stroke with the nearest planned point, so an eye beside a missing
+  outline does not hide the gap.
+- **Same place on the sheet.** The runners map a trajectory from the bounding box of all its strokes, so the
+  gap trajectory lists the gap segments first and the original strokes after them; `--max-strokes` draws only
+  the gaps. No runner change is needed (as for paired run 09e). On run 07 the IK runner's `--plan-only` puts the
+  gap waypoints within 0.06 mm (median) and 0.32 mm (worst, at the segment ends, from corner smoothing) of the
+  original path.
+- **Guard.** If more than half the plan reads as missing, it refuses (exit 2) unless `--force`: usually a bad
+  photo, not a blank sheet.
+- **Checked on the 2026-11-05 photos.** IK run 10 (complete): 0 gaps, 3 offsets on the snout. ACT runs 05f and
+  07: 4 and 3 gaps on the visibly missing back, neck and head outline, offsets only on small eye, nose and chin
+  marks. Before the check, `ink_fidelity.py` could not find these sheets: the wrist camera renders the paper
+  cool (hue ~95, saturation ~60), which failed its white test, and the warm wood table was taken instead.
+
+Caution: the wrist photos (about 0.6 mm per pixel) miss faint lines from a fresh marker tip (paired runs
+2026-11-05), so a gap can be ink the photo does not show. Always look at the overlay before redrawing, and
+calibrate `--gap-mm` against a 600 dpi scan, or capture closer to the sheet. Training ACT itself to see and
+repair gaps is not recommended: the SmolVLA camera policies show that landing back on the line is the hard part.
 
 ## V0 trajectory-conditioned PPO baseline
 
