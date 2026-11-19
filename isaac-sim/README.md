@@ -267,6 +267,37 @@ v4 cuts the window to 1.5 mm: worst point 0.89 mm mean (IK 0.99), 1.48 mm at mos
 (`physics_finetune`) made tracking worse (0.74-0.91 mm on a 4-drawing check): those labels carry IK's own
 ~0.7 mm sag error, so the kinematic checkpoint is the one to use.
 
+**Why ACT has no camera input.** The policy follows a path that is fully known from the plan, so a camera
+adds nothing about where the pen should go:
+
+- **No new information.** Joint state plus the next 2 cm of path already define the target exactly. An image
+  only adds what happened on the paper, which matters for missed ink, not for tracking.
+- **Too coarse.** Twin path RMSE is about 0.19 mm; the wrist camera sees about 0.6 mm per pixel from the park
+  pose, and the pen hides its own tip while drawing.
+- **Tried on SmolVLA, did not help** ([`results/smolvla/README.md`](results/smolvla/README.md)): camera_v1
+  improved offline error but not closed-loop tracking; camera_v2 ignored the page (blanking it changed the
+  first action by less than 0.001); with gap labels, DAgger and a redraw mode, the camera policies turned back at
+  gaps but abandoned 16 of 17 redraws. With the supervisor, camera SmolVLA was about 40% less accurate than ACT
+  and nearly 2x slower.
+- **Latency.** ACT answers in 9.1 ms against a 16.7 ms tick; SmolVLA with images is already over it (17.7 ms).
+- **Ink repair is covered without a camera.** The hybrid supervisor ([`results/hybrid/`](results/hybrid/))
+  redraws gaps found in the run's own ink bookkeeping, at no accuracy cost and about 1% extra time.
+
+**Camera for missed ink on the real arm (planned, not built).** The bookkeeping cannot see a dry pen, a sheet
+lower than the surface model, or a shifted sheet; a camera can. Keep it outside the policy, as a detector that
+feeds the supervisor:
+
+1. After a stroke or the drawing, park and capture the sheet (wrist or overhead camera).
+2. Rectify and score it with `scripts/ink_fidelity.py`: segments of the plan with no ink within a set distance
+   become a gap list (`plan_to_ink`, `coverage_at_mm`).
+3. Redraw each gap with ACT on that segment as its own path (lowering the pen slightly), as done by hand in
+   paired run 09e (`results/real_arm_paired/20261105/`, back segment only).
+
+Risks: the wrist photos already miss faint lines from a fresh marker tip (paired runs 2026-11-05), so a
+detector tuned on them would redraw ink that is there and double the line. Calibrate the threshold against
+600 dpi scans first, or capture closer to the sheet. Training ACT itself to see and repair gaps is not
+recommended: the SmolVLA camera policies show that learning to land back on the line is the hard part.
+
 ## V0 trajectory-conditioned PPO baseline
 
 `scripts/train_v0_trajectory_ppo.py` trains a seven-action residual joint-velocity policy while the
