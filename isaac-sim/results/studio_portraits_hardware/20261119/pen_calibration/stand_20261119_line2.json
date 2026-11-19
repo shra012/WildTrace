@@ -1,0 +1,35 @@
+{
+ "note": "2026-11-19 pen in the new mount with stand. Test lines in the margin at y 168-180 vs the 11-12 line B surface: +2.0 no ink, +1.5 light, +1.0 drew (chosen), +0.5 darker.",
+ "plane": {
+  "z0_mm": 71.1865,
+  "dz_dx": 0.012919,
+  "dz_dy": -0.001295,
+  "model": "pen stand, line B surface raised 1.0 mm (2026-11-19 test line 2)"
+ },
+ "test_lines": [
+  {
+   "x": 530,
+   "offset_mm": 2.0,
+   "tcp_z": 78.81,
+   "result": "no ink"
+  },
+  {
+   "x": 534,
+   "offset_mm": 1.0,
+   "tcp_z": 77.86,
+   "result": "drew (chosen)"
+  },
+  {
+   "x": 538,
+   "offset_mm": 1.5,
+   "tcp_z": 78.41,
+   "result": "light"
+  },
+  {
+   "x": 542,
+   "offset_mm": 0.5,
+   "tcp_z": 77.46,
+   "result": "darker"
+  }
+ ]
+}
