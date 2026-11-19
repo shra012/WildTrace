@@ -24,6 +24,7 @@ So the tip first touches between +2.0 and +1.5 mm; the chosen level is line B + 
 | Run | Drawing | Time | Real-tip RMSE / p95 / max (mm) | Stall releases | Result |
 |---|---|---|---|---|---|
 | example1_simplified | Studio example1, simplified (232 -> 138 strokes) | 1157 s | 0.372 / 0.703 / 1.38 | 61 | finished in one pass; face coherent; per-stroke shifts 0.2-0.8 mm (median per group); shoulders and collar light |
+| example6_simplified | Studio example6 (glasses), simplified (127 -> 55 strokes) | 511 s | 0.371 / 0.807 / 1.22 | 4 | finished in one pass; glasses, face, collar and button complete; lines light, ink found for 27 of 55 strokes, those within 0.6 mm |
 
 The per-stroke shifts are down from up to about 6 mm on 2026-11-12 (pen moving in the old holder) to under 1 mm,
 so the new mount holds the tip. The simplified trajectory is `example1_simplified/trajectory.json` (strokes joined
