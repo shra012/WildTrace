@@ -36,17 +36,17 @@ City, Country\\
 
 \begin{abstract}
 We investigate whether a learned policy can track pen paths more accurately than the inverse-kinematics (IK)
-controller used to generate its training labels. WildTrace converts photographs into ordered pen strokes,
-producing 2,874 drawings across six animal classes. An ACT-based policy uses joint state and a short window of
-the upcoming path to predict joint increments, trained solely on kinematic IK labels with injected noise. In a
-calibrated Isaac Sim twin of a 7-DoF xArm~7, the policy completes all 48 drawings excluded from training,
-compared with 45/48 for Lula IK. It reduces mean path RMSE from 0.277 to 0.192\mm, with lower error on all 45
-paired drawings, and halves joint jerk. Removing the settle gate through a streaming IK baseline improves RMSE by
-only 0.010\mm. A fine-tuned SmolVLA achieves 0.180\mm in a single training seed, but with higher jerk and query
-latency. On the physical arm, the twin-trained policy completes 30 animal drawings with a mean RMSE of 0.532\mm;
-14 require manual nudges to resolve stalls. We analyse the approximately 2.7-fold difference from the twin. In
-nine paired real-arm drawings, ACT draws 4.9 times faster than IK (91 against 446\,s) but leaves more gaps in the
-ink (2 of 9 sheets complete against 8 of 9, judged from photographs).
+controller used to generate its training labels. WildTrace, the system we built for this study, converts
+photographs into ordered pen strokes, producing 2,874 drawings across six animal classes. An ACT-based policy
+uses joint state and a short window of the upcoming path to predict joint increments, trained solely on
+kinematic IK labels with injected noise. In a calibrated Isaac Sim twin of a 7-DoF xArm~7, the policy completes
+all 48 drawings excluded from training, compared with 45/48 for Lula IK. It reduces mean path RMSE from 0.277 to
+0.192\mm, with lower error on all 45 paired drawings, and halves joint jerk. Removing the settle gate through a
+streaming IK baseline improves RMSE by only 0.010\mm. A fine-tuned SmolVLA achieves 0.180\mm in a single
+training seed, but with higher jerk and query latency. On the physical arm, the policy finishes 16 of 30 animal
+drawings unaided and all 30 with manual nudges, at 0.532\mm mean RMSE; most of the 2.7-fold gap to the twin
+comes from the real arm's 10\,Hz tip logging. In nine paired real-arm drawings, ACT draws 4.9 times faster than
+IK and inks at least as completely (9 of 9 sheets complete against 8 of 9, inspected at the arm).
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -66,8 +66,10 @@ policy~\cite{chi2023diffusion} and vision-language-action (VLA) models such as S
 promise smoother motion, but are usually evaluated by task success rather than by sub-millimetre path accuracy
 on open-ended content.
 
-WildTrace closes the loop from an arbitrary photograph to ink on paper (Fig.~\ref{fig:pipeline}) and uses it to
-compare controllers on the same drawings under identical physics. Our contributions are:
+WildTrace is the system we built for this study; it is not an existing tool. It has two parts: a data pipeline
+that turns an arbitrary photograph into a few ordered pen strokes (Fig.~\ref{fig:pipeline}), and a testbed, a
+calibrated simulation twin and the matching physical arm, that runs different controllers on the same strokes
+under identical conditions. Our contributions are:
 \begin{enumerate}
   \item A photo-to-trajectory pipeline with a generate-judge-retry loop, which we use to build 2,874 validated
         drawing trajectories and a 48-drawing held-out test set (Sec.~\ref{sec:pipeline}).
@@ -80,7 +82,7 @@ compare controllers on the same drawings under identical physics. Our contributi
         camera-conditioned gap repair.
   \item A hybrid supervisor that repairs skipped ink using the run's own bookkeeping, and a physical-arm
         evaluation on 30 animal drawings and three portraits that quantifies the sim-to-real gap, with a paired
-        comparison against IK on nine drawings that shows where the learned policy still falls short
+        comparison against IK on nine drawings in which ACT is 4.9$\times$ faster with complete ink on every sheet
         (Sec.~\ref{sec:results}).
 \end{enumerate}
 
@@ -139,21 +141,23 @@ real system; we instead calibrate the twin to the lab arm and randomise only pap
 \label{sec:pipeline}
 %======================================================================
 
-The pipeline is a local-first medallion design with one script per stage and append-only manifests, so a
-stage reruns only for rows whose configuration or input hash changed.
+The pipeline is a medallion design with three tiers of increasing refinement: bronze holds curated photographs,
+silver validated outlines, and gold the ordered pen strokes the robot draws. Each stage is one script with
+append-only manifests, rerun only for rows whose configuration or input changed.
 
 \textbf{Bronze.} Images, segmentation masks and licenses are fetched from Open Images V7 for six classes (bird,
 cat, dog, fish, frog, horse), de-duplicated, filtered for quality and viewing angle, and labelled with BioCLIP.
 
 \textbf{Silver.} The subject is cropped by its mask and redrawn as a black-on-white outline by FLUX.1-schnell.
 A LangGraph~\cite{langgraph} loop validates each outline with an OpenCV prescreen (foreground ratio, component
-count, contour size, fragmentation) followed by a VLM judge, and retries with a new seed on failure.
+count, contour size, fragmentation) followed by a local VLM judge (Qwen2.5-VL-7B~\cite{bai2025qwen25vl}), and
+retries with a new seed on failure.
 
 \textbf{Gold.} The best outline per pose is skeletonised and vectorised into a few ordered strokes,
 resampled and normalised to a unit canvas. The result is 2,874 validated trajectories. A stratified 48-drawing
 gold test set (9 bird, 12 cat, 13 dog, 4 fish, 5 frog, 5 horse; mean 4.6 strokes, range 2 to 8, mean 370
 points) is never used for training, but was used during development to compare design variants
-(Table~\ref{tab:ablation}). Faces follow a separate CPU path: MediaPipe~\cite{lugaresi2019mediapipe} face
+(Table~\ref{tab:ablation}), so it is held out from training but not untouched (Sec.~\ref{sec:disc}). Faces follow a separate CPU path: MediaPipe~\cite{lugaresi2019mediapipe} face
 landmarks and hair/body segmentation are traced into a pen-sketch portrait. Fig.~\ref{fig:faces} shows five portraits from this path
 next to their source photographs.
 
@@ -167,16 +171,17 @@ next to their source photographs.
 \end{figure*}
 
 \textbf{Choosing the generator and the judge.} Table~\ref{tab:judge} summarises a 20-subject study against a
-strong referee (Qwen3-VL-235B~\cite{bai2025qwen3vl}). FLUX produced acceptable outlines for all 20 subjects against
-6/20 for OmniGen2~\cite{wu2025omnigen2} (paired sign test $p=10^{-4}$), whose failures were mostly blank pages. The local Qwen2.5-VL-7B~\cite{bai2025qwen25vl} judge originally
-in production agreed with the referee no better than chance and passed every blank page; we therefore switched
-to Qwen3-VL-8B, which agrees with the referee on 92.5\% of outlines.
+strong referee (Qwen3-VL-235B~\cite{bai2025qwen3vl}). FLUX passed the referee on 16 of 20 subjects against 8 for
+OmniGen2~\cite{wu2025omnigen2}, nine of whose final images were blank pages. The local Qwen2.5-VL-7B judge that
+validated the 2,874-drawing dataset agrees with the referee barely above chance; in a 186-subject pilot every
+rejection came from the OpenCV prescreen, so the prescreen and retries, not the VLM, filtered the dataset.
+Qwen3-VL-8B agrees far better at similar size, and re-validating the dataset with it is future work.
 
-\textbf{Why open-weight models.} Every generator and judge runs locally on a single 16\,GB laptop GPU, and we did
-not evaluate proprietary frontier models in either role. This keeps the thousands of generate-judge calls at zero
-marginal cost, keeps uploaded faces off third-party servers, and gives reproducible verdicts from pinned weights;
-an 8B open judge already agrees with a 235B open referee at $\kappa=0.83$. The cost is that we cannot report how
-a frontier judge would score; the referee is itself an open model.
+\textbf{Why open-weight models.} Every generator and the production judge run locally on a single 16\,GB laptop
+GPU, and we did not evaluate proprietary frontier models in either role. This keeps the thousands of
+generate-judge calls at zero marginal cost, keeps uploaded faces off third-party servers, and gives reproducible
+verdicts from pinned weights. The cost is that we cannot report how a frontier judge would score; the referee is
+itself an open model.
 
 \begin{table}[t]
 \centering
@@ -187,13 +192,13 @@ a frontier judge would score; the referee is itself an open model.
 \toprule
 Generator & Referee pass & BioCLIP top-1 \\
 \midrule
-FLUX.1-schnell & \textbf{20/20} & \textbf{75\%} \\
-OmniGen2       & 6/20  & 30\% \\
+FLUX.1-schnell & \textbf{16/20} & \textbf{55\%} \\
+OmniGen2       & 8/20  & 25\% \\
 \midrule
-Judge & Agreement & Cohen's $\kappa$ \\
+Judge (80 images) & Agreement & Cohen's $\kappa$ \\
 \midrule
-Qwen2.5-VL-7B (local) & passes 9/9 blanks & 0.00 \\
-Qwen3-VL-8B           & \textbf{92.5\%}   & \textbf{0.83} \\
+Qwen2.5-VL-7B (production) & 38.8\% & 0.06 \\
+Qwen3-VL-8B                & \textbf{88.7\%} & \textbf{0.76} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -222,7 +227,7 @@ Qwen3-VL-8B           & \textbf{92.5\%}   & \textbf{0.83} \\
 Isaac Sim~\cite{isaacsim} twin (Fig.~\ref{fig:robot}a) uses the arm's calibrated URDF, the measured paper pose and pen touch height,
 Earth gravity, and a stiff PhysX position servo (stiffness $7.5\times10^5$, damping 2050) standing in for the
 vendor joint controller. Two RealSense D435i cameras (wrist and overhead) were located by depth plane fitting
-and planar PnP on the sheet corners, whose heights above the paper agree to within 1.6\%. Each drawing runs a fixed phase machine:
+and by planar PnP on the sheet corners; the two estimates of camera height agree within 1.6\%. Each drawing runs a fixed phase machine:
 approach, lower, draw, lift for every stroke, with short pen-up hops between nearby strokes.
 
 \textbf{Metrics.} Let $\{p_i\}_{i=1}^{N}$ be the planned pen-down samples and $\{e_j\}$ the executed
@@ -265,10 +270,10 @@ executed:
   u_t = u_{t-1} + \alpha\, \hat\delta_t , \qquad \alpha = 0.5 .
   \label{eq:step}
 \end{equation}
-Absolute joint targets were mm-imprecise even when overfitting one drawing, so the policy predicts increments.
-There is no image input. We refer to the policy as ACT-based because it omits ACT's CVAE and temporal
-ensembling and uses robot state and path information instead of images. For brevity, we use ACT below. We use
-ACT~\cite{zhao2023act} via LeRobot~\cite{lerobot2024} with $d=256$, 4
+Predicting absolute joint targets left millimetre errors even when overfitting one drawing, so the policy
+predicts increments. We call the policy ACT-based because it omits ACT's CVAE and temporal ensembling and uses
+robot state and path information instead of images; below we call it ACT for brevity. We implement
+it with ACT~\cite{zhao2023act} in LeRobot~\cite{lerobot2024} with $d=256$, 4
 encoder and 1 decoder layers, no CVAE, no dropout, learning rate $3\times10^{-4}$, batch 256 and 40k steps. On a
 single-drawing overfit gate these choices cut first-action error from 33-45\% to 11\% of the label, a 10-step
 chunk fit 2.5$\times$ better at p95 than a 30-step chunk, and executing only the first action of each chunk
@@ -331,6 +336,7 @@ Samples settling (\%) & 51 & 48 & 18 & \textbf{17} \\
 Median speed (mm\,s$^{-1}$) & 6.9 & 7.8 & 12.4 & \textbf{14.1} \\
 Sim. draw time (s) & 76.8 & 101.0 & 73.4 & \textbf{71.3} \\
 Latency p50 (ms) & - & - & \textbf{9.1} & 17.7 \\
+Latency p95 (ms) & - & - & \textbf{13.6} & 19.9 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -374,7 +380,8 @@ against 0.397\mm). Over pooled pen-down samples the median error falls from 0.25
 (0.120\mm for SmolVLA). ACT halves joint jerk and removes the per-waypoint tremor visible in Fig.~\ref{fig:paths}.
 IK keeps a lower heading error (median 0.51$^\circ$ against 1.36$^\circ$), since it settles on each waypoint: its
 pen is settling on 51\% of pen-down samples against 18\% for ACT, and moves at a median 6.9 against
-12.4\mm\,s$^{-1}$. Total draw time is similar (77 against 73\,s simulated) because approach, lower and lift moves are shared. The policy server answers in 9.1\,ms median, inside the 16.7\,ms tick. Retraining ACT with two more seeds gives 0.201 and 0.218\mm on the same 48 drawings
+12.4\mm\,s$^{-1}$. Total draw time is similar (77 against 73\,s simulated) because approach, lower and lift moves are shared. The policy server answers in 9.1\,ms median, inside the 16.7\,ms tick. The twin is
+deterministic (reruns are bit-identical), so variance comes from training. Retraining ACT with two more seeds gives 0.201 and 0.218\mm on the same 48 drawings
 (three seeds: $0.204\pm0.013$\mm), all well below both IK variants.
 
 \textbf{Is it the learning or the settle gate?} Streaming IK uses ACT's progress rule with no settle gate. It
@@ -384,7 +391,8 @@ and its jerk stays at IK's level. ACT is lower than streaming IK on all 48 drawi
 CI 0.069 to 0.080). Slowing streaming IK to IK's own pace (carrot limit 6.9\mm\,s$^{-1}$) does not help:
 0.266\mm RMSE, jerk down to 524 but corner error up to 0.973\mm, and 181\,s per drawing, still above ACT on all
 48 drawings. Removing the gate is not what makes ACT accurate when compared with these two IK controllers.
-
+ACT also beats IK tuned over tolerance and gate settings on all 48 drawings (0.262\mm), and fails every drawing
+when trained without injected noise, so its accuracy comes from learned correction.
 \textbf{What mattered.} Table~\ref{tab:ablation} traces the design. Querying at 60\,Hz with half steps cut jerk
 3.7$\times$; capping the progress projection fixed hairpin jumps (mean worst point 2.36 to 1.47\mm), and a tighter
 cap fixed spike tips (0.885\mm) at a small RMSE cost. Moving to the stiffened lab-arm twin, with paper-height
@@ -443,9 +451,10 @@ curvature-speed trade-off of Piktor-O-Bot~\cite{csempesz2024piktor}. SmolVLA has
 
 \textbf{Physical arm.} The twin-trained ACT policy ran on the lab arm without fine-tuning. In a 30-drawing batch
 (five per class, not the gold-set drawings) every drawing finished, at 0.532\mm mean path RMSE
-(0.421 to 0.622\mm), 2.7$\times$ the twin (Table~\ref{tab:realclass}; 2.5 to 3.0$\times$ in every class, on different drawings, so compared per class and not paired). Stalls were the main failure mode: 14 of
-30 drawings needed at least one nudge to resume (26 in total), always mid-stroke where waypoints are dense; the pen
-sat about 0.5\mm beside the path and corrected only sideways. Three face portraits drawn with markers
+(0.421 to 0.622\mm), 2.7$\times$ the twin (Table~\ref{tab:realclass}; 2.5 to 3.0$\times$ in every class, on different drawings, so compared per class and not paired). Only 16 of 30 drawings finished
+autonomously; the other 14 needed at least one manual nudge to resume (26 in total). Stalls happened mid-stroke where waypoints are dense: the pen
+sat about 0.5\mm beside the path and corrected only sideways. Nine repeat ACT runs of one gold cat over two
+sessions gave $0.468\pm0.016$\mm. Three face portraits drawn with markers
 (Table~\ref{tab:real}) finished at 0.497\mm measured RMSE, using an automatic 0.5\,s stall release instead of
 nudges.
 
@@ -460,39 +469,37 @@ this measurement; flatbed scans of the paired sheets are still to be scored.
 \textbf{Paired real-arm comparison with IK.} We drew nine of the twelve planned gold drawings on the physical arm
 with ACT and with the shipped IK controller, alternating (two birds, two cats, two dogs, one each of fish, frog and
 horse; Table~\ref{tab:paired}). Here IK is the controller's per-waypoint position command, which stops at every
-waypoint. Both finished 9/9; ACT drew 4.9$\times$ faster (91 against 446\,s on average) with 22 automatic stall
-releases and no manual nudges. The arm-reported path RMSE is informative only for ACT (0.458\mm mean, 0.365 to
+waypoint. Both finished 9/9; ACT drew 4.9$\times$ faster (91 against 446\,s on average) with no manual nudges,
+but with 22 automatic stall releases, each of which overrides the policy's progress and counts as an assist. The arm-reported path RMSE is informative only for ACT (0.458\mm mean, 0.365 to
 0.518\mm): IK is read after it has stopped at each waypoint, so its value is about zero by construction. The
-like-for-like measure is the sheet, and there IK was better: eight of nine IK drawings were complete in the
-wrist-camera photographs (two with blobbed small features where waypoints are dense), against two of nine for ACT,
-whose other seven sheets had gaps. Our run notes attribute these gaps to pen contact rather than path following:
-the commanded pen height drifted by about $\pm$0.15\mm with position on the sheet, and a fresh round marker tip
-loses contact 0.1\mm above the paper, whereas the worn, flat-tipped marker of the first two ACT runs gave a clean
-line. IK settles on the planned height at every waypoint but pools ink where waypoints are dense.
+like-for-like measure is the sheet. Inspected by eye at the arm during the runs, all nine ACT sheets were
+complete, against eight of nine for IK, which lost the lower body of one dog where the sheet sat below the surface
+model; two IK drawings also blobbed small features, because IK pools ink where waypoints are dense. The
+0.6\mm-per-pixel wrist-camera photographs miss faint lines from a fresh marker tip and are not a reliable record
+of completeness; 600\,dpi scans are still to be scored.
 
 \begin{table}[t]
 \centering
 \caption{Paired real-arm comparison, nine gold drawings, ACT against the shipped IK controller. IK's
-arm-reported error is read at rest and is not comparable. Ink completeness is judged by eye from wrist-camera
-photographs.}
+arm-reported error is read at rest and is not comparable. Ink completeness is judged by eye at the arm.}
 \label{tab:paired}
 \setlength{\tabcolsep}{5pt}
 \begin{tabular}{lcc}
 \toprule
  & ACT & IK \\
 \midrule
-Drawings finished & 9/9 & 9/9 \\
+Drawings finished (assisted) & 9/9 & 9/9 \\
 Arm-reported path RMSE (mm) & 0.458 (0.365-0.518) & not comparable \\
 Time per drawing, mean (s) & \textbf{91} & 446 \\
 Stall releases / manual nudges & 22 / 0 & 0 / 0 \\
-Sheets with complete ink & 2/9 & \textbf{8/9} \\
+Sheets with complete ink & \textbf{9/9} & 8/9 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{table}[t]
 \centering
-\caption{ACT on the physical arm, 30 animal drawings (five per class). Path RMSE in mm.}
+\caption{ACT on the physical arm, 30 animal drawings (five per class); 16 finished without a nudge. Path RMSE in mm.}
 \label{tab:realclass}
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{lcccc}
@@ -530,6 +537,7 @@ B (59 strokes), clean sheet & 0.490 & 0.905 & 1.273 & 2.13 & 71\% & 9.7 \\
 
 %======================================================================
 \section{Discussion and Limitations}
+\label{sec:disc}
 %======================================================================
 
 \textbf{Why ACT beats its own teacher.} ACT is trained on IK labels yet outperforms IK because the labels are
@@ -537,40 +545,34 @@ kinematic: they describe where the arm should go, not IK's gravity-induced sag, 
 teach correction. Querying a short path window at 60\,Hz also replaces IK's stop-and-settle with continuous
 motion, which is where the jerk and the tremor come from; but continuous motion alone is not enough, since an IK
 solver chasing a moving target cuts corners and stays jerky.
-
 \textbf{Sim-to-real gap.} The 2.7$\times$ gap is consistent across classes, which points to a systematic
-cause rather than content. Candidates we observed are a non-level sheet (line weight varies across the page),
-pen compliance, the arm's own position controller differing from the twin's servo, stalls at densely spaced waypoints, and the real arm's 10\,Hz tip logging, which increases the nearest-sample
-error metric. We have since measured the sheet: touching three corners and the centre with a pencil gave a plane tilted
-1.15$^\circ$, 3.35\mm high across the drawing area, with the centre 0.23\mm below the corner plane, and a later
-two-contact fit showed the corner-fit slope to be about 1.5$\times$ too steep for one sheet stack (0.0200 against
-0.0129\mm per mm along $x$). In the paired study ACT's mean arm-reported error was 0.458\mm, about 2.4$\times$ the
-twin's gold-set mean, but marker and sheet model changed during the study, so we do not claim the gap is explained.
-Training on stalled states is the next step.
+cause rather than content. A large part is measurement: the real arm logs its tip at 10\,Hz against the twin's
+60\,Hz, and (\ref{eq:dist}) penalises planned points that fall between samples. Re-scoring the twin's own ACT
+runs from 10\,Hz subsamples raises their RMSE 2.2-fold, leaving a physical residual nearer 1.3$\times$. Its
+sources are calibration (the measured sheet is tilted 1.15$^\circ$, where the twin assumes it flat), contact
+(pen compliance and marker tip shape are not modelled) and the arm's own position controller differing from the twin's
+servo. Stalls arise in a state the kinematic labels never show; the automatic stall release hides rather than
+fixes them, so training on stalled states is the next step toward unassisted runs.
 
-\textbf{What the pipeline does not preserve.} FLUX passes the referee reliably but redraws the subject in a
-generic pose: in our generator study its median silhouette IoU with the source photo was about 0.2, against
-0.78 to 0.91 for OmniGen2's non-blank drawings, and facing direction matched in 65\% of cases. The drawings are
-recognisably the right animal, not a tracing of the photo. Lower diffusion strength or contour conditioning is
-the obvious next step.
+\textbf{What the pipeline does not preserve.} Recognisability and geometric fidelity are separate goals. In the
+generator study, FLUX's mean silhouette IoU with the source photo is 0.56 (OmniGen2 0.23, including nine blank
+pages), and its facing direction matches in only 55\% of cases. The drawings are recognisably the right animal,
+not a tracing of the photo. Lower diffusion strength or stronger contour conditioning needs its own evaluation.
 
-\textbf{Baseline strength.} We compare against the waypoint-gated IK controller the system shipped with and a
-streaming IK that shares ACT's progress rule. Optimisation-based trackers (model-predictive contouring
+\textbf{Baseline strength.} Optimisation-based trackers (model-predictive contouring
 control~\cite{lam2010mpcc} or iterative learning control~\cite{bristow2006ilc}) and the vendor's own Cartesian
 motion commands on the real arm are stronger baselines we have not yet run.
 
 \textbf{Limitations.} The 48 gold drawings were also used in the development experiments reported in
-Table~\ref{tab:ablation}. They therefore informed design decisions and do not constitute a fully untouched test
-set. Path errors are computed against discrete executed samples, recorded at 10\,Hz on the physical arm. This
-introduces a sampling component that increases with pen speed and the interval between observations. SmolVLA's
-median query latency of 17.7\,ms exceeds the 16.7\,ms control period; missed deadlines have not been analysed.
-Each controller was run once per drawing; ACT was trained with three seeds; the other policies with one. The 30-drawing real-arm batch used different drawings
-from the gold set and relied on nudges. The paired real-arm study covers nine of twelve planned gold drawings;
-marker, sheet-height model and sheet reuse changed between runs, ink completeness was judged by eye from
-0.6\mm-per-pixel photographs, and 600\,dpi scans are still to be scored, so it is paired but not fully controlled. The path metric is
+Table~\ref{tab:ablation}. They therefore informed design decisions and are not a fully untouched
+test set; a fresh one is needed to confirm the result.
+SmolVLA's p95 latency exceeds the 16.7\,ms tick in 42 of 48 runs (ACT: 5); the twin waits for each reply, but
+real-time control would not. ACT was trained with three seeds but SmolVLA with one, so its 0.012\mm lead, within ACT's seed spread,
+is not established. The 30-drawing real-arm batch used different drawings from the gold set and relied on nudges. The paired real-arm study covers nine of twelve planned gold drawings;
+marker, sheet-height model and sheet reuse changed between runs, ink completeness was judged by eye at the
+arm, and 600\,dpi scans are still to be scored, so it is paired but not fully controlled. The path metric is
 geometric; ink scoring from photographs covers only three portraits so far, and perceived quality (a user study)
-is future work. The IK baseline is
-tolerance-gated and its timeouts could be reduced by tuning. Real-arm portraits take 8 to 10\,min, against
+is future work. Real-arm portraits take 8 to 10\,min, against
 43\,s to 2\,min for systems built for exhibition speed~\cite{wang2019robocodraw,gao2020aisketcher,nasrat2023artistic};
 our runs used the default step scale and stall releases, not a speed-tuned setting. The hybrid supervisor and
 the camera policies were evaluated on 12 drawings in the interactive runner only.
@@ -583,7 +585,7 @@ WildTrace turns photographs into robot pen drawings end to end. A compact ACT-ba
 kinematic IK labels draws held-out content more accurately, more reliably and more smoothly than the IK
 solver that labelled it, maintains comparable error across the tested paper placements, and transfers to a physical xArm 7 at about half
 a millimetre RMSE, with manual interventions to resolve stalls. On nine paired real-arm drawings it is 4.9 times
-faster than IK, but IK currently inks more completely. A streaming IK with the same progress rule gains almost
+faster than IK and inks at least as completely. A streaming IK with the same progress rule gains almost
 nothing, so the accuracy cannot be attributed solely to removing the settle gate. A fine-tuned VLA re-planned
 every tick is slightly more accurate again in a single training seed but jerkier and slower to query, and a
 simple supervisor repairs injected gaps in the ink bookkeeping for either policy. Closing the remaining sim-to-real gap is our next goal.

@@ -68,12 +68,14 @@ listed with their reason. No manual nudges in any run.
 | Path RMSE, real tip while moving | 0.458 mm mean (0.365 to 0.518) | not comparable (read at rest) |
 | Time per drawing | 91.4 s mean | 446.2 s mean (4.9x slower) |
 | Stall releases / nudges | 22 automatic / 0 | 0 retries / 0 |
-| Ink from the wrist photos | 2 complete (01, 03, both marker B), 7 with gaps | 8 complete (04 with blobbed small features), 1 with a gap (12) |
+| Complete ink, inspected at the arm (first pass) | 9/9 | 8/9 (04 with blobbed small features; 12 lost the dog's lower body) |
 
 **Findings**
-- On ink, IK beats ACT on the real arm with a pressure-sensitive marker: it settles on the planned height at every
-  waypoint, while ACT's commanded pen height drifts by about +-0.15 mm with position on the sheet (higher on the
-  high-y side), and a fresh round marker tip loses contact at +0.1 mm. With marker B (worn flat) ACT inked fully.
+- On ink, ACT is at least as complete as IK: inspected at the arm, all nine ACT drawings inked completely on the
+  first pass, against eight of nine for IK (run 12). The wrist photos (about 0.6 mm per pixel) miss faint lines from
+  a fresh marker tip, so the per-attempt ink notes in the table above, which were read from those photos, understate
+  ACT's ink. ACT's commanded pen height still drifts by about +-0.15 mm with position on the sheet (higher on the
+  high-y side), and a fresh round marker tip loses contact at +0.1 mm, so the surface model matters.
 - ACT draws 4.9x faster and keeps thin lines; IK pools ink where waypoints are dense (eyes, noses, wing).
 - The paper surface matters at the 0.1 mm level for both: a single touch plus a corner-fit tilt was not good enough
   for a fresh marker; two camera-checked contact points were.
