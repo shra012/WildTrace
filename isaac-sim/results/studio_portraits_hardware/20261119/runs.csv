@@ -2,3 +2,4 @@ name,run,outcome,seconds,strokes,real_rmse_mm,real_p95_mm,real_max_mm,commanded_
 example1_simplified,20261119_145159_act,finished,1156.5,138,0.372,0.703,1.38,0.527,61,0.201,,stand_20261119_line2.json,auto: overhead video local only
 example6_simplified,20261119_154547_act,finished,510.6,55,0.371,0.807,1.22,0.508,4,0.404,,stand_20261119_line2.json,auto: overhead video local only
 example7_simplified,20261119_162843_act,finished,3321.2,427,0.425,0.644,1.008,0.401,601,0.319,,stand_20261119_line2.json,auto: overhead video local only
+example5_simplified,20261119_173226_act,finished,1256.0,147,0.361,0.57,0.991,0.346,248,0.231,,stand_20261119_line2.json,auto: overhead video local only
